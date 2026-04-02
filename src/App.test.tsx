@@ -31,6 +31,8 @@ describe("App", () => {
     const panel = screen.getByLabelText("Workspace panel");
     const dragRegion = screen.getByLabelText("Workspace panel drag region");
     const viewport = screen.getByLabelText("Workspace viewport");
+    const composer = screen.getByLabelText("Workspace composer");
+    const input = screen.getByLabelText("Workspace input");
     const resizeHandle = screen.getByRole("separator", {
       name: "Resize sidebar",
     });
@@ -53,6 +55,11 @@ describe("App", () => {
     expect(panel).toHaveClass("bg-app-canvas");
     expect(dragRegion).toHaveAttribute("data-tauri-drag-region");
     expect(viewport).toHaveClass("bg-app-elevated");
+    expect(composer).toBeInTheDocument();
+    expect(input).toHaveAttribute(
+      "placeholder",
+      "Ask to make changes, @mention files, run /commands",
+    );
     expect(resizeHandle).toHaveAttribute("aria-valuenow", "288");
     expect(safeAreas).toHaveLength(1);
     expect(avatars).toHaveLength(11);

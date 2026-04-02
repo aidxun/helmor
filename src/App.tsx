@@ -1,10 +1,22 @@
 import "./App.css";
 import {
+  type ButtonHTMLAttributes,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
   useEffect,
   useState,
 } from "react";
+import {
+  ArrowUp,
+  BookOpen,
+  BrainCircuit,
+  LoaderCircle,
+  Plus,
+  Sparkles,
+  Zap,
+} from "lucide-react";
+import { cn } from "./lib/utils";
 import { WorkspacesSidebar } from "./components/workspaces-sidebar";
 
 const SIDEBAR_WIDTH_STORAGE_KEY = "helmor.workspaceSidebarWidth";
@@ -37,6 +49,108 @@ function getInitialSidebarWidth() {
   } catch {
     return DEFAULT_SIDEBAR_WIDTH;
   }
+}
+
+type ComposerButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  children: ReactNode;
+  className?: string;
+};
+
+function ComposerButton({
+  children,
+  className,
+  ...props
+}: ComposerButtonProps) {
+  return (
+    <button
+      {...props}
+      type="button"
+      className={cn(
+        "flex items-center gap-2 rounded-xl text-app-composer-muted transition-colors hover:text-app-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-app-border-strong",
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function WorkspaceComposer() {
+  return (
+    <div
+      aria-label="Workspace composer"
+      className="flex min-h-[156px] flex-col rounded-[16px] border border-app-composer-border bg-app-composer-surface px-6 pb-4 pt-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+    >
+      <label htmlFor="workspace-input" className="sr-only">
+        Workspace input
+      </label>
+
+      <textarea
+        id="workspace-input"
+        aria-label="Workspace input"
+        placeholder="Ask to make changes, @mention files, run /commands"
+        className="min-h-[84px] flex-1 resize-none bg-transparent text-[15px] leading-6 tracking-[-0.01em] text-app-foreground outline-none placeholder:text-app-composer-placeholder"
+      />
+
+      <div className="mt-3 flex items-end justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ComposerButton
+            aria-label="Model selector"
+            className="gap-2 px-1.5 py-1 text-[14px] font-medium"
+          >
+            <Sparkles className="size-4" strokeWidth={1.8} />
+            <span>Opus 4.6</span>
+          </ComposerButton>
+
+          <ComposerButton
+            aria-label="Quick command"
+            className="justify-center p-1.5"
+          >
+            <Zap className="size-[17px]" strokeWidth={1.9} />
+          </ComposerButton>
+
+          <ComposerButton
+            aria-label="Reasoning mode"
+            className="gap-2 bg-app-composer-pill px-3 py-1.5 text-[14px] font-medium text-app-composer-pill-text hover:text-app-composer-pill-text"
+          >
+            <BrainCircuit className="size-4" strokeWidth={1.8} />
+            <span>Thinking</span>
+          </ComposerButton>
+
+          <ComposerButton
+            aria-label="References"
+            className="justify-center p-1.5"
+          >
+            <BookOpen className="size-[17px]" strokeWidth={1.8} />
+          </ComposerButton>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <ComposerButton
+            aria-label="Activity"
+            className="justify-center p-1.5"
+          >
+            <LoaderCircle className="size-[17px]" strokeWidth={1.8} />
+          </ComposerButton>
+
+          <ComposerButton
+            aria-label="Add attachment"
+            className="justify-center p-1.5"
+          >
+            <Plus className="size-[18px]" strokeWidth={1.8} />
+          </ComposerButton>
+
+          <button
+            type="button"
+            aria-label="Send"
+            className="flex size-10 items-center justify-center rounded-[10px] bg-app-composer-send text-app-composer-send-foreground transition-transform hover:-translate-y-px focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-app-border-strong"
+          >
+            <ArrowUp className="size-[18px]" strokeWidth={2.2} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function App() {
@@ -160,15 +274,21 @@ function App() {
             className="absolute inset-x-0 top-0 z-10 h-[2.4rem] bg-transparent"
             data-tauri-drag-region
           />
-          
+
           {/* 这是内容区顶部 1 栏 */}
-            <div className="h-[2.4rem] w-full border-b border-app-border bg-transparent text-xs text-red-300">
+          <div className="h-[2.4rem] w-full border-b border-app-border bg-transparent text-xs text-red-300"/>
 
-            </div>
           {/* 这是内容区顶部 2 栏 */}
-            <div className="h-[2.4rem] w-full border-b border-app-border bg-transparent text-xs text-red-300">
+          <div className="h-[2.4rem] w-full border-b border-app-border bg-transparent text-xs text-red-300"/>
 
+          <div
+            aria-label="Workspace viewport"
+            className="flex min-h-0 flex-1 flex-col bg-app-elevated"
+          >
+            <div className="mt-auto px-4 pb-4 pt-6">
+              <WorkspaceComposer />
             </div>
+          </div>
         </section>
       </div>
     </main>

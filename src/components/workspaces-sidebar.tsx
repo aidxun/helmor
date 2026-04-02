@@ -228,7 +228,7 @@ function WorkspaceRowItem({ row }: { row: WorkspaceRow }) {
         <button
           type="button"
           aria-label="Archive workspace"
-          className="invisible flex size-6 shrink-0 items-center justify-center rounded-md text-app-muted hover:bg-app-toolbar-hover hover:text-app-foreground group-hover:visible"
+          className="invisible flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-app-muted hover:bg-app-toolbar-hover hover:text-app-foreground group-hover:visible"
         >
           <Archive className="size-3.5" strokeWidth={1.9} />
         </button>
