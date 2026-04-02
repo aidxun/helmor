@@ -5,10 +5,9 @@ import {
   XCircleFillIcon,
 } from "@primer/octicons-react";
 import {
-  useEffect,
-  useState,
   type ButtonHTMLAttributes,
   type ReactNode,
+  useState,
 } from "react";
 import {
   Archive,
@@ -18,13 +17,9 @@ import {
   Plus,
 } from "lucide-react";
 import {
-  DEFAULT_WORKSPACE_GROUPS,
-  loadArchivedWorkspaces,
-  loadWorkspaceGroups,
   type GroupTone,
   type WorkspaceGroup,
   type WorkspaceRow,
-  type WorkspaceSummary,
 } from "../lib/conductor";
 import { cn } from "../lib/utils";
 import { TooltipProvider } from "./ui/tooltip";
@@ -145,15 +140,37 @@ function WorkspaceAvatar({ letter }: { letter: string }) {
   );
 }
 
-function WorkspaceRowItem({ row }: { row: WorkspaceRow }) {
+function WorkspaceRowItem({
+  row,
+  selected,
+  onSelect,
+}: {
+  row: WorkspaceRow;
+  selected: boolean;
+  onSelect?: (workspaceId: string) => void;
+}) {
   const actionLabel =
     row.state === "archived" ? "Restore workspace" : "Archive workspace";
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       aria-label={row.title}
       data-active={row.active ? "true" : "false"}
-      className={cn(rowVariants({ active: row.active }))}
+      onClick={() => {
+        onSelect?.(row.id);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect?.(row.id);
+        }
+      }}
+      className={cn(
+        rowVariants({ active: selected }),
+        "w-full text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-app-border-strong",
+      )}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <WorkspaceAvatar letter={row.avatar} />
@@ -175,6 +192,9 @@ function WorkspaceRowItem({ row }: { row: WorkspaceRow }) {
         <button
           type="button"
           aria-label={actionLabel}
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
           className="invisible flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-app-muted hover:bg-app-toolbar-hover hover:text-app-foreground group-hover:visible"
         >
           <Archive className="size-3.5" strokeWidth={1.9} />
@@ -184,9 +204,17 @@ function WorkspaceRowItem({ row }: { row: WorkspaceRow }) {
   );
 }
 
-export function WorkspacesSidebar() {
-  const [groups, setGroups] = useState<WorkspaceGroup[]>(DEFAULT_WORKSPACE_GROUPS);
-  const [archivedRows, setArchivedRows] = useState<WorkspaceRow[]>([]);
+export function WorkspacesSidebar({
+  groups,
+  archivedRows,
+  selectedWorkspaceId,
+  onSelectWorkspace,
+}: {
+  groups: WorkspaceGroup[];
+  archivedRows: WorkspaceRow[];
+  selectedWorkspaceId?: string | null;
+  onSelectWorkspace?: (workspaceId: string) => void;
+}) {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     done: true,
     review: true,
@@ -195,31 +223,6 @@ export function WorkspacesSidebar() {
     canceled: true,
     archived: false,
   });
-
-  useEffect(() => {
-    let isDisposed = false;
-
-    void Promise.all([loadWorkspaceGroups(), loadArchivedWorkspaces()]).then(
-      ([loadedGroups, archivedWorkspaces]) => {
-        if (isDisposed) {
-          return;
-        }
-
-        setGroups(loadedGroups);
-        setArchivedRows(archivedWorkspaces.map(summaryToArchivedRow));
-        setOpenGroups((current) => ({
-          ...Object.fromEntries(
-            loadedGroups.map((group) => [group.id, current[group.id] ?? true]),
-          ),
-          archived: current.archived ?? false,
-        }));
-      },
-    );
-
-    return () => {
-      isDisposed = true;
-    };
-  }, []);
 
   return (
     <TooltipProvider>
@@ -303,7 +306,12 @@ export function WorkspacesSidebar() {
                 {isOpen && group.rows.length > 0 ? (
                   <div className="space-y-0.5">
                     {group.rows.map((row) => (
-                      <WorkspaceRowItem key={row.id} row={row} />
+                      <WorkspaceRowItem
+                        key={row.id}
+                        row={row}
+                        selected={selectedWorkspaceId === row.id}
+                        onSelect={onSelectWorkspace}
+                      />
                     ))}
                   </div>
                 ) : null}
@@ -343,7 +351,12 @@ export function WorkspacesSidebar() {
             {openGroups.archived && archivedRows.length > 0 ? (
               <div className="space-y-0.5">
                 {archivedRows.map((row) => (
-                  <WorkspaceRowItem key={row.id} row={row} />
+                  <WorkspaceRowItem
+                    key={row.id}
+                    row={row}
+                    selected={selectedWorkspaceId === row.id}
+                    onSelect={onSelectWorkspace}
+                  />
                 ))}
               </div>
             ) : null}
@@ -352,32 +365,4 @@ export function WorkspacesSidebar() {
       </div>
     </TooltipProvider>
   );
-}
-
-function summaryToArchivedRow(summary: WorkspaceSummary): WorkspaceRow {
-  const avatar =
-    Array.from(summary.title).find((character) =>
-      /[A-Za-z0-9]/.test(character),
-    )?.toUpperCase() ?? "A";
-
-  return {
-    id: summary.id,
-    title: summary.title,
-    avatar,
-    active: false,
-    directoryName: summary.directoryName,
-    repoName: summary.repoName,
-    state: summary.state,
-    derivedStatus: summary.derivedStatus,
-    manualStatus: summary.manualStatus ?? null,
-    branch: summary.branch ?? null,
-    activeSessionId: summary.activeSessionId ?? null,
-    activeSessionTitle: summary.activeSessionTitle ?? null,
-    activeSessionAgentType: summary.activeSessionAgentType ?? null,
-    activeSessionStatus: summary.activeSessionStatus ?? null,
-    prTitle: summary.prTitle ?? null,
-    sessionCount: summary.sessionCount,
-    messageCount: summary.messageCount,
-    attachmentCount: summary.attachmentCount,
-  };
 }

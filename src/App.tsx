@@ -5,6 +5,7 @@ import {
   type MouseEvent,
   type ReactNode,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 import {
@@ -16,8 +17,25 @@ import {
   Sparkles,
   Zap,
 } from "lucide-react";
+import {
+  DEFAULT_WORKSPACE_GROUPS,
+  loadArchivedWorkspaces,
+  loadSessionAttachments,
+  loadSessionMessages,
+  loadWorkspaceDetail,
+  loadWorkspaceGroups,
+  loadWorkspaceSessions,
+  type SessionAttachmentRecord,
+  type SessionMessageRecord,
+  type WorkspaceDetail,
+  type WorkspaceGroup,
+  type WorkspaceRow,
+  type WorkspaceSessionSummary,
+  type WorkspaceSummary,
+} from "./lib/conductor";
 import { cn } from "./lib/utils";
 import { WorkspacesSidebar } from "./components/workspaces-sidebar";
+import { WorkspacePanel } from "./components/workspace-panel";
 
 const SIDEBAR_WIDTH_STORAGE_KEY = "helmor.workspaceSidebarWidth";
 const DEFAULT_SIDEBAR_WIDTH = 288;
@@ -160,7 +178,24 @@ function App() {
     pointerX: number;
     sidebarWidth: number;
   } | null>(null);
+  const [groups, setGroups] = useState<WorkspaceGroup[]>(DEFAULT_WORKSPACE_GROUPS);
+  const [archivedSummaries, setArchivedSummaries] = useState<WorkspaceSummary[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
+    findInitialWorkspaceId(DEFAULT_WORKSPACE_GROUPS),
+  );
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [workspaceDetail, setWorkspaceDetail] = useState<WorkspaceDetail | null>(null);
+  const [workspaceSessions, setWorkspaceSessions] = useState<WorkspaceSessionSummary[]>([]);
+  const [sessionMessages, setSessionMessages] = useState<SessionMessageRecord[]>([]);
+  const [sessionAttachments, setSessionAttachments] = useState<SessionAttachmentRecord[]>([]);
+  const [loadingWorkspace, setLoadingWorkspace] = useState(false);
+  const [loadingSession, setLoadingSession] = useState(false);
   const isResizing = resizeState !== null;
+
+  const archivedRows = useMemo(
+    () => archivedSummaries.map(summaryToArchivedRow),
+    [archivedSummaries],
+  );
 
   useEffect(() => {
     try {
@@ -205,6 +240,105 @@ function App() {
     };
   }, [resizeState]);
 
+  useEffect(() => {
+    let disposed = false;
+
+    void Promise.all([loadWorkspaceGroups(), loadArchivedWorkspaces()]).then(
+      ([loadedGroups, loadedArchived]) => {
+        if (disposed) {
+          return;
+        }
+
+        setGroups(loadedGroups);
+        setArchivedSummaries(loadedArchived);
+        setSelectedWorkspaceId((current) => {
+          if (current && hasWorkspaceId(current, loadedGroups, loadedArchived)) {
+            return current;
+          }
+
+          return (
+            findInitialWorkspaceId(loadedGroups) ??
+            loadedArchived[0]?.id ??
+            null
+          );
+        });
+      },
+    );
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedWorkspaceId) {
+      setWorkspaceDetail(null);
+      setWorkspaceSessions([]);
+      setSelectedSessionId(null);
+      return;
+    }
+
+    let disposed = false;
+    setLoadingWorkspace(true);
+
+    void Promise.all([
+      loadWorkspaceDetail(selectedWorkspaceId),
+      loadWorkspaceSessions(selectedWorkspaceId),
+    ]).then(([detail, sessions]) => {
+      if (disposed) {
+        return;
+      }
+
+      setWorkspaceDetail(detail);
+      setWorkspaceSessions(sessions);
+      setSelectedSessionId((current) => {
+        if (current && sessions.some((session) => session.id === current)) {
+          return current;
+        }
+
+        return (
+          detail?.activeSessionId ??
+          sessions.find((session) => session.active)?.id ??
+          sessions[0]?.id ??
+          null
+        );
+      });
+      setLoadingWorkspace(false);
+    });
+
+    return () => {
+      disposed = true;
+    };
+  }, [selectedWorkspaceId]);
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setSessionMessages([]);
+      setSessionAttachments([]);
+      return;
+    }
+
+    let disposed = false;
+    setLoadingSession(true);
+
+    void Promise.all([
+      loadSessionMessages(selectedSessionId),
+      loadSessionAttachments(selectedSessionId),
+    ]).then(([messages, attachments]) => {
+      if (disposed) {
+        return;
+      }
+
+      setSessionMessages(messages);
+      setSessionAttachments(attachments);
+      setLoadingSession(false);
+    });
+
+    return () => {
+      disposed = true;
+    };
+  }, [selectedSessionId]);
+
   const handleResizeStart = (event: MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     setResizeState({
@@ -241,7 +375,14 @@ function App() {
           className="relative h-full shrink-0 overflow-hidden bg-app-sidebar"
           style={{ width: `${sidebarWidth}px` }}
         >
-          <WorkspacesSidebar />
+          <WorkspacesSidebar
+            groups={groups}
+            archivedRows={archivedRows}
+            selectedWorkspaceId={selectedWorkspaceId}
+            onSelectWorkspace={(workspaceId) => {
+              setSelectedWorkspaceId(workspaceId);
+            }}
+          />
         </aside>
 
         <div
@@ -280,17 +421,22 @@ function App() {
             data-tauri-drag-region
           />
 
-          {/* 这是内容区顶部 1 栏 */}
-          <div className="h-[2.4rem] w-full border-b border-app-border bg-transparent text-xs text-red-300"/>
-
-          {/* 这是内容区顶部 2 栏 */}
-          <div className="h-[2.4rem] w-full border-b border-app-border bg-transparent text-xs text-red-300"/>
-
           <div
             aria-label="Workspace viewport"
             className="flex min-h-0 flex-1 flex-col bg-app-elevated"
           >
-            <div className="mt-auto px-3 pb-3 pt-5">
+            <WorkspacePanel
+              workspace={workspaceDetail}
+              sessions={workspaceSessions}
+              selectedSessionId={selectedSessionId}
+              messages={sessionMessages}
+              attachments={sessionAttachments}
+              loadingWorkspace={loadingWorkspace}
+              loadingSession={loadingSession}
+              onSelectSession={setSelectedSessionId}
+            />
+
+            <div className="mt-auto border-t border-app-border px-3 pb-3 pt-3">
               <WorkspaceComposer />
             </div>
           </div>
@@ -298,6 +444,60 @@ function App() {
       </div>
     </main>
   );
+}
+
+function findInitialWorkspaceId(groups: WorkspaceGroup[]): string | null {
+  for (const group of groups) {
+    const activeRow = group.rows.find((row) => row.active);
+    if (activeRow) {
+      return activeRow.id;
+    }
+  }
+
+  for (const group of groups) {
+    if (group.rows.length > 0) {
+      return group.rows[0].id;
+    }
+  }
+
+  return null;
+}
+
+function hasWorkspaceId(
+  workspaceId: string,
+  groups: WorkspaceGroup[],
+  archived: WorkspaceSummary[],
+) {
+  return (
+    groups.some((group) => group.rows.some((row) => row.id === workspaceId)) ||
+    archived.some((workspace) => workspace.id === workspaceId)
+  );
+}
+
+function summaryToArchivedRow(summary: WorkspaceSummary): WorkspaceRow {
+  return {
+    id: summary.id,
+    title: summary.title,
+    avatar:
+      Array.from(summary.title).find((character) =>
+        /[A-Za-z0-9]/.test(character),
+      )?.toUpperCase() ?? "A",
+    active: false,
+    directoryName: summary.directoryName,
+    repoName: summary.repoName,
+    state: summary.state,
+    derivedStatus: summary.derivedStatus,
+    manualStatus: summary.manualStatus ?? null,
+    branch: summary.branch ?? null,
+    activeSessionId: summary.activeSessionId ?? null,
+    activeSessionTitle: summary.activeSessionTitle ?? null,
+    activeSessionAgentType: summary.activeSessionAgentType ?? null,
+    activeSessionStatus: summary.activeSessionStatus ?? null,
+    prTitle: summary.prTitle ?? null,
+    sessionCount: summary.sessionCount,
+    messageCount: summary.messageCount,
+    attachmentCount: summary.attachmentCount,
+  };
 }
 
 export default App;
