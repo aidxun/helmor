@@ -165,6 +165,10 @@ function App() {
             <div className="h-[2.4rem] w-full border-b border-app-border bg-transparent text-xs text-red-300">
 
             </div>
+          {/* 这是内容区顶部 2 栏 */}
+            <div className="h-[2.4rem] w-full border-b border-app-border bg-transparent text-xs text-red-300">
+
+            </div>
         </section>
       </div>
     </main>
