@@ -3,7 +3,7 @@
 //! would have.
 //!
 //! On macOS, apps started from Finder / Spotlight only see the bare system
-//! `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`). Homebrew, nvm, pnpm, cargo,
+//! `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`). Homebrew, nvm, bun, cargo,
 //! and basically every developer tool lives outside that set. This module
 //! spawns a one-shot login shell, captures its `env` output, and merges
 //! the interesting variables into the current process so every child
@@ -125,7 +125,7 @@ mod unix {
     /// Merge the login shell's `PATH` with the current process `PATH`.
     ///
     /// Strategy: start from the login shell's PATH (which contains
-    /// Homebrew, nvm, pnpm, cargo, etc.), then *append* any entries from
+    /// Homebrew, nvm, bun, cargo, etc.), then *append* any entries from
     /// the current PATH that aren't already present (e.g. Claude plugin
     /// directories that Helmor itself added).
     fn merge_path(login_path: &str) {

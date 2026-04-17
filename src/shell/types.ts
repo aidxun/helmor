@@ -6,5 +6,4 @@ import type {
 export type GithubIdentityState =
 	| { status: "checking" }
 	| { status: "pending"; flow: GithubIdentityDeviceFlowStart }
-	| { status: "awaiting-redirect" }
 	| GithubIdentitySnapshot;

@@ -409,14 +409,6 @@ export async function startGithubIdentityConnect(): Promise<GithubIdentityDevice
 	return invoke<GithubIdentityDeviceFlowStart>("start_github_identity_connect");
 }
 
-export type GithubOAuthRedirectStart = {
-	oauthUrl: string;
-};
-
-export async function startGithubOAuthRedirect(): Promise<GithubOAuthRedirectStart> {
-	return invoke<GithubOAuthRedirectStart>("start_github_oauth_redirect");
-}
-
 export async function cancelGithubIdentityConnect(): Promise<void> {
 	await invoke("cancel_github_identity_connect");
 }

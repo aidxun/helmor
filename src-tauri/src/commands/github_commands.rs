@@ -53,15 +53,6 @@ pub async fn list_github_accessible_repositories(
 }
 
 #[tauri::command]
-pub async fn start_github_oauth_redirect(
-    app: AppHandle,
-    runtime: State<'_, auth::GithubIdentityFlowRuntime>,
-) -> CmdResult<auth::GithubOAuthRedirectStart> {
-    let runtime_inner = runtime.inner().clone();
-    run_blocking(move || auth::start_github_oauth_redirect(app, runtime_inner)).await
-}
-
-#[tauri::command]
 pub async fn lookup_workspace_pr(
     workspace_id: String,
 ) -> CmdResult<Option<github_graphql::PullRequestInfo>> {

@@ -155,7 +155,7 @@ pub fn run() {
             }
 
             // On macOS, GUI-launched apps only see the minimal system PATH.
-            // Capture the user's login-shell PATH (Homebrew, nvm, pnpm, cargo,
+            // Capture the user's login-shell PATH (Homebrew, nvm, bun, cargo,
             // etc.) so every child process — sidecar, git, workspace scripts —
             // can find developer tools without manual PATH hacks.
             shell_env::inherit_login_shell_env();
@@ -175,10 +175,6 @@ pub fn run() {
             updater::configure()?;
             updater::spawn_startup_check(app.handle().clone());
             updater::spawn_interval_worker(app.handle().clone());
-
-            // OAuth callback is now handled by a one-shot localhost HTTP
-            // server spun up inside `start_github_oauth_redirect`, so no
-            // deep-link `on_open_url` handler is needed here.
 
             agents::prewarm_slash_command_cache(app.handle());
 
@@ -282,7 +278,6 @@ pub fn run() {
             commands::workspace_commands::restore_workspace,
             commands::editor_commands::stat_editor_file,
             commands::github_commands::start_github_identity_connect,
-            commands::github_commands::start_github_oauth_redirect,
             commands::conductor_commands::conductor_source_available,
             commands::conductor_commands::list_conductor_repos,
             commands::conductor_commands::list_conductor_workspaces,

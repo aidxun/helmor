@@ -1,11 +1,10 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useState } from "react";
 import {
 	cancelGithubIdentityConnect,
 	disconnectGithubIdentity,
 	listenGithubIdentityChanged,
 	loadGithubIdentitySession,
-	startGithubOAuthRedirect,
+	startGithubIdentityConnect,
 } from "@/lib/api";
 import { describeUnknownError } from "@/lib/workspace-helpers";
 import { getInitialGithubIdentityState } from "@/shell/layout";
@@ -50,11 +49,10 @@ export function useGithubIdentity(pushWorkspaceToast: WorkspaceToastFn) {
 		};
 	}, []);
 
-	const handleStartGithubOAuthRedirect = useCallback(async () => {
+	const handleStartGithubIdentityConnect = useCallback(async () => {
 		try {
-			const { oauthUrl } = await startGithubOAuthRedirect();
-			setGithubIdentityState({ status: "awaiting-redirect" });
-			await openUrl(oauthUrl);
+			const flow = await startGithubIdentityConnect();
+			setGithubIdentityState({ status: "pending", flow });
 		} catch (error) {
 			setGithubIdentityState({
 				status: "error",
@@ -120,7 +118,7 @@ export function useGithubIdentity(pushWorkspaceToast: WorkspaceToastFn) {
 		handleCancelGithubIdentityConnect,
 		handleCopyGithubDeviceCode,
 		handleDisconnectGithubIdentity,
-		handleStartGithubOAuthRedirect,
+		handleStartGithubIdentityConnect,
 		isIdentityConnected: githubIdentityState.status === "connected",
 	};
 }

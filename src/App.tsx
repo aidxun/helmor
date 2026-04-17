@@ -317,7 +317,7 @@ function AppShell({
 		handleCancelGithubIdentityConnect,
 		handleCopyGithubDeviceCode,
 		handleDisconnectGithubIdentity,
-		handleStartGithubOAuthRedirect,
+		handleStartGithubIdentityConnect,
 		isIdentityConnected,
 	} = useGithubIdentity(pushWorkspaceToast);
 	const {
@@ -1778,7 +1778,7 @@ function AppShell({
 						<GithubIdentityGate
 							identityState={githubIdentityState}
 							onConnectGithub={() => {
-								void handleStartGithubOAuthRedirect();
+								void handleStartGithubIdentityConnect();
 							}}
 							onCopyGithubCode={(userCode) =>
 								handleCopyGithubDeviceCode(userCode)

@@ -78,18 +78,8 @@ export function GithubIdentityGate({
 						className="size-18 rounded-[11px] opacity-90"
 					/>
 
-					{identityState.status === "awaiting-redirect" ? (
-						<div className="mt-10 flex flex-col items-center gap-3">
-							<div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-								<RefreshCw className="size-4 animate-spin" strokeWidth={1.8} />
-								Waiting for authorization
-							</div>
-							<Button variant="ghost" size="sm" onClick={onCancelGithubConnect}>
-								Cancel
-							</Button>
-						</div>
-					) : identityState.status === "pending" ? (
-						<div className="mt-10 flex w-full max-w-xs flex-col items-center gap-4">
+					{identityState.status === "pending" ? (
+						<div className="mt-10 flex w-full max-w-[15rem] flex-col items-center gap-4">
 							<Button
 								variant="outline"
 								size="lg"
@@ -99,7 +89,7 @@ export function GithubIdentityGate({
 								disabled={codeCopied}
 								aria-label="Copy one-time code"
 								title="Copy one-time code"
-								className="h-auto w-full justify-center gap-3 py-4"
+								className="h-auto w-full justify-center gap-1.5 px-3 py-4"
 							>
 								<span className="font-mono text-2xl font-medium tracking-[0.25em] text-foreground">
 									{identityState.flow.userCode}

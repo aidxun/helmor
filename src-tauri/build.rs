@@ -2,7 +2,6 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 const GITHUB_CLIENT_ID_KEY: &str = "HELMOR_GITHUB_CLIENT_ID";
-const GITHUB_CLIENT_SECRET_KEY: &str = "HELMOR_GITHUB_CLIENT_SECRET";
 const UPDATER_ENDPOINTS_KEY: &str = "HELMOR_UPDATER_ENDPOINTS";
 const UPDATER_PUBKEY_KEY: &str = "HELMOR_UPDATER_PUBKEY";
 
@@ -19,7 +18,6 @@ fn main() {
             println!("cargo:rerun-if-changed={}", env_path.display());
         }
         load_env_var(&env_path, GITHUB_CLIENT_ID_KEY);
-        load_env_var(&env_path, GITHUB_CLIENT_SECRET_KEY);
         load_env_var(&env_path, UPDATER_ENDPOINTS_KEY);
         load_env_var(&env_path, UPDATER_PUBKEY_KEY);
     }
@@ -32,6 +30,10 @@ fn candidate_env_paths() -> Vec<PathBuf> {
 
     if let Some(repo_root) = manifest_dir.parent() {
         paths.push(repo_root.join(".env.local"));
+        // Lowest-priority fallback: committed `.env.example` provides defaults
+        // for public values (e.g. GitHub Device Flow client ID) so a fresh
+        // `cargo build` works without any manual `cp .env.example .env.local`.
+        paths.push(repo_root.join(".env.example"));
     }
 
     paths
