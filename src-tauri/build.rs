@@ -6,11 +6,16 @@ const UPDATER_ENDPOINTS_KEY: &str = "HELMOR_UPDATER_ENDPOINTS";
 const UPDATER_PUBKEY_KEY: &str = "HELMOR_UPDATER_PUBKEY";
 
 fn main() {
-    // Windows only: re-embed the Common-Controls v6 manifest for every link
-    // invocation (bins AND [[test]] targets). tauri-winres/embed-resource
-    // uses `rustc-link-arg-bins` which skips test binaries, so nextest's
+    // Windows only: embed the Common-Controls v6 manifest for [[test]]
+    // targets. tauri-winres/embed-resource uses `rustc-link-arg-bins` which
+    // covers bin targets; without the same manifest on test exes, nextest's
     // test-list step in target\debug\deps\ aborts with
     // STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139) under the v5 comctl32 stub.
+    //
+    // We emit `rustc-link-arg-tests` (tests only) rather than bare
+    // `rustc-link-arg` so bins do not end up with two manifest resources
+    // and trip CVT1100 / LNK1123 during linking.
+    //
     // See windows-app-manifest.xml for the upstream issue links. Fully
     // no-op on macOS and Linux because of #[cfg(windows)].
     #[cfg(windows)]
@@ -19,9 +24,9 @@ fn main() {
             std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR should be set");
         let manifest_path = std::path::Path::new(&manifest_dir).join("windows-app-manifest.xml");
         println!("cargo:rerun-if-changed={}", manifest_path.display());
-        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
         println!(
-            "cargo:rustc-link-arg=/MANIFESTINPUT:{}",
+            "cargo:rustc-link-arg-tests=/MANIFESTINPUT:{}",
             manifest_path.display()
         );
     }
