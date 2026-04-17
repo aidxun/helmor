@@ -175,13 +175,21 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           HELMOR_UPDATER_PUBKEY: ${{ secrets.HELMOR_UPDATER_PUBKEY }}
           HELMOR_UPDATER_ENDPOINTS: ${{ secrets.HELMOR_UPDATER_ENDPOINTS }}
+          # AppImage's bundled linuxdeploy would normally mount itself via
+          # FUSE. On ubuntu-22.04 the runner image has libfuse2 but FUSE
+          # mounting is flaky in the container. Force extract-and-run to
+          # side-step the mount entirely — harmless on non-Linux runners.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
         with:
           tagName: v__VERSION__
           releaseName: Helmor v__VERSION__
           releaseBody: ${{ needs.preflight.outputs.release_body }}
           releaseDraft: ${{ needs.preflight.outputs.draft == 'true' }}
           prerelease: false
-          uploadUpdaterJson: true
+          # tauri-action@v0.6 renamed `uploadUpdaterJson` to
+          # `includeUpdaterJson`; the old name is silently ignored and
+          # latest.json never gets appended.
+          includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.tauri-args }}
           # Force tauri-action to use bun instead of auto-detecting (it only knows npm/yarn/pnpm)
