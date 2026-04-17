@@ -25,6 +25,7 @@ import {
 	type WorkspaceSessionSummary,
 	type WorkspaceState,
 } from "@/lib/api";
+import { extractError, isRecoverableByPurge } from "@/lib/errors";
 import {
 	archivedWorkspacesQueryOptions,
 	helmorQueryKeys,
@@ -184,6 +185,42 @@ export function useWorkspacesSidebarController({
 		[],
 	);
 
+	// Forward-ref into `handleDeleteWorkspace` so early callbacks
+	// (e.g. `pushWorkspaceErrorToast`) can wire up the "Permanently Delete"
+	// recovery action without creating a circular useCallback dependency.
+	const handleDeleteWorkspaceRef = useRef<(workspaceId: string) => void>(
+		() => {},
+	);
+
+	/**
+	 * Destructive workspace toast that auto-upgrades to the "Permanently Delete"
+	 * recovery action when the backend's error code indicates the workspace is
+	 * orphaned (missing on disk / DB row gone / git worktree corrupt).
+	 */
+	const pushWorkspaceErrorToast = useCallback(
+		(
+			workspaceId: string,
+			title: string,
+			error: unknown,
+			fallbackMessage: string,
+		) => {
+			const { code, message } = extractError(error, fallbackMessage);
+			if (isRecoverableByPurge(code)) {
+				pushWorkspaceToast(message, title, "destructive", {
+					persistent: true,
+					action: {
+						label: "Permanently Delete",
+						destructive: true,
+						onClick: () => handleDeleteWorkspaceRef.current(workspaceId),
+					},
+				});
+				return;
+			}
+			pushWorkspaceToast(message, title, "destructive");
+		},
+		[pushWorkspaceToast],
+	);
+
 	const rollbackArchivedWorkspace = useCallback(
 		(workspaceId: string, error: unknown, fallbackMessage: string) => {
 			updateArchivingWorkspaceId(workspaceId, false);
@@ -201,21 +238,16 @@ export function useWorkspacesSidebarController({
 
 			if (!rollback) {
 				flushSidebarLists();
-				pushWorkspaceToast(
-					describeUnknownError(error, fallbackMessage),
-					"Archive failed",
-					"destructive",
-				);
-				return;
 			}
 
-			pushWorkspaceToast(
-				describeUnknownError(error, fallbackMessage),
+			pushWorkspaceErrorToast(
+				workspaceId,
 				"Archive failed",
-				"destructive",
+				error,
+				fallbackMessage,
 			);
 		},
-		[flushSidebarLists, pushWorkspaceToast, updateArchivingWorkspaceId],
+		[flushSidebarLists, pushWorkspaceErrorToast, updateArchivingWorkspaceId],
 	);
 
 	useEffect(() => {
@@ -229,7 +261,7 @@ export function useWorkspacesSidebarController({
 			}
 			rollbackArchivedWorkspace(
 				payload.workspaceId,
-				new Error(payload.message),
+				payload,
 				"Unable to archive workspace.",
 			);
 		}).then((cleanup) => {
@@ -1138,6 +1170,11 @@ export function useWorkspacesSidebarController({
 		[handleDeleteWorkspace, pushWorkspaceToast],
 	);
 
+	// Keep the forward-ref used by `pushWorkspaceErrorToast` in sync.
+	useEffect(() => {
+		handleDeleteWorkspaceRef.current = handleDeleteWorkspace;
+	}, [handleDeleteWorkspace]);
+
 	const notifyBranchRename = useCallback(
 		(rename: { original: string; actual: string }) => {
 			pushWorkspaceToast(
@@ -1161,10 +1198,11 @@ export function useWorkspacesSidebarController({
 					await prepareArchiveWorkspace(workspaceId);
 				} catch (error) {
 					updateArchivingWorkspaceId(workspaceId, false);
-					pushWorkspaceToast(
-						describeUnknownError(error, "Unable to archive workspace."),
+					pushWorkspaceErrorToast(
+						workspaceId,
 						"Archive failed",
-						"destructive",
+						error,
+						"Unable to archive workspace.",
 					);
 					return;
 				}
@@ -1287,6 +1325,7 @@ export function useWorkspacesSidebarController({
 			onSelectWorkspace,
 			pendingArchives,
 			prefetchWorkspace,
+			pushWorkspaceErrorToast,
 			pushWorkspaceToast,
 			queryClient,
 			rollbackArchivedWorkspace,

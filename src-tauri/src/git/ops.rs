@@ -10,6 +10,8 @@ use std::{
     time::Duration,
 };
 
+use crate::error::{AnyhowCodedExt, ErrorCode};
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceGitActionStatus {
@@ -189,14 +191,57 @@ fn handle_git_output(output: Output) -> Result<String> {
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let detail = if !stderr.is_empty() {
-        stderr
+        stderr.clone()
     } else if !stdout.is_empty() {
         stdout
     } else {
         format!("git exited with status {}", output.status)
     };
 
-    bail!("{detail}")
+    let err = anyhow::anyhow!("{detail}");
+    if is_broken_worktree_stderr(&stderr) {
+        return Err(err.with_code(ErrorCode::WorkspaceBroken));
+    }
+    Err(err)
+}
+
+/// Detects git stderr patterns that indicate the worktree is orphaned or
+/// unusable — directory moved, `.git/worktrees/<name>` gone, gitdir pointer
+/// dangling, or the `-C` target path vanished. These errors are
+/// unrecoverable without purging the DB row.
+fn is_broken_worktree_stderr(stderr: &str) -> bool {
+    stderr.contains("not a git repository")
+        || stderr.contains("is not a working tree")
+        || stderr.contains("cannot change to") // `git -C <missing>` emits this
+}
+
+#[cfg(test)]
+mod broken_worktree_detection_tests {
+    use super::is_broken_worktree_stderr;
+
+    #[test]
+    fn detects_orphaned_gitdir_pointer() {
+        assert!(is_broken_worktree_stderr(
+            "fatal: not a git repository: /Users/x/.git/worktrees/foo"
+        ));
+    }
+
+    #[test]
+    fn detects_missing_workdir() {
+        assert!(is_broken_worktree_stderr(
+            "fatal: cannot change to '/tmp/gone': No such file or directory"
+        ));
+    }
+
+    #[test]
+    fn ignores_unrelated_errors() {
+        assert!(!is_broken_worktree_stderr(
+            "error: pathspec 'foo' did not match"
+        ));
+        assert!(!is_broken_worktree_stderr(
+            "fatal: not a valid object name HEAD~99"
+        ));
+    }
 }
 
 pub fn ensure_git_repository(repo_root: &Path) -> Result<()> {

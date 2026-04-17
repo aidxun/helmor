@@ -4,6 +4,7 @@ import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client
 import {
 	Check,
 	ChevronDown,
+	CircleAlertIcon,
 	PanelLeftClose,
 	PanelLeftOpen,
 } from "lucide-react";
@@ -305,7 +306,16 @@ function AppShell({
 			};
 
 			if (variant === "destructive") {
-				toast.error(title, toastOptions);
+				// Inline the alert icon inside the title so it sits on the same
+				// line (sonner's default icon slot is hidden for the error variant
+				// via `errorToastClass` — see `components/ui/sonner.tsx`).
+				const titleNode = (
+					<span className="inline-flex items-center gap-1.5">
+						<CircleAlertIcon className="size-3.5 shrink-0" />
+						<span>{title}</span>
+					</span>
+				);
+				toast.error(titleNode, toastOptions);
 				return;
 			}
 

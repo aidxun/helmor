@@ -2,7 +2,9 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 
 use crate::{
-    db, helpers,
+    db,
+    error::{coded, ErrorCode},
+    helpers,
     models::workspaces::{self as workspace_models, WorkspaceRecord},
     sessions,
     workspace_derived_status::DerivedStatus,
@@ -217,6 +219,7 @@ pub fn list_archived_workspaces() -> Result<Vec<WorkspaceSummary>> {
 
 pub fn get_workspace(workspace_id: &str) -> Result<WorkspaceDetail> {
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
 
     Ok(record_to_detail(record))

@@ -11,6 +11,7 @@ import type {
 	WorkspaceSessionSummary,
 	WorkspaceSummary,
 } from "./api";
+import { extractError } from "./errors";
 
 export const OPTIMISTIC_CREATING_WORKSPACE_ID_PREFIX = "creating-workspace:";
 
@@ -451,34 +452,7 @@ export function inferDefaultModelId(
 }
 
 export function describeUnknownError(error: unknown, fallback: string): string {
-	if (error instanceof Error && error.message.trim()) {
-		return error.message;
-	}
-
-	if (typeof error === "string" && error.trim()) {
-		return error;
-	}
-
-	if (
-		typeof error === "object" &&
-		error !== null &&
-		"message" in error &&
-		typeof error.message === "string" &&
-		error.message.trim()
-	) {
-		return error.message;
-	}
-
-	try {
-		const serialized = JSON.stringify(error);
-		if (serialized && serialized !== "{}") {
-			return serialized;
-		}
-	} catch {
-		// Ignore serialization failures and fall through.
-	}
-
-	return fallback;
+	return extractError(error, fallback).message;
 }
 
 export function findModelOption(

@@ -803,6 +803,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 		act(() => {
 			apiMocks.emitArchiveFailed({
 				workspaceId: "ws-1",
+				code: "Unknown",
 				message: "archive failed later",
 			});
 		});

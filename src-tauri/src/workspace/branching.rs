@@ -9,7 +9,9 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 
 use crate::{
-    db, git_ops, helpers,
+    bail_coded, db,
+    error::{coded, ErrorCode},
+    git_ops, helpers,
     models::workspaces::{self as workspace_models, WorkspaceRecord},
     workspace_state,
 };
@@ -79,6 +81,7 @@ pub struct UpdateIntendedTargetBranchInternal {
 /// after a successful git rename, the git rename is rolled back.
 pub fn rename_workspace_branch(workspace_id: &str, new_branch: &str) -> Result<()> {
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
 
     if !record.state.is_operational() {
@@ -386,6 +389,7 @@ pub fn sync_workspace_with_target_branch(
     workspace_id: &str,
 ) -> Result<SyncWorkspaceTargetResponse> {
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
     if !record.state.is_operational() {
         bail!(
@@ -405,7 +409,10 @@ pub fn sync_workspace_with_target_branch(
         .unwrap_or_else(|| "origin".to_string());
     let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
     if !workspace_dir.is_dir() {
-        bail!("Workspace directory is missing for {workspace_id}");
+        bail_coded!(
+            ErrorCode::WorkspaceBroken,
+            "Workspace directory is missing for {workspace_id}"
+        );
     }
 
     let current_status =
@@ -481,6 +488,7 @@ pub fn sync_workspace_with_target_branch(
 
 pub fn push_workspace_to_remote(workspace_id: &str) -> Result<PushWorkspaceToRemoteResponse> {
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
     if !record.state.is_operational() {
         bail!(
@@ -495,7 +503,10 @@ pub fn push_workspace_to_remote(workspace_id: &str) -> Result<PushWorkspaceToRem
         .unwrap_or_else(|| "origin".to_string());
     let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
     if !workspace_dir.is_dir() {
-        bail!("Workspace directory is missing for {workspace_id}");
+        bail_coded!(
+            ErrorCode::WorkspaceBroken,
+            "Workspace directory is missing for {workspace_id}"
+        );
     }
 
     let current_status = git_ops::workspace_action_status(

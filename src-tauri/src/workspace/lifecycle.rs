@@ -9,7 +9,11 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::{
-    db, git_ops, helpers, models::workspaces as workspace_models, repos, settings,
+    bail_coded, db,
+    error::{coded, ErrorCode},
+    git_ops, helpers,
+    models::workspaces as workspace_models,
+    repos, settings,
     workspace_state::WorkspaceState,
 };
 
@@ -297,6 +301,7 @@ pub(crate) fn run_archive_hook_inner(
 
 pub fn prepare_archive_plan(workspace_id: &str) -> Result<ArchivePreparedPlan> {
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
 
     if !is_archive_eligible_state(record.state) {
@@ -315,7 +320,8 @@ pub fn prepare_archive_plan(workspace_id: &str) -> Result<ArchivePreparedPlan> {
 
     let workspace_dir = crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)?;
     if !workspace_dir.is_dir() {
-        bail!(
+        bail_coded!(
+            ErrorCode::WorkspaceBroken,
             "Archive source workspace is missing at {}",
             workspace_dir.display()
         );
@@ -466,6 +472,7 @@ struct RestorePreflightData {
 
 fn restore_workspace_preflight(workspace_id: &str) -> Result<RestorePreflightData> {
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
 
     if record.state != WorkspaceState::Archived {
@@ -486,7 +493,8 @@ fn restore_workspace_preflight(workspace_id: &str) -> Result<RestorePreflightDat
     let archived_context_dir =
         crate::data_dir::archived_context_dir(&record.repo_name, &record.directory_name)?;
     if !archived_context_dir.is_dir() {
-        bail!(
+        bail_coded!(
+            ErrorCode::WorkspaceBroken,
             "Archived context directory is missing at {}",
             archived_context_dir.display()
         );
@@ -508,6 +516,7 @@ pub fn validate_restore_workspace(workspace_id: &str) -> Result<ValidateRestoreR
     let preflight = restore_workspace_preflight(workspace_id)?;
 
     let record = workspace_models::load_workspace_record_by_id(workspace_id)?
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
         .with_context(|| format!("Workspace not found: {workspace_id}"))?;
     let remote = record.remote.unwrap_or_else(|| "origin".to_string());
     let intended = record

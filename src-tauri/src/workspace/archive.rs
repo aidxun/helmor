@@ -5,7 +5,10 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-use crate::git_watcher;
+use crate::{
+    error::{extract_code, outermost_message, ErrorCode},
+    git_watcher,
+};
 
 use super::lifecycle::{execute_archive_plan, prepare_archive_plan, ArchivePreparedPlan};
 
@@ -27,6 +30,7 @@ pub struct PrepareArchiveWorkspaceResponse {
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveExecutionFailedPayload {
     pub workspace_id: String,
+    pub code: ErrorCode,
     pub message: String,
 }
 
@@ -132,13 +136,19 @@ pub fn start_archive_workspace<R: Runtime>(app: &AppHandle<R>, workspace_id: &st
                 );
             }
             Ok(Err(error)) => {
-                tracing::error!(workspace_id, error = %error, "Archive execution failed");
+                tracing::error!(
+                    workspace_id,
+                    code = ?extract_code(&error),
+                    error = %format!("{error:#}"),
+                    "Archive execution failed"
+                );
                 git_watcher::notify_workspace_changed(&app_handle);
                 let _ = app_handle.emit(
                     ARCHIVE_EXECUTION_FAILED_EVENT,
                     ArchiveExecutionFailedPayload {
                         workspace_id: workspace_id.clone(),
-                        message: format!("{error:#}"),
+                        code: extract_code(&error),
+                        message: outermost_message(&error),
                     },
                 );
             }
@@ -149,6 +159,7 @@ pub fn start_archive_workspace<R: Runtime>(app: &AppHandle<R>, workspace_id: &st
                     ARCHIVE_EXECUTION_FAILED_EVENT,
                     ArchiveExecutionFailedPayload {
                         workspace_id: workspace_id.clone(),
+                        code: ErrorCode::Unknown,
                         message: format!("Archive task failed: {error}"),
                     },
                 );

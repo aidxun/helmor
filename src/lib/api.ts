@@ -1,6 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { InspectorFileItem } from "./editor-session";
+import { type ErrorCode, extractError } from "./errors";
 
 export type GroupTone =
 	| "pinned"
@@ -325,6 +326,7 @@ export type PrepareArchiveWorkspaceResponse = {
 
 export type ArchiveExecutionFailedPayload = {
 	workspaceId: string;
+	code: ErrorCode;
 	message: string;
 };
 
@@ -1909,23 +1911,5 @@ export async function stopRepoScript(
 export { DEFAULT_WORKSPACE_GROUPS };
 
 function describeInvokeError(error: unknown, fallback: string): string {
-	if (error instanceof Error && error.message.trim()) {
-		return error.message;
-	}
-
-	if (typeof error === "string" && error.trim()) {
-		return error;
-	}
-
-	if (
-		typeof error === "object" &&
-		error !== null &&
-		"message" in error &&
-		typeof error.message === "string" &&
-		error.message.trim()
-	) {
-		return error.message;
-	}
-
-	return fallback;
+	return extractError(error, fallback).message;
 }
