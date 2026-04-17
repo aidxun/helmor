@@ -14,7 +14,7 @@
 ## Install
 
 <p align="center">
-  <img src="src/assets/helmor-screenshot.png" alt="Helmor screenshot" width="100%" />
+  <img src="src/assets/helmor-screenshot-mix.png" alt="Helmor screenshot" width="100%" />
 </p>
 
 [**Download for macOS, Windows &amp; Linux** →](https://github.com/dohooo/helmor/releases)
