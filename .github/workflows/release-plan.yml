@@ -48,13 +48,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.HELMOR_RELEASE_PAT }}
 
-      # When a "chore(release): version packages" merge lands on main the
-      # version is bumped but no tag exists. Push the v<version> tag here
+      # When the "chore(release): version packages" PR merges into main the
+      # version is bumped but no tag exists yet. Push the v<version> tag here
       # so publish.yml (on: push: tags: v*) runs and ships the DMGs.
+      #
+      # Why we scan `github.event.commits` rather than just `head_commit`:
+      # under the repo's default "Create a merge commit" merge mode, the
+      # head commit on main IS the merge commit (message starts with
+      # "Merge pull request #N from ..."), and the actual release commit
+      # rides along inside `commits[]`. A `head_commit.message` substring
+      # check would silently miss those merges. Scanning the full commits
+      # array catches release commits regardless of merge style (merge,
+      # squash, or rebase) — squash/rebase land the release message on
+      # head_commit; merge commits land it on a non-head entry.
       - name: Push release tag after release merge
         if: |
           github.event_name == 'push' &&
-          contains(github.event.head_commit.message, 'chore(release): version packages')
+          contains(toJSON(github.event.commits.*.message), 'chore(release): version packages')
         run: |
           version=$(node -p "require('./package.json').version")
           if git rev-parse "v${version}" >/dev/null 2>&1; then
