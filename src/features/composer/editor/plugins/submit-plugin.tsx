@@ -13,6 +13,17 @@
  * root. The slash popup also renders a state row (loading/error/empty)
  * inside the same root using a plain div — that should NOT block Enter
  * from submitting, because there's nothing for the user to select.
+ *
+ * IME guard: when a CJK IME (Chinese pinyin / Japanese kana / Korean
+ * Hangul) is active and the user presses Enter to confirm a candidate
+ * from the IME suggestion popup, the browser fires a `keydown` for
+ * that Enter with `event.isComposing === true`, and Safari/legacy
+ * paths additionally use `event.keyCode === 229`. Lexical's own
+ * keydown handler bails on `editor.isComposing()`, but Chrome fires
+ * `compositionend` BEFORE the final keydown — so by the time we get
+ * here Lexical's flag is already cleared and we'd accidentally submit
+ * a half-typed message. Guarding on `isComposing` / `keyCode === 229`
+ * is the canonical fix.
  */
 
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
@@ -40,6 +51,7 @@ export function SubmitPlugin({
 		return editor.registerCommand(
 			KEY_ENTER_COMMAND,
 			(event) => {
+				if (event?.isComposing || event?.keyCode === 229) return false; // IME confirm — let the browser process it
 				if (event?.shiftKey) return false; // let Lexical handle newline
 				if (isTypeaheadSelectable()) return false; // let typeahead select
 				event?.preventDefault();
