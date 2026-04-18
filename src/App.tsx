@@ -56,6 +56,7 @@ import {
 	PREFERRED_EDITOR_STORAGE_KEY,
 	SIDEBAR_RESIZE_HIT_AREA,
 } from "@/shell/layout";
+import { useZoom } from "@/shell/use-zoom";
 import {
 	type ConductorWorkspace,
 	createSession,
@@ -255,6 +256,7 @@ function AppShell({
 		workspaceRepoId: string | null,
 	) => void;
 }) {
+	useZoom();
 	const queryClient = useQueryClient();
 	const workspaceSelectionRequestRef = useRef(0);
 	const sessionSelectionRequestRef = useRef(0);
