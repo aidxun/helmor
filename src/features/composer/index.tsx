@@ -53,6 +53,7 @@ import { CustomTagBadgeNode } from "./editor/custom-tag-badge-node";
 import { FileBadgeNode } from "./editor/file-badge-node";
 import { ImageBadgeNode } from "./editor/image-badge-node";
 import { AutoResizePlugin } from "./editor/plugins/auto-resize-plugin";
+import { CompositionGuardPlugin } from "./editor/plugins/composition-guard-plugin";
 import { DraftPersistencePlugin } from "./editor/plugins/draft-persistence-plugin";
 import { DropFilePlugin } from "./editor/plugins/drop-file-plugin";
 import { EditablePlugin } from "./editor/plugins/editable-plugin";
@@ -396,6 +397,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 						/>
 						<FileMentionPlugin workspaceRootPath={workspaceRootPath} />
 						<SubmitPlugin onSubmit={handleSubmit} disabled={sendDisabled} />
+						<CompositionGuardPlugin />
 						<PasteImagePlugin />
 						<DropFilePlugin />
 						<AutoResizePlugin minHeight={64} maxHeight={240} />
