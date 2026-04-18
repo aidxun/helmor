@@ -1,0 +1,26 @@
+name: Audit Cask
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  audit:
+    name: brew audit / style
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+
+      - name: brew style
+        run: brew style --cask Casks/helmor.rb
+
+      - name: brew audit
+        # --online is skipped because we pin specific release URLs;
+        # the `--new` audit is the right fit before first submission upstream.
+        run: brew audit --cask --strict Casks/helmor.rb

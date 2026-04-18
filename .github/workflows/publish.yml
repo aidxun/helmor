@@ -172,3 +172,83 @@ jobs:
           if [ -n "${{ steps.signing.outputs.APPLE_KEYCHAIN_PATH }}" ]; then
             scripts/cleanup-macos-signing.sh "${{ steps.signing.outputs.APPLE_KEYCHAIN_PATH }}"
           fi
+
+  bump-homebrew-tap:
+    name: Bump Homebrew Cask
+    needs: [preflight, build-and-publish]
+    # Only run for real (non-draft) tag pushes. workflow_dispatch defaults to
+    # draft=true and draft releases can't be downloaded via the .../v{tag}/
+    # URL shape we pin in the cask.
+    if: |
+      github.event_name == 'push' &&
+      github.ref_type == 'tag' &&
+      needs.preflight.outputs.draft == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guard on tap token availability
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN not configured — skipping tap bump."
+            echo "SKIP=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Checkout homebrew-helmor tap
+        if: env.SKIP != '1'
+        uses: actions/checkout@v6
+        with:
+          repository: dohooo/homebrew-helmor
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Download DMGs and compute SHA256
+        if: env.SKIP != '1'
+        id: sha
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/${{ github.repository }}/releases/download/v${VERSION}"
+          # Retry a few times — release assets sometimes take a second to propagate
+          # to the download CDN even though the upload step finished.
+          for arch in aarch64 x64; do
+            for attempt in 1 2 3 4 5; do
+              if curl -fsSL -o "${arch}.dmg" "${BASE}/Helmor_${VERSION}_${arch}.dmg"; then
+                break
+              fi
+              echo "download attempt ${attempt} for ${arch} failed; sleeping"
+              sleep $(( attempt * 5 ))
+            done
+            test -s "${arch}.dmg"
+          done
+          ARM_SHA=$(sha256sum aarch64.dmg | awk '{print $1}')
+          X64_SHA=$(sha256sum x64.dmg | awk '{print $1}')
+          echo "arm=${ARM_SHA}" >> "$GITHUB_OUTPUT"
+          echo "intel=${X64_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Update cask
+        if: env.SKIP != '1'
+        working-directory: tap
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          ARM_SHA: ${{ steps.sha.outputs.arm }}
+          X64_SHA: ${{ steps.sha.outputs.intel }}
+        run: |
+          python3 scripts/update-cask.py "${VERSION}" "${ARM_SHA}" "${X64_SHA}"
+
+      - name: Commit and push
+        if: env.SKIP != '1'
+        working-directory: tap
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          if git diff --quiet -- Casks/helmor.rb; then
+            echo "cask already at ${VERSION} — nothing to push"
+            exit 0
+          fi
+          git config user.name "helmor-release-bot"
+          git config user.email "release-bot@users.noreply.github.com"
+          git add Casks/helmor.rb
+          git commit -m "helmor ${VERSION}"
+          git push

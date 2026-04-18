@@ -19,6 +19,14 @@
 
 [**Download for macOS** →](https://github.com/dohooo/helmor/releases)
 
+Or with [Homebrew](https://brew.sh):
+
+```bash
+brew install --cask dohooo/helmor/helmor
+```
+
+> Apple Silicon and Intel Macs both supported. The cask is published from the [`dohooo/homebrew-helmor`](https://github.com/dohooo/homebrew-helmor) tap and is bumped automatically on every signed & notarized release.
+
 ## Contributing
 
 Open Helmor, Import Helmor, Ask Helmor:
