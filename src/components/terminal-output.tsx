@@ -6,6 +6,21 @@ import "@xterm/xterm/css/xterm.css";
 type TerminalOutputProps = {
 	terminalRef?: React.RefObject<TerminalHandle | null>;
 	className?: string;
+	/**
+	 * Called when the user types (or pastes). The string is the raw bytes
+	 * xterm would send over a real PTY — e.g. a literal `\x03` for Ctrl+C,
+	 * `\x1b[A` for Up arrow. Forward this to the backend to write into the
+	 * PTY master.
+	 *
+	 * When omitted, xterm still captures keys but they go nowhere.
+	 */
+	onData?: (data: string) => void;
+	/**
+	 * Called when the terminal's cell grid changes size (FitAddon resize,
+	 * font change, etc). Forward to the backend's `TIOCSWINSZ` so
+	 * interactive tools (vim, htop, less) re-layout.
+	 */
+	onResize?: (cols: number, rows: number) => void;
 };
 
 export type TerminalHandle = {
@@ -55,10 +70,18 @@ function resolveTerminalTheme(): ITheme {
 export function TerminalOutput({
 	terminalRef,
 	className,
+	onData,
+	onResize,
 }: TerminalOutputProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const xtermRef = useRef<Terminal | null>(null);
 	const fitRef = useRef<FitAddon | null>(null);
+	// Latest callbacks in a ref so the xterm effect doesn't need to
+	// tear down and recreate the terminal every time the parent rerenders.
+	const onDataRef = useRef<typeof onData>(onData);
+	const onResizeRef = useRef<typeof onResize>(onResize);
+	onDataRef.current = onData;
+	onResizeRef.current = onResize;
 
 	useEffect(() => {
 		const container = containerRef.current;
@@ -67,7 +90,8 @@ export function TerminalOutput({
 		const fit = new FitAddon();
 		const terminal = new Terminal({
 			convertEol: true,
-			disableStdin: true,
+			// stdin enabled — forward keystrokes via onData below.
+			disableStdin: false,
 			scrollback: 5000,
 			fontSize: 12,
 			fontFamily: "'GeistMono', 'SF Mono', Monaco, Menlo, monospace",
@@ -82,6 +106,19 @@ export function TerminalOutput({
 		terminal.open(container);
 
 		requestAnimationFrame(() => fit.fit());
+
+		// Every keystroke / paste flows through here. xterm has already done
+		// the key → byte translation (e.g. Ctrl+C → `\x03`), we just
+		// forward whatever it produced.
+		const dataSub = terminal.onData((data) => {
+			onDataRef.current?.(data);
+		});
+
+		// xterm fires onResize after FitAddon changes the grid, font size
+		// changes, etc. Forward to the backend PTY for TIOCSWINSZ.
+		const resizeSub = terminal.onResize(({ cols, rows }) => {
+			onResizeRef.current?.(cols, rows);
+		});
 
 		const resizeObserver = new ResizeObserver(() => {
 			requestAnimationFrame(() => {
@@ -118,6 +155,8 @@ export function TerminalOutput({
 		}
 
 		return () => {
+			dataSub.dispose();
+			resizeSub.dispose();
 			themeObserver.disconnect();
 			resizeObserver.disconnect();
 			terminal.dispose();

@@ -12,9 +12,11 @@ import {
 	attach,
 	detach,
 	getScriptState,
+	resizeScript,
 	type ScriptStatus,
 	startScript,
 	stopScript,
+	writeStdin,
 } from "../script-store";
 
 type SetupTabProps = {
@@ -92,6 +94,22 @@ export function SetupTab({
 		stopScript(repoId, "setup", workspaceId);
 	}, [repoId, workspaceId]);
 
+	const handleData = useCallback(
+		(data: string) => {
+			if (!repoId || !workspaceId) return;
+			writeStdin(repoId, "setup", workspaceId, data);
+		},
+		[repoId, workspaceId],
+	);
+
+	const handleResize = useCallback(
+		(cols: number, rows: number) => {
+			if (!repoId || !workspaceId) return;
+			resizeScript(repoId, "setup", workspaceId, cols, rows);
+		},
+		[repoId, workspaceId],
+	);
+
 	return (
 		<div
 			id="inspector-panel-setup"
@@ -106,7 +124,12 @@ export function SetupTab({
 			{hasRun ? (
 				<>
 					<div className="min-h-0 flex-1">
-						<TerminalOutput terminalRef={termRef} className="h-full" />
+						<TerminalOutput
+							terminalRef={termRef}
+							className="h-full"
+							onData={handleData}
+							onResize={handleResize}
+						/>
 					</div>
 
 					{(status === "running" || status === "exited") && (
