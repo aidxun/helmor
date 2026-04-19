@@ -65,17 +65,6 @@ function themeId(theme: EditorTheme): string {
 	return theme === "dark" ? "helmor-editor-dark" : "helmor-editor-light";
 }
 
-/** Switch Monaco's active theme. Safe to call before the runtime loads. */
-export function applyMonacoTheme(theme: EditorTheme) {
-	desiredTheme = theme;
-	if (!runtimePromise) {
-		return;
-	}
-	void runtimePromise.then(({ monaco }) => {
-		monaco.editor.setTheme(themeId(theme));
-	});
-}
-
 export async function createFileEditor(options: {
 	container: HTMLElement;
 	path: string;
@@ -266,12 +255,39 @@ async function ensureRuntime(): Promise<MonacoRuntime> {
 
 			installMonacoEnvironment();
 			installEditorTheme(monaco);
+			installThemeObserver(monaco);
 
 			return { monaco };
 		})();
 	}
 
 	return runtimePromise;
+}
+
+// Sync Monaco's theme with the app's `dark` class on <html>. Avoids having
+// callers import this module just to push a theme update, which would pull
+// Monaco's runtime into the critical path on every theme change.
+function installThemeObserver(monaco: MonacoModule) {
+	if (
+		typeof document === "undefined" ||
+		typeof MutationObserver === "undefined"
+	) {
+		return;
+	}
+	const syncTheme = () => {
+		const nextTheme = detectInitialTheme();
+		if (nextTheme === desiredTheme) {
+			return;
+		}
+		desiredTheme = nextTheme;
+		monaco.editor.setTheme(themeId(nextTheme));
+	};
+	const observer = new MutationObserver(syncTheme);
+	observer.observe(document.documentElement, {
+		attributes: true,
+		attributeFilter: ["class"],
+	});
+	syncTheme();
 }
 
 function installMonacoEnvironment() {
