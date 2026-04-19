@@ -1,7 +1,10 @@
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { WorkspaceCommitButtonMode } from "@/features/commit/button";
 import { cn } from "@/lib/utils";
+import type { ScriptIconState } from "./hooks/use-script-status";
+import { ScriptStatusIcon } from "./script-status-icon";
 
 export const MIN_SECTION_HEIGHT = 48;
 // Default body height reserved for the tabs section when first expanded.
@@ -16,8 +19,6 @@ export const INSPECTOR_SECTION_HEADER_CLASS =
 	"flex h-8 min-w-0 shrink-0 items-center justify-between border-b border-border/60 bg-muted/25 px-3";
 export const INSPECTOR_SECTION_TITLE_CLASS =
 	"text-[13px] leading-8 font-medium tracking-[-0.01em] text-muted-foreground";
-const INSPECTOR_TAB_BUTTON_CLASS =
-	"relative inline-flex h-full cursor-pointer items-center justify-center px-0 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-0";
 
 export function getGitSectionHeaderHighlightClass(
 	mode: WorkspaceCommitButtonMode,
@@ -46,6 +47,8 @@ type InspectorTabsSectionProps = {
 	onToggle: () => void;
 	activeTab: string;
 	onTabChange: (tab: string) => void;
+	setupScriptState: ScriptIconState;
+	runScriptState: ScriptIconState;
 	children?: React.ReactNode;
 };
 
@@ -55,8 +58,17 @@ export function InspectorTabsSection({
 	onToggle,
 	activeTab,
 	onTabChange,
+	setupScriptState,
+	runScriptState,
 	children,
 }: InspectorTabsSectionProps) {
+	// Tab trigger className shared between Setup/Run. Overrides shadcn defaults
+	// to match inspector scale: fill the h-8 header, 12px label + 12px status
+	// icon (vs shadcn's 14px + 16px), no horizontal padding so two triggers fit
+	// tightly, and pull the active underline back to the trigger's bottom edge
+	// (shadcn defaults to -5px which would float it below the header's border).
+	const triggerClass =
+		"h-full min-w-0 px-0 text-[12px] group-data-horizontal/tabs:after:bottom-0";
 	return (
 		<div
 			ref={wrapperRef}
@@ -69,63 +81,35 @@ export function InspectorTabsSection({
 					open && "flex-1",
 				)}
 			>
-				<div className={cn("flex min-h-0 flex-col gap-0", open && "flex-1")}>
+				<Tabs
+					value={activeTab}
+					onValueChange={onTabChange}
+					className={cn("min-h-0 gap-0", open && "flex-1")}
+				>
 					<div
 						className={cn(
 							INSPECTOR_SECTION_HEADER_CLASS,
 							"relative z-10 items-stretch pt-0",
 						)}
 					>
-						<div
-							role="tablist"
-							aria-orientation="horizontal"
-							className="flex h-full self-stretch items-stretch gap-4"
-						>
-							<button
-								type="button"
-								role="tab"
+						<TabsList variant="line" className="h-full gap-4 self-stretch p-0">
+							<TabsTrigger
+								value="setup"
 								id="inspector-tab-setup"
-								aria-controls="inspector-panel-setup"
-								aria-selected={activeTab === "setup"}
-								tabIndex={activeTab === "setup" ? 0 : -1}
-								className={cn(
-									INSPECTOR_TAB_BUTTON_CLASS,
-									activeTab === "setup" && "text-foreground",
-								)}
-								onClick={() => onTabChange("setup")}
+								className={triggerClass}
 							>
+								<ScriptStatusIcon state={setupScriptState} />
 								Setup
-								<span
-									aria-hidden="true"
-									className={cn(
-										"pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-foreground opacity-0 transition-opacity",
-										activeTab === "setup" && "opacity-100",
-									)}
-								/>
-							</button>
-							<button
-								type="button"
-								role="tab"
+							</TabsTrigger>
+							<TabsTrigger
+								value="run"
 								id="inspector-tab-run"
-								aria-controls="inspector-panel-run"
-								aria-selected={activeTab === "run"}
-								tabIndex={activeTab === "run" ? 0 : -1}
-								className={cn(
-									INSPECTOR_TAB_BUTTON_CLASS,
-									activeTab === "run" && "text-foreground",
-								)}
-								onClick={() => onTabChange("run")}
+								className={triggerClass}
 							>
+								<ScriptStatusIcon state={runScriptState} />
 								Run
-								<span
-									aria-hidden="true"
-									className={cn(
-										"pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-foreground opacity-0 transition-opacity",
-										activeTab === "run" && "opacity-100",
-									)}
-								/>
-							</button>
-						</div>
+							</TabsTrigger>
+						</TabsList>
 						<Button
 							type="button"
 							aria-label="Toggle inspector tabs section"
@@ -153,7 +137,7 @@ export function InspectorTabsSection({
 							{children}
 						</div>
 					)}
-				</div>
+				</Tabs>
 			</section>
 		</div>
 	);
