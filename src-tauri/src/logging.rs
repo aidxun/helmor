@@ -4,7 +4,13 @@
 //! Dev builds also print human-readable output to stderr.
 //! Old log files are gzip-compressed on startup; files older than 7 days are purged.
 //!
-//! Level defaults: `debug` (dev), `info` (release). Override with `HELMOR_LOG=debug|info|error`.
+//! Level defaults:
+//! - dev: `warn,helmor_lib=debug,helmor=debug` — app crates debug, deps warn.
+//!   Keeps hyper/reqwest/rustls/h2 connection traces out of the stream.
+//! - release: `info`.
+//!
+//! Override with `HELMOR_LOG`. Accepts either a bare level (`debug`, `info`, ...)
+//! or a full `EnvFilter` directive list (e.g. `info,helmor_lib=trace,hyper=debug`).
 
 use std::fs;
 use std::io;
@@ -13,22 +19,29 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{
-    filter::LevelFilter, fmt, fmt::time::ChronoLocal, layer::SubscriberExt,
-    util::SubscriberInitExt, Layer,
+    fmt, fmt::time::ChronoLocal, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
 };
+
+/// Dev default: app crates at `debug`, everything else at `warn`.
+/// Without the `warn` baseline, hyper/reqwest/rustls flood stderr with
+/// per-connection traces (see `git::watcher` periodic fetches).
+const DEV_DEFAULT_DIRECTIVES: &str = "warn,helmor_lib=debug,helmor=debug";
+
+/// Release default: plain `info`.
+const RELEASE_DEFAULT_DIRECTIVES: &str = "info";
 
 /// Set up the global tracing subscriber.
 ///
-/// Dev:  stderr (human-readable) + JSONL file at `debug` level.
-/// Prod: JSONL file only, default `info` (override via `HELMOR_LOG`).
+/// Dev:  stderr (human-readable) + JSONL file.
+/// Prod: JSONL file only.
+/// Filter comes from `build_filter` (see module docs for defaults).
 pub fn init(logs_dir: &Path) -> Result<()> {
     let is_dev = crate::data_dir::is_dev();
-    let level = resolve_level(is_dev);
 
     // Macro avoids repeating the json format config for each file layer.
-    // Each invocation produces the same concrete type so the registry chain compiles.
+    // `EnvFilter` isn't `Clone`, so callers pass a fresh instance per layer.
     macro_rules! file_layer {
-        ($prefix:literal, $level:expr) => {{
+        ($prefix:literal, $filter:expr) => {{
             let appender = RollingFileAppender::builder()
                 .rotation(Rotation::DAILY)
                 .filename_prefix($prefix)
@@ -43,7 +56,7 @@ pub fn init(logs_dir: &Path) -> Result<()> {
                 .with_span_list(false)
                 .with_timer(ChronoLocal::default())
                 .with_writer(appender)
-                .with_filter($level)
+                .with_filter($filter)
         }};
     }
 
@@ -52,11 +65,11 @@ pub fn init(logs_dir: &Path) -> Result<()> {
             .with_writer(std::io::stderr)
             .with_ansi(true)
             .with_timer(ChronoLocal::default())
-            .with_filter(level)
+            .with_filter(build_filter(is_dev))
     });
 
     tracing_subscriber::registry()
-        .with(file_layer!("rust", level))
+        .with(file_layer!("rust", build_filter(is_dev)))
         .with(stderr_layer)
         .init();
 
@@ -105,22 +118,22 @@ pub fn logs_dir() -> Result<PathBuf> {
 
 // --- helpers ----------------------------------------------------------------
 
-fn resolve_level(is_dev: bool) -> LevelFilter {
+/// Build a fresh `EnvFilter`. `HELMOR_LOG` wins when set and parses; otherwise
+/// falls back to the build-profile default. Called once per layer because
+/// `EnvFilter` is not `Clone`.
+fn build_filter(is_dev: bool) -> EnvFilter {
     std::env::var("HELMOR_LOG")
         .ok()
-        .and_then(|s| match s.to_lowercase().as_str() {
-            "trace" => Some(LevelFilter::TRACE),
-            "debug" => Some(LevelFilter::DEBUG),
-            "info" => Some(LevelFilter::INFO),
-            "warn" => Some(LevelFilter::WARN),
-            "error" => Some(LevelFilter::ERROR),
-            _ => None,
-        })
-        .unwrap_or(if is_dev {
-            LevelFilter::DEBUG
-        } else {
-            LevelFilter::INFO
-        })
+        .and_then(|s| EnvFilter::try_new(&s).ok())
+        .unwrap_or_else(|| EnvFilter::new(default_directives(is_dev)))
+}
+
+fn default_directives(is_dev: bool) -> &'static str {
+    if is_dev {
+        DEV_DEFAULT_DIRECTIVES
+    } else {
+        RELEASE_DEFAULT_DIRECTIVES
+    }
 }
 
 fn gzip(src: &Path) -> Result<()> {
@@ -178,15 +191,16 @@ mod tests {
     }
 
     #[test]
-    fn resolve_level_defaults_debug_in_dev() {
-        // In test (debug) builds, default should be DEBUG
-        let level = resolve_level(true);
-        assert_eq!(level, LevelFilter::DEBUG);
+    fn dev_default_allows_helmor_debug_but_caps_deps_at_warn() {
+        // Dev default: helmor crates DEBUG, everything else WARN.
+        // max_level_hint reflects the most permissive directive.
+        let f = EnvFilter::new(default_directives(true));
+        assert_eq!(f.max_level_hint(), Some(tracing::Level::DEBUG.into()));
     }
 
     #[test]
-    fn resolve_level_defaults_info_in_prod() {
-        let level = resolve_level(false);
-        assert_eq!(level, LevelFilter::INFO);
+    fn release_default_is_info() {
+        let f = EnvFilter::new(default_directives(false));
+        assert_eq!(f.max_level_hint(), Some(tracing::Level::INFO.into()));
     }
 }
