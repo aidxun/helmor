@@ -213,9 +213,13 @@ describe("App GitHub identity states", () => {
 	it("renders the shell while GitHub account is disconnected", async () => {
 		render(<App />);
 
+		const gate = await screen.findByRole("main", {
+			name: "GitHub identity gate",
+		});
+		expect(gate).toBeInTheDocument();
 		expect(
-			await screen.findByRole("main", { name: "GitHub identity gate" }),
-		).toBeInTheDocument();
+			gate.querySelector('[aria-label="GitHub identity gate drag region"]'),
+		).toHaveClass("z-20");
 		expect(
 			screen.queryByRole("main", { name: "Application shell" }),
 		).not.toBeInTheDocument();
