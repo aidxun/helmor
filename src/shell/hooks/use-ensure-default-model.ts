@@ -17,19 +17,27 @@ export function useEnsureDefaultModel() {
 	const sections = modelSectionsQuery.data;
 
 	useEffect(() => {
-		// Don't write until SQLite settings are loaded — otherwise we'd
-		// overwrite the user's real value with a default.
 		if (!isLoaded) return;
 		if (!sections || sections.length === 0) return;
+		const allOptions = sections.flatMap((s) => s.options);
+		if (allOptions.length === 0) return;
+
+		// Already valid — nothing to do.
 		if (
 			settings.defaultModelId &&
 			findModelOption(sections, settings.defaultModelId)
 		) {
 			return;
 		}
+
+		// User previously saved a model but it's not in the catalog (yet).
+		// Don't overwrite — the catalog may still be partially loaded.
+		if (settings.defaultModelId) return;
+
+		// Never been set (null) — pick a sensible initial default.
 		const pick =
 			sections.find((s) => s.id === "claude")?.options[0]?.id ??
-			sections[0]?.options[0]?.id ??
+			allOptions[0]?.id ??
 			null;
 		if (!pick) return;
 		updateSettings({ defaultModelId: pick });
