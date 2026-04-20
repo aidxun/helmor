@@ -17,11 +17,41 @@ type Listener = {
 
 type StatusListener = (status: ScriptStatus, exitCode: number | null) => void;
 
+/**
+ * Max bytes of stdout/stderr retained per script entry. Long-running dev
+ * servers (vite, webpack) can emit hundreds of MB if left unbounded, which
+ * blows up memory and stalls the main thread on tab-switch replay.
+ * ~2 MB ≈ 20k lines of typical output — well beyond xterm's 5000-line
+ * scrollback, so replay can fully repopulate the visible buffer.
+ */
+const MAX_CHUNK_BYTES = 2 * 1024 * 1024;
+
+/** Inserted once at the head of replay when earlier output was dropped. */
+export const TRUNCATION_NOTICE =
+	"\r\n\x1b[2m… earlier output truncated (buffer limit reached) …\x1b[0m\r\n";
+
 export type ScriptEntry = {
 	chunks: string[];
+	/** Cached sum of chunk lengths; kept in sync by `appendChunk`. */
+	bufferedBytes: number;
+	/** True once any chunk has been dropped from the head. */
+	truncated: boolean;
 	status: ScriptStatus;
 	exitCode: number | null;
 };
+
+/** Append a chunk and evict from the head until under the byte cap. */
+function appendChunk(entry: ScriptEntry, data: string) {
+	entry.chunks.push(data);
+	entry.bufferedBytes += data.length;
+
+	while (entry.bufferedBytes > MAX_CHUNK_BYTES && entry.chunks.length > 1) {
+		const dropped = entry.chunks.shift();
+		if (dropped === undefined) break;
+		entry.bufferedBytes -= dropped.length;
+		entry.truncated = true;
+	}
+}
 
 /** Module-level stores — survive React mount/unmount cycles. */
 const entries = new Map<string, ScriptEntry>();
@@ -61,6 +91,8 @@ export function startScript(
 
 	const entry: ScriptEntry = {
 		chunks: [],
+		bufferedBytes: 0,
+		truncated: false,
 		status: "running",
 		exitCode: null,
 	};
@@ -80,7 +112,7 @@ export function startScript(
 					break;
 				case "stdout":
 				case "stderr":
-					entry.chunks.push(event.data);
+					appendChunk(entry, event.data);
 					listeners.get(k)?.onChunk(event.data);
 					break;
 				case "exited":
@@ -91,7 +123,7 @@ export function startScript(
 					break;
 				case "error": {
 					const msg = `\r\n\x1b[31m${event.message}\x1b[0m\r\n`;
-					entry.chunks.push(msg);
+					appendChunk(entry, msg);
 					entry.status = "exited";
 					// No exit code from the backend here — treat as failure.
 					entry.exitCode = entry.exitCode ?? 1;
@@ -106,7 +138,7 @@ export function startScript(
 	).catch((err) => {
 		if (entries.get(k) !== entry) return;
 		const msg = `\r\n\x1b[31mFailed to start: ${err}\x1b[0m\r\n`;
-		entry.chunks.push(msg);
+		appendChunk(entry, msg);
 		entry.status = "exited";
 		entry.exitCode = entry.exitCode ?? 1;
 		listeners.get(k)?.onChunk(msg);
