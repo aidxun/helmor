@@ -145,7 +145,9 @@ export const WorkspaceRowItem = memo(
 			? "Interaction required"
 			: isCompleted
 				? "Session completed"
-				: null;
+				: row.hasUnread
+					? "Unread"
+					: null;
 		const statusDotClassName = isInteractionRequired
 			? "bg-yellow-500"
 			: "bg-chart-2";
@@ -190,6 +192,8 @@ export const WorkspaceRowItem = memo(
 						repoInitials={row.repoInitials ?? row.avatar ?? null}
 						repoName={row.repoName}
 						title={displayTitle}
+						badgeClassName={showStatusDot ? statusDotClassName : null}
+						badgeAriaLabel={statusDotLabel ?? undefined}
 					/>
 					{isSending && !isInteractionRequired ? (
 						<HelmorThinkingIndicator size={13} />
@@ -216,15 +220,6 @@ export const WorkspaceRowItem = memo(
 					>
 						<HyperText text={displayTitle} className="inline" />
 					</span>
-					{showStatusDot ? (
-						<span
-							aria-label={statusDotLabel ?? undefined}
-							className={cn(
-								"size-1.5 shrink-0 rounded-full",
-								statusDotClassName,
-							)}
-						/>
-					) : null}
 				</div>
 
 				{hasActionHandler ? (
