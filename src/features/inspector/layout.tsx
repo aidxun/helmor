@@ -4,6 +4,8 @@ import { suspendTerminalFit } from "@/components/terminal-output";
 import { Button } from "@/components/ui/button";
 import type { WorkspaceCommitButtonMode } from "@/features/commit/button";
 import { cn } from "@/lib/utils";
+import type { ScriptIconState } from "./hooks/use-script-status";
+import { ScriptStatusIcon } from "./script-status-icon";
 
 export const MIN_SECTION_HEIGHT = 48;
 // Default body height reserved for the tabs section when first expanded.
@@ -56,7 +58,7 @@ export const INSPECTOR_SECTION_HEADER_CLASS =
 export const INSPECTOR_SECTION_TITLE_CLASS =
 	"text-[13px] leading-8 font-medium tracking-[-0.01em] text-muted-foreground";
 const INSPECTOR_TAB_BUTTON_CLASS =
-	"relative inline-flex h-full cursor-pointer items-center justify-center px-0 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-0";
+	"relative inline-flex h-full cursor-pointer items-center justify-center gap-1.5 px-0 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-0";
 
 export function getGitSectionHeaderHighlightClass(
 	mode: WorkspaceCommitButtonMode,
@@ -91,6 +93,8 @@ type InspectorTabsSectionProps = {
 	 * "Open dev server" shortcut while the Run script is live.
 	 */
 	tabActions?: React.ReactNode;
+	setupScriptState: ScriptIconState;
+	runScriptState: ScriptIconState;
 	children?: React.ReactNode;
 };
 
@@ -101,6 +105,8 @@ export function InspectorTabsSection({
 	activeTab,
 	onTabChange,
 	tabActions,
+	setupScriptState,
+	runScriptState,
 	children,
 }: InspectorTabsSectionProps) {
 	// `isHoverExpanded` drives the CSS transitions we CAN interpolate
@@ -392,6 +398,7 @@ export function InspectorTabsSection({
 									)}
 									onClick={() => onTabChange("setup")}
 								>
+									<ScriptStatusIcon state={setupScriptState} />
 									Setup
 									<span
 										aria-hidden="true"
@@ -414,6 +421,7 @@ export function InspectorTabsSection({
 									)}
 									onClick={() => onTabChange("run")}
 								>
+									<ScriptStatusIcon state={runScriptState} />
 									Run
 									<span
 										aria-hidden="true"

@@ -8,6 +8,7 @@ import type { DiffOpenOptions } from "@/lib/editor-session";
 import { cn } from "@/lib/utils";
 import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import { useWorkspaceInspectorSidebar } from "./hooks/use-inspector";
+import { useScriptStatus } from "./hooks/use-script-status";
 import { useSetupAutoRun } from "./hooks/use-setup-auto-run";
 import { HorizontalResizeHandle, InspectorTabsSection } from "./layout";
 import type { ScriptStatus } from "./script-store";
@@ -70,7 +71,6 @@ export function WorkspaceInspectorSidebar({
 		activeTab,
 		changes,
 		changesHeight,
-		clearPendingRunScript,
 		containerRef,
 		flashingPaths,
 		handleResizeStart,
@@ -78,7 +78,6 @@ export function WorkspaceInspectorSidebar({
 		isActionsResizing,
 		isResizing,
 		isTabsResizing,
-		pendingRunScript,
 		repoScripts,
 		scriptsLoaded,
 		setActiveTab,
@@ -110,6 +109,20 @@ export function WorkspaceInspectorSidebar({
 
 	const runTabActions =
 		runStatus === "running" ? <OpenDevServerButton urls={runUrls} /> : null;
+
+	// Per-tab status for the small indicator rendered next to each tab label.
+	// Subscribes at the sidebar level so the icons stay live even when the
+	// tab body itself is collapsed / not mounted.
+	const setupScriptState = useScriptStatus(
+		workspaceId ?? null,
+		"setup",
+		!!repoScripts?.setupScript?.trim(),
+	);
+	const runScriptState = useScriptStatus(
+		workspaceId ?? null,
+		"run",
+		!!repoScripts?.runScript?.trim(),
+	);
 
 	const handleOpenSettings = onOpenSettings ?? (() => {});
 
@@ -172,6 +185,8 @@ export function WorkspaceInspectorSidebar({
 				activeTab={activeTab}
 				onTabChange={setActiveTab}
 				tabActions={runTabActions}
+				setupScriptState={setupScriptState}
+				runScriptState={runScriptState}
 			>
 				<SetupTab
 					repoId={repoId ?? null}
@@ -185,8 +200,6 @@ export function WorkspaceInspectorSidebar({
 					workspaceId={workspaceId ?? null}
 					runScript={repoScripts?.runScript ?? null}
 					isActive={activeTab === "run"}
-					pendingRun={pendingRunScript}
-					onPendingRunHandled={clearPendingRunScript}
 					onOpenSettings={handleOpenSettings}
 					onStatusChange={setRunStatus}
 					onUrlsChange={setRunUrls}
