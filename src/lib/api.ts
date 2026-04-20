@@ -102,9 +102,12 @@ export type AgentModelOption = {
 	supportsFastMode?: boolean;
 };
 
+export type AgentModelSectionStatus = "ready" | "unavailable" | "error";
+
 export type AgentModelSection = {
 	id: AgentProvider;
 	label: string;
+	status?: AgentModelSectionStatus;
 	options: AgentModelOption[];
 };
 

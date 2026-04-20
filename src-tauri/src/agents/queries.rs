@@ -716,12 +716,23 @@ fn open_write_connection() -> Result<rusqlite::Connection> {
 // Dynamic model list
 // ---------------------------------------------------------------------------
 
-use super::catalog::{AgentModelOption, AgentModelSection};
+use super::catalog::{AgentModelOption, AgentModelSection, AgentModelSectionStatus};
 
 /// Per-provider cached model options. Each provider is cached independently
 /// so a transient failure in one doesn't wipe the other's good data.
 static CLAUDE_CACHE: Mutex<Vec<AgentModelOption>> = Mutex::new(Vec::new());
 static CODEX_CACHE: Mutex<Vec<AgentModelOption>> = Mutex::new(Vec::new());
+
+enum ProviderModelFetchResult {
+    Ready(Vec<AgentModelOption>),
+    Unavailable(String),
+    Error(String),
+}
+
+struct ResolvedProviderModels {
+    options: Vec<AgentModelOption>,
+    status: AgentModelSectionStatus,
+}
 
 /// Fetch models from both providers via sidecar. Each provider's result is
 /// cached independently — if a provider fails, its last good cache is used.
@@ -743,39 +754,64 @@ pub fn fetch_agent_model_sections(
         AgentModelSection {
             id: "claude".to_string(),
             label: "Claude Code".to_string(),
-            options: claude_models,
+            status: claude_models.status,
+            options: claude_models.options,
         },
         AgentModelSection {
             id: "codex".to_string(),
             label: "Codex".to_string(),
-            options: codex_models,
+            status: codex_models.status,
+            options: codex_models.options,
         },
     ]
 }
 
-/// If `fresh` is non-empty, update the cache and return it.
-/// Otherwise return the last cached value.
+/// Use cached data for transient fetch errors, but never for a provider that
+/// is confirmed unavailable on this machine.
 fn resolve_with_cache(
-    fresh: Vec<AgentModelOption>,
+    result: ProviderModelFetchResult,
     cache: &Mutex<Vec<AgentModelOption>>,
     provider: &str,
-) -> Vec<AgentModelOption> {
+) -> ResolvedProviderModels {
     let mut cached = cache.lock().unwrap_or_else(|e| e.into_inner());
-    if !fresh.is_empty() {
-        *cached = fresh.clone();
-        fresh
-    } else if !cached.is_empty() {
-        tracing::info!(provider, "Using cached model list (fresh fetch failed)");
-        cached.clone()
-    } else {
-        vec![]
+    match result {
+        ProviderModelFetchResult::Ready(fresh) => {
+            *cached = fresh.clone();
+            ResolvedProviderModels {
+                options: fresh,
+                status: AgentModelSectionStatus::Ready,
+            }
+        }
+        ProviderModelFetchResult::Unavailable(reason) => {
+            cached.clear();
+            tracing::info!(provider, reason, "Provider unavailable for model list");
+            ResolvedProviderModels {
+                options: vec![],
+                status: AgentModelSectionStatus::Unavailable,
+            }
+        }
+        ProviderModelFetchResult::Error(reason) => {
+            if !cached.is_empty() {
+                tracing::info!(
+                    provider,
+                    reason,
+                    "Using cached model list after fetch error"
+                );
+            } else {
+                tracing::warn!(provider, reason, "Model list fetch failed");
+            }
+            ResolvedProviderModels {
+                options: cached.clone(),
+                status: AgentModelSectionStatus::Error,
+            }
+        }
     }
 }
 
 fn fetch_models_for_provider(
     sidecar: &crate::sidecar::ManagedSidecar,
     provider: &str,
-) -> Vec<AgentModelOption> {
+) -> ProviderModelFetchResult {
     let request_id = Uuid::new_v4().to_string();
 
     let mut params = serde_json::Map::new();
@@ -790,8 +826,9 @@ fn fetch_models_for_provider(
     let rx = sidecar.subscribe(&request_id);
     if let Err(e) = sidecar.send(&sidecar_req) {
         sidecar.unsubscribe(&request_id);
-        tracing::warn!("listModels sidecar send failed for {provider}: {e}");
-        return vec![];
+        return ProviderModelFetchResult::Error(format!(
+            "listModels sidecar send failed for {provider}: {e}"
+        ));
     }
 
     let timeout = std::time::Duration::from_secs(15);
@@ -849,22 +886,63 @@ fn fetch_models_for_provider(
                         .get("message")
                         .and_then(Value::as_str)
                         .unwrap_or("Unknown error");
-                    tracing::warn!("listModels failed for {provider}: {msg}");
-                    break;
+                    sidecar.unsubscribe(&request_id);
+                    return classify_model_list_error(msg);
                 }
                 _ => {}
             },
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                tracing::warn!("listModels timed out for {provider}");
-                break;
+                sidecar.unsubscribe(&request_id);
+                return ProviderModelFetchResult::Error(format!(
+                    "listModels timed out for {provider}"
+                ));
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                tracing::warn!("Sidecar disconnected while fetching models for {provider}");
-                break;
+                sidecar.unsubscribe(&request_id);
+                return ProviderModelFetchResult::Error(format!(
+                    "Sidecar disconnected while fetching models for {provider}"
+                ));
             }
         }
     }
 
     sidecar.unsubscribe(&request_id);
-    models
+    ProviderModelFetchResult::Ready(models)
+}
+
+fn classify_model_list_error(message: &str) -> ProviderModelFetchResult {
+    if is_provider_unavailable_error(message) {
+        return ProviderModelFetchResult::Unavailable(message.to_string());
+    }
+    ProviderModelFetchResult::Error(message.to_string())
+}
+
+fn is_provider_unavailable_error(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("enoent")
+        || normalized.contains("no such file or directory")
+        || normalized.contains("command not found")
+        || normalized.contains("executable not found")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_missing_binary_errors_as_unavailable() {
+        assert!(is_provider_unavailable_error(
+            "spawn codex ENOENT: No such file or directory"
+        ));
+        assert!(is_provider_unavailable_error(
+            "Claude Code executable not found at /tmp/cli.js"
+        ));
+    }
+
+    #[test]
+    fn leaves_timeouts_as_transient_errors() {
+        assert!(!is_provider_unavailable_error(
+            "listModels timed out after 15000ms"
+        ));
+    }
 }
