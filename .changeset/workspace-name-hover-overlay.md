@@ -2,6 +2,6 @@
 "helmor": patch
 ---
 
-Give sidebar workspace titles more room:
-- Workspace titles now use the full row width at rest instead of reserving space for the archive button.
-- On hover, archive/restore/delete buttons overlay the right end of the row, with the title smoothly fading out beneath them (matching the session tab behavior).
+Show workspace titles in full in the sidebar:
+- Workspace rows no longer reserve space for the archive button, so long titles are now visible in full instead of being truncated early.
+- Archive, restore, and delete buttons appear on hover and overlay the right end of the row, with the underlying title fading out behind them.
