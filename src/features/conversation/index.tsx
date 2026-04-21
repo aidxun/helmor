@@ -41,7 +41,6 @@ type WorkspaceConversationContainerProps = {
 		sessionWorkspaceMap: Map<string, string>,
 		interactionCounts: Map<string, number>,
 	) => void;
-	completedSessionIds?: Set<string>;
 	interactionRequiredSessionIds?: Set<string>;
 	onSessionCompleted?: (sessionId: string, workspaceId: string) => void;
 	workspacePrInfo?: PullRequestInfo | null;
@@ -80,7 +79,6 @@ export const WorkspaceConversationContainer = memo(
 		onSendingWorkspacesChange,
 		onSendingSessionsChange,
 		onInteractionSessionsChange,
-		completedSessionIds,
 		interactionRequiredSessionIds,
 		onSessionCompleted,
 		workspacePrInfo = null,
@@ -266,7 +264,6 @@ export const WorkspaceConversationContainer = memo(
 					sessionSelectionHistory={sessionSelectionHistory}
 					sending={isSending}
 					sendingSessionIds={sendingSessionIds}
-					completedSessionIds={completedSessionIds}
 					interactionRequiredSessionIds={interactionRequiredSessionIds}
 					modelSelections={composerModelSelections}
 					workspacePrInfo={workspacePrInfo}
