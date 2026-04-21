@@ -114,10 +114,6 @@ import {
 } from "./lib/settings";
 import { useOsNotifications } from "./lib/use-os-notifications";
 import {
-	buildWorkspaceGroupsForDisplay,
-	shouldDisplayWorkspaceAsInProgress,
-} from "./lib/workspace-display-state";
-import {
 	recomputeWorkspaceDetailUnread,
 	recomputeWorkspaceUnreadInGroups,
 	summaryToArchivedRow,
@@ -662,37 +658,6 @@ function AppShell({
 			selectedWorkspaceDetail?.state !== "archived",
 	});
 	const workspaceGitActionStatus = workspaceGitActionStatusQuery.data ?? null;
-	const shouldDisplaySelectedWorkspaceAsInProgress = useMemo(
-		() =>
-			shouldDisplayWorkspaceAsInProgress({
-				manualStatus: selectedWorkspaceDetailQuery.data?.manualStatus ?? null,
-				derivedStatus: selectedWorkspaceDetailQuery.data?.derivedStatus ?? null,
-				prInfo: workspacePrInfo,
-				gitActionStatus: workspaceGitActionStatus,
-			}),
-		[
-			selectedWorkspaceDetailQuery.data?.derivedStatus,
-			selectedWorkspaceDetailQuery.data?.manualStatus,
-			workspaceGitActionStatus,
-			workspacePrInfo,
-		],
-	);
-	const effectiveWorkspacePrInfo = shouldDisplaySelectedWorkspaceAsInProgress
-		? null
-		: workspacePrInfo;
-	const displayWorkspaceGroups = useMemo(
-		() =>
-			buildWorkspaceGroupsForDisplay({
-				groups: workspaceGroups,
-				selectedWorkspaceId,
-				shouldDisplaySelectedWorkspaceAsInProgress,
-			}),
-		[
-			selectedWorkspaceId,
-			shouldDisplaySelectedWorkspaceAsInProgress,
-			workspaceGroups,
-		],
-	);
 
 	// Reactively transition workspace sidebar status when the PR query
 	// detects a state change. Handles PRs created/merged/closed externally.
@@ -1129,7 +1094,7 @@ function AppShell({
 		}
 
 		const candidateWorkspaceIds = flattenWorkspaceRows(
-			displayWorkspaceGroups,
+			workspaceGroups,
 			archivedRows,
 		)
 			.map((row) => row.id)
@@ -1183,7 +1148,7 @@ function AppShell({
 		isIdentityConnected,
 		primeWorkspaceDisplay,
 		selectedWorkspaceId,
-		displayWorkspaceGroups,
+		workspaceGroups,
 	]);
 
 	const handleSelectWorkspace = useCallback(
@@ -1359,7 +1324,7 @@ function AppShell({
 		selectedWorkspaceIdRef,
 		selectedRepoId: selectedWorkspaceDetailQuery.data?.repoId ?? null,
 		workspaceManualStatus: selectedWorkspaceManualStatus,
-		workspacePrInfo: effectiveWorkspacePrInfo,
+		workspacePrInfo,
 		workspacePrActionStatus,
 		workspaceGitActionStatus,
 		completedSessionIds: settledSessionIds,
@@ -1611,7 +1576,7 @@ function AppShell({
 	const handleNavigateWorkspaces = useCallback(
 		(offset: -1 | 1) => {
 			const nextWorkspaceId = findAdjacentWorkspaceId(
-				displayWorkspaceGroups,
+				workspaceGroups,
 				archivedRows,
 				selectedWorkspaceIdRef.current,
 				offset,
@@ -1623,7 +1588,7 @@ function AppShell({
 
 			handleSelectWorkspace(nextWorkspaceId);
 		},
-		[archivedRows, displayWorkspaceGroups, handleSelectWorkspace],
+		[archivedRows, handleSelectWorkspace, workspaceGroups],
 	);
 
 	const handleResolveDisplayedSession = useCallback(
@@ -1986,7 +1951,6 @@ function AppShell({
 														interactionRequiredWorkspaceIds={
 															interactionRequiredWorkspaceIds
 														}
-														groupsOverride={displayWorkspaceGroups}
 														onSelectWorkspace={handleSelectWorkspace}
 														pushWorkspaceToast={pushWorkspaceToast}
 													/>
@@ -2107,7 +2071,7 @@ function AppShell({
 													interactionRequiredSessionIds
 												}
 												onSessionCompleted={handleSessionCompleted}
-												workspacePrInfo={effectiveWorkspacePrInfo}
+												workspacePrInfo={workspacePrInfo}
 												pendingPromptForSession={pendingPromptForSession}
 												onPendingPromptConsumed={handlePendingPromptConsumed}
 												pendingInsertRequests={pendingComposerInserts}
@@ -2290,10 +2254,7 @@ function AppShell({
 										}
 										commitButtonMode={commitButtonMode}
 										commitButtonState={commitButtonState}
-										prInfo={effectiveWorkspacePrInfo}
-										suppressMergedPrStatus={
-											shouldDisplaySelectedWorkspaceAsInProgress
-										}
+										prInfo={workspacePrInfo}
 										onOpenSettings={handleOpenSettings}
 									/>
 								</aside>
