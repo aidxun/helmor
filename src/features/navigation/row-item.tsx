@@ -147,8 +147,7 @@ export const WorkspaceRowItem = memo(
 		const statusDotClassName = isInteractionRequired
 			? "bg-yellow-500"
 			: "bg-chart-2";
-		const showStatusDot =
-			statusDotLabel !== null && (isInteractionRequired || !selected);
+		const showStatusDot = statusDotLabel !== null;
 		const displayTitle = row.branch ? humanizeBranch(row.branch) : row.title;
 
 		const rowBody = (
