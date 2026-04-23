@@ -94,6 +94,31 @@ fn archive_workspace_moves_context_and_removes_worktree() {
 }
 
 #[test]
+fn git_action_status_returns_safe_defaults_for_archived_workspace() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = ArchiveTestHarness::new(true);
+
+    workspaces::archive_workspace_impl(&harness.workspace_id).unwrap();
+    assert!(!harness.workspace_dir().exists());
+
+    let status = tauri::async_runtime::block_on(
+        crate::commands::editor_commands::get_workspace_git_action_status(
+            harness.workspace_id.clone(),
+        ),
+    )
+    .expect("get_workspace_git_action_status should succeed for archived workspace");
+
+    assert_eq!(status.uncommitted_count, 0);
+    assert_eq!(status.conflict_count, 0);
+    assert_eq!(status.behind_target_count, 0);
+    assert_eq!(status.ahead_of_remote_count, 0);
+    assert_eq!(status.sync_status, git_ops::WorkspaceSyncStatus::Unknown);
+    assert_eq!(status.push_status, git_ops::WorkspacePushStatus::Unknown);
+}
+
+#[test]
 fn permanently_delete_archived_workspace_removes_db_rows_and_context() {
     let _guard = TEST_LOCK
         .lock()

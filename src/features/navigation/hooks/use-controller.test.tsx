@@ -11,7 +11,10 @@ import type {
 	WorkspaceSessionSummary,
 	WorkspaceSummary,
 } from "@/lib/api";
-import { helmorQueryKeys } from "@/lib/query-client";
+import {
+	helmorQueryKeys,
+	workspaceDetailQueryOptions,
+} from "@/lib/query-client";
 import { DEFAULT_SETTINGS, SettingsContext } from "@/lib/settings";
 import { useWorkspacesSidebarController } from "./use-controller";
 
@@ -318,6 +321,47 @@ describe("useWorkspacesSidebarController archive flow", () => {
 		expect(result.current.archivedRows.map((row) => row.id)).toContain("ws-1");
 		expect(onSelectWorkspace).toHaveBeenCalledWith("ws-2");
 		expect(pushWorkspaceToast).not.toHaveBeenCalled();
+	});
+
+	it("optimistically clears the archived workspace root path from detail cache", async () => {
+		const queryClient = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const onSelectWorkspace = vi.fn();
+		const pushWorkspaceToast = vi.fn();
+
+		const { result } = renderHook(
+			() =>
+				useWorkspacesSidebarController({
+					selectedWorkspaceId: "ws-1",
+					onSelectWorkspace,
+					pushWorkspaceToast,
+				}),
+			{ wrapper: createWrapper(queryClient) },
+		);
+
+		await waitFor(() => {
+			expect(result.current.groups[0]?.rows).toHaveLength(2);
+		});
+		await queryClient.ensureQueryData(workspaceDetailQueryOptions("ws-1"));
+
+		act(() => {
+			result.current.handleArchiveWorkspace("ws-1");
+		});
+
+		await waitFor(() => {
+			expect(apiMocks.prepareArchiveWorkspace).toHaveBeenCalledWith("ws-1");
+		});
+
+		expect(
+			queryClient.getQueryData<WorkspaceDetail | null>(
+				helmorQueryKeys.workspaceDetail("ws-1"),
+			),
+		).toMatchObject({
+			id: "ws-1",
+			state: "archived",
+			rootPath: null,
+		});
 	});
 
 	it("consecutive archives advance to the next sidebar row instead of jumping to archived", async () => {

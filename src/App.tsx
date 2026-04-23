@@ -1989,6 +1989,7 @@ function AppShell({
 												}
 												headerActions={
 													selectedWorkspaceId &&
+													workspaceRootPath &&
 													installedEditors.length > 0 &&
 													preferredEditor ? (
 														<div className="flex items-center">

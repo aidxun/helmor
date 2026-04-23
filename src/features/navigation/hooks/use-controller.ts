@@ -100,6 +100,9 @@ export function useWorkspacesSidebarController({
 	const [pendingArchives, setPendingArchives] = useState<
 		Map<string, PendingArchiveEntry>
 	>(() => new Map());
+	const archivedWorkspaceDetailRollbackRef = useRef<
+		Map<string, WorkspaceDetail | null>
+	>(new Map());
 	const [pendingCreations, setPendingCreations] = useState<
 		Map<
 			string,
@@ -229,6 +232,20 @@ export function useWorkspacesSidebarController({
 
 	const rollbackArchivedWorkspace = useCallback(
 		(workspaceId: string, error: unknown, fallbackMessage: string) => {
+			const previousDetail =
+				archivedWorkspaceDetailRollbackRef.current.get(workspaceId);
+			archivedWorkspaceDetailRollbackRef.current.delete(workspaceId);
+			if (previousDetail !== undefined) {
+				queryClient.setQueryData(
+					helmorQueryKeys.workspaceDetail(workspaceId),
+					previousDetail,
+				);
+			} else {
+				void queryClient.invalidateQueries({
+					queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
+				});
+			}
+
 			updateArchivingWorkspaceId(workspaceId, false);
 			let rollback: PendingArchiveEntry | null = null;
 			setPendingArchives((current) => {
@@ -253,7 +270,12 @@ export function useWorkspacesSidebarController({
 				fallbackMessage,
 			);
 		},
-		[flushSidebarLists, pushWorkspaceErrorToast, updateArchivingWorkspaceId],
+		[
+			flushSidebarLists,
+			pushWorkspaceErrorToast,
+			queryClient,
+			updateArchivingWorkspaceId,
+		],
 	);
 
 	useEffect(() => {
@@ -282,6 +304,7 @@ export function useWorkspacesSidebarController({
 			if (disposed) {
 				return;
 			}
+			archivedWorkspaceDetailRollbackRef.current.delete(payload.workspaceId);
 			setPendingArchives((current) => {
 				const existing = current.get(payload.workspaceId);
 				if (!existing || existing.stage === "confirmed") {
@@ -299,6 +322,12 @@ export function useWorkspacesSidebarController({
 			});
 			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.archivedWorkspaces,
+			});
+			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.workspaceDetail(payload.workspaceId),
+			});
+			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.workspaceGitActionStatus(payload.workspaceId),
 			});
 		}).then((cleanup) => {
 			if (disposed) {
@@ -1335,6 +1364,20 @@ export function useWorkspacesSidebarController({
 				}
 
 				const sortTimestamp = Date.now();
+				const detailKey = helmorQueryKeys.workspaceDetail(workspaceId);
+				const previousDetail =
+					queryClient.getQueryData<WorkspaceDetail | null>(detailKey) ?? null;
+				archivedWorkspaceDetailRollbackRef.current.set(
+					workspaceId,
+					previousDetail,
+				);
+				if (previousDetail) {
+					queryClient.setQueryData<WorkspaceDetail | null>(detailKey, {
+						...previousDetail,
+						state: "archived",
+						rootPath: null,
+					});
+				}
 				const pendingArchive: PendingArchiveEntry = {
 					row: {
 						...moved.row,

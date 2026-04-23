@@ -438,13 +438,13 @@ pub(crate) fn run_script_with_shell(
                         let _ = ch.send(ScriptEvent::Stdout { data });
                     }
                     Err(e) => {
-                        // EIO is expected when the child exits and slave closes.
-                        if e.raw_os_error() != Some(libc::EIO) {
-                            tracing::debug!(error = %e, "PTY read error");
-                        }
                         if e.kind() == std::io::ErrorKind::WouldBlock {
                             std::thread::sleep(PTY_POLL_INTERVAL);
                             continue;
+                        }
+                        // EIO is expected when the child exits and slave closes.
+                        if e.raw_os_error() != Some(libc::EIO) {
+                            tracing::debug!(error = %e, "PTY read error");
                         }
                         break;
                     }
