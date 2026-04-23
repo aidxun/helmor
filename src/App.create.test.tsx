@@ -69,6 +69,7 @@ describe("App create workspace flow", () => {
 			setupFromProject: false,
 			runFromProject: false,
 			archiveFromProject: false,
+			autoRunSetup: true,
 		});
 		apiMocks.listRepositories.mockReset();
 		apiMocks.createWorkspaceFromRepo.mockReset();

@@ -420,6 +420,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				setupFromProject: false,
 				runFromProject: false,
 				archiveFromProject: false,
+				autoRunSetup: true,
 			},
 		});
 		apiMocks.finalizeWorkspaceFromRepo.mockImplementation(
@@ -519,6 +520,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				setupFromProject: false,
 				runFromProject: false,
 				archiveFromProject: false,
+				autoRunSetup: true,
 			},
 		});
 		// Keep Phase 2 suspended so we can assert the Phase 1 painted state
@@ -697,6 +699,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				setupFromProject: false,
 				runFromProject: false,
 				archiveFromProject: false,
+				autoRunSetup: true,
 			},
 		});
 		apiMocks.finalizeWorkspaceFromRepo.mockImplementation(
@@ -807,6 +810,7 @@ describe("useWorkspacesSidebarController archive flow", () => {
 				setupFromProject: false,
 				runFromProject: false,
 				archiveFromProject: false,
+				autoRunSetup: true,
 			},
 		});
 		apiMocks.finalizeWorkspaceFromRepo.mockRejectedValue(

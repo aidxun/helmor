@@ -1,5 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronDown, GitBranch, Trash2 } from "lucide-react";
+import {
+	Check,
+	ChevronDown,
+	GitBranch,
+	HelpCircle,
+	Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BranchPickerPopover } from "@/components/branch-picker";
 import { Button } from "@/components/ui/button";
@@ -15,6 +21,7 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
 	Tooltip,
@@ -29,6 +36,7 @@ import {
 	loadRepoScripts,
 	prefetchRemoteRefs,
 	type RepositoryCreateOption,
+	updateRepoAutoRunSetup,
 	updateRepoScripts,
 	updateRepositoryDefaultBranch,
 	updateRepositoryRemote,
@@ -233,6 +241,7 @@ function ScriptField({
 	locked,
 	lockedMessage,
 	onChange,
+	headerRight,
 }: {
 	label: string;
 	description: string;
@@ -241,6 +250,7 @@ function ScriptField({
 	locked: boolean;
 	lockedMessage: string;
 	onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+	headerRight?: React.ReactNode;
 }) {
 	const textarea = (
 		<Textarea
@@ -255,9 +265,16 @@ function ScriptField({
 
 	return (
 		<div>
-			<div className="text-[12px] font-medium text-app-foreground">{label}</div>
-			<div className="mt-0.5 text-[11px] text-muted-foreground">
-				{description}
+			<div className="flex items-start justify-between gap-3">
+				<div className="min-w-0">
+					<div className="text-[12px] font-medium text-app-foreground">
+						{label}
+					</div>
+					<div className="mt-0.5 text-[11px] text-muted-foreground">
+						{description}
+					</div>
+				</div>
+				{headerRight && <div className="shrink-0">{headerRight}</div>}
 			</div>
 			{locked ? (
 				<TooltipProvider>
@@ -295,6 +312,7 @@ function ScriptsSection({
 	const [setupScript, setSetupScript] = useState("");
 	const [runScript, setRunScript] = useState("");
 	const [archiveScript, setArchiveScript] = useState("");
+	const [autoRunSetup, setAutoRunSetup] = useState(false);
 	const initialized = useRef(false);
 
 	useEffect(() => {
@@ -305,6 +323,7 @@ function ScriptsSection({
 		if (shouldSyncSetup) setSetupScript(data.setupScript ?? "");
 		if (shouldSyncRun) setRunScript(data.runScript ?? "");
 		if (shouldSyncArchive) setArchiveScript(data.archiveScript ?? "");
+		if (!initialized.current) setAutoRunSetup(data.autoRunSetup);
 		if (!setupLocked && !runLocked && !archiveLocked) {
 			initialized.current = true;
 		}
@@ -363,6 +382,20 @@ function ScriptsSection({
 		[setupScript, runScript, save],
 	);
 
+	const handleAutoRunSetupChange = useCallback(
+		(checked: boolean) => {
+			setAutoRunSetup(checked);
+			void updateRepoAutoRunSetup(repoId, checked).then(() => {
+				void queryClient.invalidateQueries({
+					queryKey: ["repoScripts", repoId],
+				});
+			});
+		},
+		[repoId, queryClient],
+	);
+
+	const setupHasScript = !!setupScript.trim();
+
 	return (
 		<div className="rounded-xl border border-app-border/30 bg-app-base/20 px-5 py-4">
 			<div className="text-[13px] font-medium leading-snug text-app-foreground">
@@ -375,12 +408,40 @@ function ScriptsSection({
 			<div className="mt-4 space-y-4">
 				<ScriptField
 					label="Setup script"
-					description="Runs when a new workspace is created"
+					description="Available from the Setup tab in any workspace"
 					placeholder="e.g., npm install"
 					value={setupScript}
 					locked={setupLocked}
 					lockedMessage="Set by this workspace's helmor.json — edit it there"
 					onChange={handleSetupChange}
+					headerRight={
+						<div className="flex items-center gap-1.5">
+							<span className="text-[11px] font-medium text-muted-foreground">
+								Auto-run
+							</span>
+							<TooltipProvider>
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<HelpCircle
+											className="size-3 cursor-help text-muted-foreground/70"
+											strokeWidth={1.8}
+										/>
+									</TooltipTrigger>
+									<TooltipContent side="top" className="max-w-[240px]">
+										On by default — setup runs automatically as soon as a
+										workspace is created. Turn off to run it manually from the
+										Setup tab.
+									</TooltipContent>
+								</Tooltip>
+							</TooltipProvider>
+							<Switch
+								checked={autoRunSetup}
+								onCheckedChange={handleAutoRunSetupChange}
+								disabled={!setupHasScript}
+								aria-label="Auto-run setup script on workspace creation"
+							/>
+						</div>
+					}
 				/>
 				<ScriptField
 					label="Run script"

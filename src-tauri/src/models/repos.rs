@@ -60,6 +60,9 @@ pub(crate) struct RepositoryRecord {
     pub setup_script: Option<String>,
     #[allow(dead_code)] // Queried separately via RepoScripts; kept here for completeness.
     pub run_script: Option<String>,
+    /// Auto-run the setup script when a workspace is created.
+    /// Defaults to true; users disable it from repo settings.
+    pub auto_run_setup: bool,
 }
 
 pub fn list_repositories() -> Result<Vec<RepositoryCreateOption>> {
@@ -107,7 +110,7 @@ pub(crate) fn load_repository_by_id(repo_id: &str) -> Result<Option<RepositoryRe
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, name, remote, default_branch, root_path, setup_script, run_script
+            SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup
             FROM repos
             WHERE id = ?1
             "#,
@@ -124,6 +127,7 @@ pub(crate) fn load_repository_by_id(repo_id: &str) -> Result<Option<RepositoryRe
                 root_path: row.get(4)?,
                 setup_script: row.get(5)?,
                 run_script: row.get(6)?,
+                auto_run_setup: row.get::<_, Option<i64>>(7)?.unwrap_or(1) != 0,
             })
         })
         .with_context(|| format!("Failed to query repository {repo_id}"))?;
@@ -175,7 +179,7 @@ fn query_repository_by_root_path(
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, name, remote, default_branch, root_path, setup_script, run_script
+            SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup
             FROM repos
             WHERE root_path = ?1
             ORDER BY created_at ASC
@@ -194,6 +198,7 @@ fn query_repository_by_root_path(
                 root_path: row.get(4)?,
                 setup_script: row.get(5)?,
                 run_script: row.get(6)?,
+                auto_run_setup: row.get::<_, Option<i64>>(7)?.unwrap_or(1) != 0,
             })
         })
         .with_context(|| format!("Failed to query repository row for {root_path}"))?;
@@ -214,7 +219,7 @@ fn query_repository_candidates_by_name(
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, name, remote, default_branch, root_path, setup_script, run_script
+            SELECT id, name, remote, default_branch, root_path, setup_script, run_script, auto_run_setup
             FROM repos
             WHERE name = ?1 OR root_path LIKE ?2
             ORDER BY created_at ASC
@@ -234,6 +239,7 @@ fn query_repository_candidates_by_name(
                 root_path: row.get(4)?,
                 setup_script: row.get(5)?,
                 run_script: row.get(6)?,
+                auto_run_setup: row.get::<_, Option<i64>>(7)?.unwrap_or(1) != 0,
             })
         })
         .with_context(|| format!("Failed to query repository candidates for {repository_name}"))?;
@@ -393,6 +399,9 @@ pub struct RepoScripts {
     pub setup_from_project: bool,
     pub run_from_project: bool,
     pub archive_from_project: bool,
+    /// Auto-run setup on workspace creation. DB-only — not configurable
+    /// from `helmor.json`. Defaults to true.
+    pub auto_run_setup: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -444,15 +453,18 @@ pub fn load_repo_scripts(repo_id: &str, workspace_id: Option<&str>) -> Result<Re
     // config doesn't provide a value.
     let connection = db::read_conn()?;
     let mut statement = connection
-        .prepare("SELECT setup_script, run_script, archive_script FROM repos WHERE id = ?1")
+        .prepare(
+            "SELECT setup_script, run_script, archive_script, auto_run_setup FROM repos WHERE id = ?1",
+        )
         .with_context(|| format!("Failed to prepare script lookup for {repo_id}"))?;
 
-    let (db_setup, db_run, db_archive) = statement
+    let (db_setup, db_run, db_archive, auto_run_setup) = statement
         .query_row([repo_id], |row| {
             Ok((
                 row.get::<_, Option<String>>(0)?,
                 row.get::<_, Option<String>>(1)?,
                 row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<i64>>(3)?.unwrap_or(1) != 0,
             ))
         })
         .with_context(|| format!("Repository not found: {repo_id}"))?;
@@ -473,6 +485,7 @@ pub fn load_repo_scripts(repo_id: &str, workspace_id: Option<&str>) -> Result<Re
         setup_from_project,
         run_from_project,
         archive_from_project,
+        auto_run_setup,
     })
 }
 
@@ -542,6 +555,24 @@ pub fn update_repo_scripts(
             rusqlite::params![setup_script, run_script, archive_script, repo_id],
         )
         .with_context(|| format!("Failed to update scripts for {repo_id}"))?;
+
+    if updated != 1 {
+        bail!("Repository not found: {repo_id}");
+    }
+
+    Ok(())
+}
+
+/// Persist the user opt-in flag that controls whether the setup script
+/// auto-runs on workspace creation.
+pub fn update_repo_auto_run_setup(repo_id: &str, enabled: bool) -> Result<()> {
+    let connection = db::write_conn()?;
+    let updated = connection
+        .execute(
+            "UPDATE repos SET auto_run_setup = ?1, updated_at = datetime('now') WHERE id = ?2",
+            rusqlite::params![if enabled { 1 } else { 0 }, repo_id],
+        )
+        .with_context(|| format!("Failed to update auto_run_setup for {repo_id}"))?;
 
     if updated != 1 {
         bail!("Repository not found: {repo_id}");

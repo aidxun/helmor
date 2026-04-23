@@ -187,6 +187,7 @@ pub fn run() {
             commands::repository_commands::load_repo_scripts,
             commands::repository_commands::load_repo_preferences,
             commands::repository_commands::update_repo_scripts,
+            commands::repository_commands::update_repo_auto_run_setup,
             commands::repository_commands::update_repo_preferences,
             commands::repository_commands::delete_repository,
             commands::script_commands::execute_repo_script,

@@ -170,6 +170,7 @@ pub fn prepare_workspace_from_repo_impl(repo_id: &str) -> Result<PrepareWorkspac
                 setup_from_project: false,
                 run_from_project: false,
                 archive_from_project: false,
+                auto_run_setup: true,
             }
         }
     };
@@ -254,8 +255,10 @@ pub fn finalize_workspace_from_repo_impl(workspace_id: &str) -> Result<FinalizeW
         };
 
         helpers::create_workspace_context_scaffold(&workspace_dir)?;
-        // Defer setup to the frontend inspector: if a script is configured,
-        // the workspace starts in "setup_pending" and the UI auto-triggers it.
+        // Defer setup to the frontend inspector: if a script is configured AND
+        // the user opted into auto-run, the workspace starts in "setup_pending"
+        // and the UI auto-triggers it. Otherwise we go straight to Ready and
+        // the user runs setup manually from the inspector when they want.
         let has_setup = match resolve_setup_hook(&repository, &workspace_dir) {
             Ok(Some(s)) if !s.trim().is_empty() => true,
             Ok(_) => false,
@@ -264,7 +267,7 @@ pub fn finalize_workspace_from_repo_impl(workspace_id: &str) -> Result<FinalizeW
                 false
             }
         };
-        let final_state = if has_setup {
+        let final_state = if has_setup && repository.auto_run_setup {
             WorkspaceState::SetupPending
         } else {
             WorkspaceState::Ready

@@ -87,17 +87,18 @@ fn create_workspace_from_repo_creates_ready_workspace_and_initial_session() {
 }
 
 #[test]
-fn create_workspace_from_repo_defers_setup_when_script_configured() {
+fn create_workspace_from_repo_defers_setup_when_script_configured_by_default() {
     let _guard = TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let harness = CreateTestHarness::new();
 
+    // Setup script configured. auto_run_setup defaults to true (DB default
+    // 1), so the workspace defers to the frontend inspector for auto-run.
     harness.commit_repo_files(&[("helmor.json", r#"{"scripts":{"setup":"echo hello"}}"#)]);
 
     let response = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap();
 
-    // Setup script detected → deferred to frontend inspector.
     assert_eq!(response.created_state, WorkspaceState::SetupPending);
 
     let connection = Connection::open(harness.db_path()).unwrap();
@@ -109,6 +110,22 @@ fn create_workspace_from_repo_defers_setup_when_script_configured() {
         )
         .unwrap();
     assert_eq!(state, "setup_pending");
+}
+
+#[test]
+fn create_workspace_from_repo_stays_ready_when_auto_run_setup_disabled() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = CreateTestHarness::new();
+
+    harness.commit_repo_files(&[("helmor.json", r#"{"scripts":{"setup":"echo hello"}}"#)]);
+    repos::update_repo_auto_run_setup(&harness.repo_id, false).unwrap();
+
+    let response = workspaces::create_workspace_from_repo_impl(&harness.repo_id).unwrap();
+
+    // User opted out → workspace lands in Ready; setup runs manually.
+    assert_eq!(response.created_state, WorkspaceState::Ready);
 }
 
 #[test]
@@ -267,12 +284,32 @@ fn finalize_workspace_reports_setup_pending_when_helmor_json_has_setup() {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let harness = CreateTestHarness::new();
 
+    // Default behavior: auto_run_setup=true, helmor.json sets a setup script
+    // → workspace defers to frontend inspector.
     harness.commit_repo_files(&[("helmor.json", r#"{"scripts":{"setup":"echo hi"}}"#)]);
 
     let prepared = workspaces::prepare_workspace_from_repo_impl(&harness.repo_id).unwrap();
     let finalized = workspaces::finalize_workspace_from_repo_impl(&prepared.workspace_id).unwrap();
 
     assert_eq!(finalized.final_state, WorkspaceState::SetupPending);
+}
+
+#[test]
+fn finalize_workspace_stays_ready_when_helmor_json_has_setup_but_auto_run_disabled() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = CreateTestHarness::new();
+
+    harness.commit_repo_files(&[("helmor.json", r#"{"scripts":{"setup":"echo hi"}}"#)]);
+    repos::update_repo_auto_run_setup(&harness.repo_id, false).unwrap();
+
+    let prepared = workspaces::prepare_workspace_from_repo_impl(&harness.repo_id).unwrap();
+    let finalized = workspaces::finalize_workspace_from_repo_impl(&prepared.workspace_id).unwrap();
+
+    // User opted out → setup script is configured but the workspace lands
+    // in Ready; user must run setup manually.
+    assert_eq!(finalized.final_state, WorkspaceState::Ready);
 }
 
 #[test]

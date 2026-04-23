@@ -2061,6 +2061,8 @@ export type RepoScripts = {
 	setupFromProject: boolean;
 	runFromProject: boolean;
 	archiveFromProject: boolean;
+	/** Auto-run the setup script on workspace creation. Defaults to true. */
+	autoRunSetup: boolean;
 };
 
 export type RepoPreferences = {
@@ -2113,6 +2115,13 @@ export async function updateRepoScripts(
 		runScript,
 		archiveScript,
 	});
+}
+
+export async function updateRepoAutoRunSetup(
+	repoId: string,
+	enabled: boolean,
+): Promise<void> {
+	await invoke("update_repo_auto_run_setup", { repoId, enabled });
 }
 
 export async function loadRepoPreferences(

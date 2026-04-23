@@ -350,6 +350,18 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             .context("Failed to add context_usage_meta column")?;
     }
 
+    // Migration: toggle for auto-running the setup script on workspace
+    // creation. Default 1 (on) — preserves the pre-feature behavior for
+    // existing repos and is the most common case. Users opt out per-repo
+    // when they prefer to run setup manually from the inspector.
+    // Nullable so the conductor-import path (which copies rows without
+    // specifying this column) can leave it NULL; reads treat NULL as on.
+    if has_table(connection, "repos") && !has_column(connection, "repos", "auto_run_setup") {
+        connection
+            .execute_batch("ALTER TABLE repos ADD COLUMN auto_run_setup INTEGER DEFAULT 1")
+            .context("Failed to add auto_run_setup column")?;
+    }
+
     drop_dead_schema(connection)?;
 
     // Migration: remap legacy "opus-1m" model ID — the CLI no longer accepts it.
@@ -379,6 +391,7 @@ CREATE TABLE IF NOT EXISTS repos (
     hidden INTEGER DEFAULT 0,
     custom_prompt_fix_errors TEXT,
     custom_prompt_resolve_merge_conflicts TEXT,
+    auto_run_setup INTEGER DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

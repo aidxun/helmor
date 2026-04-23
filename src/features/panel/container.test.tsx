@@ -253,6 +253,7 @@ describe("WorkspacePanelContainer loading semantics", () => {
 			setupFromProject: false,
 			runFromProject: false,
 			archiveFromProject: false,
+			autoRunSetup: true,
 		});
 		apiMocks.loadWorkspaceDetail.mockImplementation((workspaceId?: string) =>
 			Promise.resolve(createWorkspaceDetail(workspaceId)),

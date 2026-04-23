@@ -96,6 +96,7 @@ describe("App unread — re-click selected workspace clears dot", () => {
 			setupFromProject: false,
 			runFromProject: false,
 			archiveFromProject: false,
+			autoRunSetup: true,
 		});
 
 		// Before create: empty sidebar.
