@@ -36,7 +36,7 @@ pub use workspace::helpers;
 pub use workspace::state as workspace_state;
 pub use workspace::workspaces;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Initialise the database schema (call once at startup).
 pub fn schema_init(conn: &rusqlite::Connection) {
@@ -142,6 +142,13 @@ pub fn run() {
             if let Err(error) = ui_sync::start_listener(app.handle().clone()) {
                 tracing::error!(error = %error, "Failed to start UI sync listener");
             }
+
+            // On macOS, the default app-menu Quit item goes straight to
+            // NSApplication.terminate:, which bypasses our event loop.
+            // Install a custom menu so Cmd+Q flows through the same
+            // confirmation dialog as the close button.
+            #[cfg(target_os = "macos")]
+            install_macos_menu(app.handle())?;
 
             Ok(())
         })
@@ -262,19 +269,104 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    // The frontend's onCloseRequested always calls preventDefault(), so
-    // the JS layer never destroys the window on its own.  All quit logic
-    // lives in the `request_quit` Tauri command (called from the frontend
-    // quit-confirmation dialog).  Nothing to do here.
+    // All user-initiated exit paths (red close button, Cmd+W on the
+    // main window, Cmd+Q, macOS app-menu Quit) are intercepted here and
+    // routed through a single `helmor://quit-requested` event. The
+    // frontend's QuitConfirmDialog listens for it, checks for in-flight
+    // tasks, and calls back into `request_quit` which eventually runs
+    // `app.exit(0)`. That programmatic exit comes back as ExitRequested
+    // with `code: Some(_)`, which we deliberately let through.
     app.run(|app_handle, event| match event {
         tauri::RunEvent::Resumed => {
             updater::maybe_trigger_on_resume(app_handle.clone());
         }
-        tauri::RunEvent::WindowEvent { label, event, .. }
-            if label == "main" && matches!(event, tauri::WindowEvent::Focused(true)) =>
-        {
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::Focused(true),
+            ..
+        } if label == "main" => {
             updater::maybe_trigger_on_focus(app_handle.clone());
+        }
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::CloseRequested { api, .. },
+            ..
+        } if label == "main" => {
+            api.prevent_close();
+            emit_quit_requested(app_handle);
+        }
+        tauri::RunEvent::ExitRequested {
+            code: None, api, ..
+        } => {
+            api.prevent_exit();
+            emit_quit_requested(app_handle);
         }
         _ => {}
     });
+}
+
+fn emit_quit_requested(app_handle: &tauri::AppHandle) {
+    if let Err(e) = app_handle.emit("helmor://quit-requested", ()) {
+        tracing::warn!(error = %e, "Failed to emit quit-requested event");
+    }
+}
+
+const HELMOR_QUIT_MENU_ID: &str = "helmor-quit";
+
+#[cfg(target_os = "macos")]
+fn install_macos_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{AboutMetadataBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+
+    let quit_item = MenuItemBuilder::with_id(HELMOR_QUIT_MENU_ID, "Quit Helmor")
+        .accelerator("Cmd+Q")
+        .build(app)?;
+
+    let about_metadata = AboutMetadataBuilder::new()
+        .name(Some("Helmor"))
+        .version(Some(env!("CARGO_PKG_VERSION")))
+        .build();
+
+    let app_submenu = SubmenuBuilder::new(app, "Helmor")
+        .about(Some(about_metadata))
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .item(&quit_item)
+        .build()?;
+
+    let edit_submenu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
+    let window_submenu = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize()
+        .separator()
+        .close_window()
+        .build()?;
+
+    let menu = MenuBuilder::new(app)
+        .items(&[&app_submenu, &edit_submenu, &window_submenu])
+        .build()?;
+
+    app.set_menu(menu)?;
+
+    let handle = app.clone();
+    app.on_menu_event(move |_, event| {
+        if event.id().0.as_str() == HELMOR_QUIT_MENU_ID {
+            emit_quit_requested(&handle);
+        }
+    });
+
+    Ok(())
 }
