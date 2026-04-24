@@ -16,7 +16,7 @@ import {
 	type SDKMessage,
 	type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { isAbortError } from "./abort.js";
+import { isAbortError, isQueryClosedTransient } from "./abort.js";
 import {
 	applyClaudeModelOverrides,
 	claudeModelSupportsFastMode,
@@ -602,7 +602,7 @@ export class ClaudeSessionManager implements SessionManager {
 					// Bail on the first one we see; any steer() still in its
 					// image-load await will find `promptSource.closed` via
 					// the finally block below and return false.
-					const meta = buildClaudeStoredMeta(message);
+					const meta = buildClaudeStoredMeta(message, model ?? "");
 					if (meta) {
 						emitter.contextUsageUpdated(
 							requestId,
@@ -791,6 +791,22 @@ export class ClaudeSessionManager implements SessionManager {
 	 * which lets the iterator return naturally as part of teardown.
 	 */
 	async listSlashCommands(
+		params: ListSlashCommandsParams,
+	): Promise<readonly SlashCommandInfo[]> {
+		// Retry once on "Query closed before response received" — it's a
+		// transient race (claude-code child preempted or torn down between
+		// init and the control-protocol reply), not a real failure.
+		try {
+			return await this.listSlashCommandsOnce(params);
+		} catch (err) {
+			if (isQueryClosedTransient(err)) {
+				return this.listSlashCommandsOnce(params);
+			}
+			throw err;
+		}
+	}
+
+	private async listSlashCommandsOnce(
 		params: ListSlashCommandsParams,
 	): Promise<readonly SlashCommandInfo[]> {
 		const { cwd } = params;
@@ -1036,7 +1052,7 @@ export class ClaudeSessionManager implements SessionManager {
 		const live = this.sessions.get(helmorSessionId);
 		if (live) {
 			const raw = await live.query.getContextUsage();
-			return JSON.stringify(buildClaudeRichMeta(raw));
+			return JSON.stringify(buildClaudeRichMeta(raw, model));
 		}
 
 		// Slow path: spawn a transient Query. `resume` is optional — when
@@ -1095,7 +1111,7 @@ export class ClaudeSessionManager implements SessionManager {
 
 		try {
 			const raw = await q.getContextUsage();
-			return JSON.stringify(buildClaudeRichMeta(raw));
+			return JSON.stringify(buildClaudeRichMeta(raw, model));
 		} catch (err) {
 			if (timedOut) {
 				throw new Error(

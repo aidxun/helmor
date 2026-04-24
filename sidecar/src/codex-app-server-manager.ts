@@ -99,6 +99,8 @@ interface AppServerContext {
 	 *  the frontend pipeline/UI until after the synthetic user_prompt
 	 *  event lands. Microtask FIFO preserves their relative ordering. */
 	notificationGate: Promise<void> | null;
+	/** Last send's model id; Codex usage notifications omit it. */
+	lastSentModel: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +234,8 @@ export class CodexAppServerManager implements SessionManager {
 			permissionMode,
 			effectiveFastMode,
 		);
+		// Codex usage notifications do not include a model id.
+		if (model) ctx.lastSentModel = model;
 
 		// Codex, unlike Claude, has no `additionalDirectoriesForClaudeMd`
 		// equivalent — `sandboxPolicy.writableRoots` only grants write
@@ -245,6 +249,7 @@ export class CodexAppServerManager implements SessionManager {
 			prompt,
 			resolvedAdditionalDirectories,
 		);
+		const isCompactCommand = prompt.trim() === "/compact";
 		const input = buildTurnInput(promptWithContext);
 		const turnStartParams: Record<string, unknown> = {
 			threadId: ctx.providerThreadId,
@@ -339,7 +344,7 @@ export class CodexAppServerManager implements SessionManager {
 					const tokenUsage = deepGet(n.params, "tokenUsage");
 					if (tokenUsage && typeof tokenUsage === "object") {
 						try {
-							const meta = buildCodexStoredMeta(tokenUsage);
+							const meta = buildCodexStoredMeta(tokenUsage, ctx.lastSentModel);
 							if (meta) {
 								emitter.contextUsageUpdated(
 									requestId,
@@ -390,6 +395,13 @@ export class CodexAppServerManager implements SessionManager {
 						ctx.turnResolve = null;
 						ctx.turnReject = null;
 					}
+				}
+
+				if (n.method === "thread/compacted") {
+					ctx.activeTurnId = null;
+					ctx.turnResolve?.();
+					ctx.turnResolve = null;
+					ctx.turnReject = null;
 				}
 			};
 
@@ -449,8 +461,20 @@ export class CodexAppServerManager implements SessionManager {
 			ctx.server.setHandlers(handleNotification, handleRequest);
 			ctx.server.setActiveRequestId(requestId);
 
-			ctx.server
-				.sendRequest("turn/start", turnStartParams)
+			if (isCompactCommand && !ctx.providerThreadId) {
+				reject(new Error("Cannot compact before a Codex thread has started"));
+				return;
+			}
+
+			const requestPromise = isCompactCommand
+				? ctx.server.sendRequest(
+						"thread/compact/start",
+						{ threadId: ctx.providerThreadId },
+						20_000,
+					)
+				: ctx.server.sendRequest("turn/start", turnStartParams);
+
+			requestPromise
 				.then((response) => {
 					const turnId = deepGet(response, "turn", "id");
 					if (typeof turnId === "string") {
@@ -458,7 +482,10 @@ export class CodexAppServerManager implements SessionManager {
 					}
 				})
 				.catch((err) => {
-					logger.error("turn/start failed", errorDetails(err));
+					logger.error(
+						`${isCompactCommand ? "thread/compact/start" : "turn/start"} failed`,
+						errorDetails(err),
+					);
 					reject(err);
 				});
 		}).finally(() => {
@@ -837,6 +864,7 @@ export class CodexAppServerManager implements SessionManager {
 			activeRequestId: null,
 			activeEmitter: null,
 			notificationGate: null,
+			lastSentModel: model ?? "",
 		};
 
 		this.sessions.set(sessionId, ctx);
