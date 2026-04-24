@@ -29,9 +29,12 @@ function computePercentage(used: number, max: number): number {
 }
 
 /**
- * Build the persisted meta from any Claude terminal `result` message
- * (success OR error — both carry usage). Returns null when usage data
- * is missing so the sidecar can skip emitting.
+ * Persisted meta from a Claude terminal `result` (success or error).
+ * Returns null when usage data is missing.
+ *
+ * Tokens come from `iterations[last]`, not top-level `usage` — `usage`
+ * is a cumulative per-call counter and overshoots the window on
+ * tool-heavy turns. See SDK's `BetaIterationsUsage` docs.
  */
 export function buildClaudeStoredMeta(
 	result: unknown,
@@ -44,11 +47,12 @@ export function buildClaudeStoredMeta(
 	> | null;
 	if (!usage || !modelUsage) return null;
 
+	const source = pickLastMessageIteration(root.iterations) ?? usage;
 	const used =
-		num(usage.input_tokens) +
-		num(usage.cache_creation_input_tokens) +
-		num(usage.cache_read_input_tokens) +
-		num(usage.output_tokens);
+		num(source.input_tokens) +
+		num(source.cache_creation_input_tokens) +
+		num(source.cache_read_input_tokens) +
+		num(source.output_tokens);
 
 	let max = 0;
 	for (const entry of Object.values(modelUsage)) {
@@ -63,6 +67,22 @@ export function buildClaudeStoredMeta(
 		maxTokens: max,
 		percentage: computePercentage(usedClamped, max),
 	};
+}
+
+// Last `message` iteration, skipping trailing compaction entries.
+function pickLastMessageIteration(
+	raw: unknown,
+): Record<string, unknown> | null {
+	if (!Array.isArray(raw)) return null;
+	for (let i = raw.length - 1; i >= 0; i--) {
+		const entry = raw[i];
+		if (!entry || typeof entry !== "object") continue;
+		const obj = entry as Record<string, unknown>;
+		const t = obj.type;
+		if (typeof t === "string" && t !== "message") continue;
+		return obj;
+	}
+	return null;
 }
 
 /**
