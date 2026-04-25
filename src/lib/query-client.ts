@@ -9,6 +9,7 @@ import {
 	detectInstalledEditors,
 	type ForgeActionStatus,
 	type ForgeDetection,
+	getClaudeRateLimits,
 	getCodexRateLimits,
 	getLiveContextUsage,
 	getSessionContextUsage,
@@ -57,6 +58,7 @@ export const helmorQueryKeys = {
 	sessionContextUsage: (sessionId: string) =>
 		["sessionContextUsage", sessionId] as const,
 	codexRateLimits: ["codexRateLimits"] as const,
+	claudeRateLimits: ["claudeRateLimits"] as const,
 	claudeRichContextUsage: (
 		sessionId: string,
 		providerSessionId: string | null,
@@ -241,6 +243,17 @@ export function codexRateLimitsQueryOptions() {
 		queryKey: helmorQueryKeys.codexRateLimits,
 		queryFn: getCodexRateLimits,
 		staleTime: 0,
+	});
+}
+
+export function claudeRateLimitsQueryOptions(enabled: boolean) {
+	return queryOptions({
+		queryKey: helmorQueryKeys.claudeRateLimits,
+		queryFn: getClaudeRateLimits,
+		staleTime: (query) => (query.state.data?.ttlSeconds ?? 0) * 1000,
+		refetchInterval: (query) =>
+			enabled && query.state.data ? query.state.data.ttlSeconds * 1000 : false,
+		enabled,
 	});
 }
 

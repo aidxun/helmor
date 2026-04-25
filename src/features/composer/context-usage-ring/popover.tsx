@@ -1,10 +1,8 @@
 import { HelmorThinkingIndicator } from "@/components/helmor-thinking-indicator";
-import type { CodexRateLimitsDisplay, DisplayResolution } from "./parse";
+import type { DisplayResolution } from "./parse";
 import {
 	AutoCompactNote,
 	CategoryList,
-	Divider,
-	LimitRow,
 	TokensOnlyHeader,
 	UsageBar,
 	UsageHeader,
@@ -12,10 +10,6 @@ import {
 
 type Props = {
 	display: DisplayResolution;
-	/** Provider hint — lets us render Codex rate limits even before the
-	 *  session has run its first turn. Also gates Claude rich section. */
-	agentType?: "claude" | "codex" | null;
-	codexRateLimits?: CodexRateLimitsDisplay | null;
 	/** True while the rich fetch is in-flight and we don't yet have
 	 *  fresh categories. */
 	richLoading?: boolean;
@@ -23,16 +17,8 @@ type Props = {
 
 export function ContextUsagePopoverContent({
 	display,
-	agentType = null,
-	codexRateLimits = null,
 	richLoading = false,
 }: Props) {
-	const isCodex = agentType === "codex";
-	const hasCodexLimits =
-		isCodex &&
-		codexRateLimits !== null &&
-		(codexRateLimits.primary !== null || codexRateLimits.secondary !== null);
-
 	const showCategories =
 		display.kind === "full" &&
 		display.rich !== null &&
@@ -72,20 +58,6 @@ export function ContextUsagePopoverContent({
 					<HelmorThinkingIndicator size={12} />
 					<span>Loading context details…</span>
 				</div>
-			) : null}
-
-			{hasCodexLimits && codexRateLimits ? (
-				<>
-					<Divider />
-					<div className="flex flex-col gap-2.5">
-						{codexRateLimits.primary ? (
-							<LimitRow window={codexRateLimits.primary} />
-						) : null}
-						{codexRateLimits.secondary ? (
-							<LimitRow window={codexRateLimits.secondary} />
-						) : null}
-					</div>
-				</>
 			) : null}
 		</div>
 	);

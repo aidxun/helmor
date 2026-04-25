@@ -159,7 +159,7 @@ export function formatTokens(tokens: number): string {
 	return String(tokens);
 }
 
-// ── Codex rate limits (orthogonal to context meta) ─────────────────────
+// ── Rate limits (orthogonal to context meta) ───────────────────────────
 
 export type RateLimitWindowDisplay = {
 	usedPercent: number;
@@ -169,28 +169,63 @@ export type RateLimitWindowDisplay = {
 	expired: boolean;
 };
 
-export type CodexRateLimitsDisplay = {
+export type RateLimitSnapshotDisplay = {
 	primary: RateLimitWindowDisplay | null;
 	secondary: RateLimitWindowDisplay | null;
+	tertiary: RateLimitWindowDisplay | null;
+	extraWindows: ReadonlyArray<{
+		id: string;
+		title: string;
+		window: RateLimitWindowDisplay;
+	}>;
 };
 
-export function parseCodexRateLimits(
-	json: string | null | undefined,
+export function parseRateLimitSnapshot(
+	value: Json | null | undefined,
 	now: number = Date.now() / 1000,
-): CodexRateLimitsDisplay | null {
-	if (!json) return null;
+): RateLimitSnapshotDisplay | null {
+	if (!value) return null;
 	let parsed: Json;
-	try {
-		parsed = JSON.parse(json);
-	} catch {
-		return null;
+	if (typeof value === "string") {
+		try {
+			parsed = JSON.parse(value);
+		} catch {
+			return null;
+		}
+	} else {
+		parsed = value;
 	}
 	const root = asObject(parsed);
 	if (!root) return null;
 	const primary = parseWindow(asObject(root.primary), now);
 	const secondary = parseWindow(asObject(root.secondary), now);
-	if (!primary && !secondary) return null;
-	return { primary, secondary };
+	const tertiary = parseWindow(asObject(root.tertiary), now);
+	const extraWindows = parseExtraWindows(root.extraWindows, now);
+	if (!primary && !secondary && !tertiary && extraWindows.length === 0)
+		return null;
+	return { primary, secondary, tertiary, extraWindows };
+}
+
+function parseExtraWindows(
+	value: Json,
+	now: number,
+): RateLimitSnapshotDisplay["extraWindows"] {
+	if (!Array.isArray(value)) return [];
+	const windows: Array<{
+		id: string;
+		title: string;
+		window: RateLimitWindowDisplay;
+	}> = [];
+	for (const entry of value) {
+		const obj = asObject(entry);
+		if (!obj) continue;
+		const id = typeof obj.id === "string" ? obj.id : null;
+		const title = typeof obj.title === "string" ? obj.title : null;
+		const window = parseWindow(asObject(obj.window), now);
+		if (!id || !title || !window) continue;
+		windows.push({ id, title, window });
+	}
+	return windows;
 }
 
 function parseWindow(

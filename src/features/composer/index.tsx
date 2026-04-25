@@ -81,6 +81,7 @@ import { $appendComposerInsertItems } from "./editor-ops";
 import type { ElicitationResponseHandler } from "./elicitation";
 import { ElicitationPanel } from "./elicitation-panel";
 import { FastModeLottieIcon } from "./fast-mode-lottie-icon";
+import { UsageStatsIndicator } from "./usage-stats-indicator";
 
 type WorkspaceComposerProps = {
 	contextKey: string;
@@ -726,6 +727,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 						</div>
 
 						<div className="flex items-center gap-2">
+							<UsageStatsIndicator agentType={agentType} disabled={disabled} />
 							{sessionId ? (
 								<ContextUsageRing
 									sessionId={sessionId}

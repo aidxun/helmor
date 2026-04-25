@@ -11,7 +11,6 @@ import { useUiSyncBridge } from "@/shell/hooks/use-ui-sync-bridge";
 const apiMockState = vi.hoisted(() => ({
 	getSessionContextUsage: vi.fn(),
 	getLiveContextUsage: vi.fn(),
-	getCodexRateLimits: vi.fn(),
 	subscribeUiMutations: vi.fn(),
 	capturedCallback: null as null | ((event: unknown) => void),
 }));
@@ -22,7 +21,6 @@ vi.mock("@/lib/api", async () => {
 		...actual,
 		getSessionContextUsage: apiMockState.getSessionContextUsage,
 		getLiveContextUsage: apiMockState.getLiveContextUsage,
-		getCodexRateLimits: apiMockState.getCodexRateLimits,
 		subscribeUiMutations: apiMockState.subscribeUiMutations,
 	};
 });
@@ -71,11 +69,9 @@ describe("ContextUsageRing end-to-end with UI sync bridge", () => {
 	beforeEach(() => {
 		apiMockState.getSessionContextUsage.mockReset();
 		apiMockState.getLiveContextUsage.mockReset();
-		apiMockState.getCodexRateLimits.mockReset();
 		apiMockState.subscribeUiMutations.mockReset();
 		apiMockState.capturedCallback = null;
 
-		apiMockState.getCodexRateLimits.mockResolvedValue(null);
 		apiMockState.subscribeUiMutations.mockImplementation(
 			async (callback: (event: unknown) => void) => {
 				apiMockState.capturedCallback = callback;

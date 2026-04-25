@@ -20,6 +20,9 @@ pub enum UiMutationEvent {
     /// Account-global Codex rate-limit snapshot updated. No payload — the
     /// frontend re-fetches via `get_codex_rate_limits`.
     CodexRateLimitsChanged,
+    /// Account-global Claude rate-limit snapshot updated. No payload — the
+    /// frontend re-fetches via `get_claude_rate_limits`.
+    ClaudeRateLimitsChanged,
     WorkspaceFilesChanged {
         workspace_id: String,
     },
@@ -142,6 +145,10 @@ mod tests {
             (
                 UiMutationEvent::CodexRateLimitsChanged,
                 "codexRateLimitsChanged",
+            ),
+            (
+                UiMutationEvent::ClaudeRateLimitsChanged,
+                "claudeRateLimitsChanged",
             ),
             (
                 UiMutationEvent::RepositoryListChanged,

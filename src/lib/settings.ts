@@ -27,6 +27,7 @@ export type AppSettings = {
 	 *  default), the ring auto-hides until usage crosses
 	 *  `CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD`. */
 	alwaysShowContextUsage: boolean;
+	showUsageStats: boolean;
 };
 
 /**
@@ -50,6 +51,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	zoomLevel: 1.0,
 	followUpBehavior: "steer",
 	alwaysShowContextUsage: false,
+	showUsageStats: true,
 };
 
 export const THEME_STORAGE_KEY = "helmor-theme";
@@ -68,6 +70,7 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	zoomLevel: "app.zoom_level",
 	followUpBehavior: "app.follow_up_behavior",
 	alwaysShowContextUsage: "app.always_show_context_usage",
+	showUsageStats: "app.show_usage_stats",
 };
 
 export async function loadSettings(): Promise<AppSettings> {
@@ -118,6 +121,10 @@ export async function loadSettings(): Promise<AppSettings> {
 				raw[SETTINGS_KEY_MAP.alwaysShowContextUsage] !== undefined
 					? raw[SETTINGS_KEY_MAP.alwaysShowContextUsage] === "true"
 					: DEFAULT_SETTINGS.alwaysShowContextUsage,
+			showUsageStats:
+				raw[SETTINGS_KEY_MAP.showUsageStats] !== undefined
+					? raw[SETTINGS_KEY_MAP.showUsageStats] === "true"
+					: DEFAULT_SETTINGS.showUsageStats,
 		};
 	} catch {
 		return { ...DEFAULT_SETTINGS };

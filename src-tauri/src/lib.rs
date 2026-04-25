@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod claude_rate_limits;
 pub mod cli;
 pub(crate) mod commands;
 pub mod data_dir;
@@ -183,6 +184,7 @@ pub fn run() {
             commands::github_commands::disconnect_github_identity,
             commands::repository_commands::get_add_repository_defaults,
             commands::settings_commands::get_app_settings,
+            commands::settings_commands::get_claude_rate_limits,
             commands::settings_commands::get_codex_rate_limits,
             commands::system_commands::get_cli_status,
             commands::system_commands::get_data_info,

@@ -3,7 +3,7 @@ import {
 	type ClaudeRichContextUsage,
 	formatTokens,
 	parseClaudeRichMeta,
-	parseCodexRateLimits,
+	parseRateLimitSnapshot,
 	parseStoredMeta,
 	resolveContextUsageDisplay,
 	ringTier,
@@ -203,18 +203,18 @@ describe("formatTokens", () => {
 	});
 });
 
-describe("parseCodexRateLimits", () => {
+describe("parseRateLimitSnapshot", () => {
 	const NOW = 1_777_000_000;
 
 	it("returns null for empty / unparseable / shapeless input", () => {
-		expect(parseCodexRateLimits(null)).toBeNull();
-		expect(parseCodexRateLimits("")).toBeNull();
-		expect(parseCodexRateLimits("not json")).toBeNull();
-		expect(parseCodexRateLimits("{}")).toBeNull();
+		expect(parseRateLimitSnapshot(null)).toBeNull();
+		expect(parseRateLimitSnapshot("")).toBeNull();
+		expect(parseRateLimitSnapshot("not json")).toBeNull();
+		expect(parseRateLimitSnapshot("{}")).toBeNull();
 	});
 
 	it("parses both windows with labels and reset times", () => {
-		const display = parseCodexRateLimits(
+		const display = parseRateLimitSnapshot(
 			JSON.stringify({
 				primary: {
 					usedPercent: 27,
@@ -237,26 +237,49 @@ describe("parseCodexRateLimits", () => {
 			expired: false,
 		});
 		expect(display?.secondary?.label).toBe("7d limit");
+		expect(display?.tertiary).toBeNull();
+		expect(display?.extraWindows).toEqual([]);
 	});
 
 	it("marks expired windows when resetsAt is in the past", () => {
-		const display = parseCodexRateLimits(
+		const display = parseRateLimitSnapshot(
 			JSON.stringify({
 				primary: {
 					usedPercent: 50,
 					windowDurationMins: 300,
 					resetsAt: NOW - 1,
 				},
+				tertiary: {
+					usedPercent: 25,
+					windowDurationMins: 10080,
+					resetsAt: NOW - 2,
+				},
 				secondary: null,
 			}),
 			NOW,
 		);
 		expect(display?.primary?.expired).toBe(true);
+		expect(display?.tertiary?.expired).toBe(true);
 		expect(display?.secondary).toBeNull();
 	});
 
+	it("accepts typed snapshot objects", () => {
+		const display = parseRateLimitSnapshot(
+			{
+				primary: { usedPercent: 45, windowDurationMins: 300 },
+				secondary: null,
+				tertiary: null,
+				extraWindows: [],
+			},
+			NOW,
+		);
+
+		expect(display?.primary?.label).toBe("5h limit");
+		expect(display?.extraWindows).toEqual([]);
+	});
+
 	it("clamps usedPercent into 0-100 and computes leftPercent", () => {
-		const display = parseCodexRateLimits(
+		const display = parseRateLimitSnapshot(
 			JSON.stringify({
 				primary: { usedPercent: -10, windowDurationMins: 60 },
 				secondary: { usedPercent: 150, windowDurationMins: 60 },
@@ -271,11 +294,57 @@ describe("parseCodexRateLimits", () => {
 
 	it("returns null when neither window is present", () => {
 		expect(
-			parseCodexRateLimits(
+			parseRateLimitSnapshot(
 				JSON.stringify({ primary: null, secondary: null }),
 				NOW,
 			),
 		).toBeNull();
+	});
+
+	it("parses tertiary and named extra windows", () => {
+		const display = parseRateLimitSnapshot(
+			JSON.stringify({
+				tertiary: { usedPercent: 1, windowDurationMins: 10080 },
+				extraWindows: [
+					{
+						id: "claude-design",
+						title: "Designs",
+						window: { usedPercent: 57, windowDurationMins: 10080 },
+					},
+				],
+			}),
+			NOW,
+		);
+		expect(display?.tertiary?.label).toBe("7d limit");
+		expect(display?.extraWindows?.[0]).toMatchObject({
+			id: "claude-design",
+			title: "Designs",
+			window: { usedPercent: 57, leftPercent: 43 },
+		});
+	});
+
+	it("ignores malformed extra windows", () => {
+		const display = parseRateLimitSnapshot(
+			JSON.stringify({
+				primary: { usedPercent: 12, windowDurationMins: 300 },
+				extraWindows: [
+					null,
+					{ id: "missing-title", window: { usedPercent: 1 } },
+					{ title: "Missing id", window: { usedPercent: 2 } },
+					{ id: "missing-window", title: "Missing window" },
+					{
+						id: "valid",
+						title: "Valid",
+						window: { usedPercent: 3, windowDurationMins: 60 },
+					},
+				],
+			}),
+			NOW,
+		);
+
+		expect(display?.extraWindows).toEqual([
+			expect.objectContaining({ id: "valid", title: "Valid" }),
+		]);
 	});
 });
 

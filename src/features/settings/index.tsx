@@ -291,6 +291,23 @@ export const SettingsDialog = memo(function SettingsDialog({
 										/>
 									</div>
 
+									<div className="flex items-center justify-between rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
+										<div className="mr-8">
+											<div className="text-[13px] font-medium leading-snug text-foreground">
+												Usage Stats
+											</div>
+											<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
+												Show account rate limits beside the composer.
+											</div>
+										</div>
+										<Switch
+											checked={settings.showUsageStats}
+											onCheckedChange={(checked) =>
+												updateSettings({ showUsageStats: checked })
+											}
+										/>
+									</div>
+
 									{/* Follow-up behavior */}
 									<div className="flex items-center justify-between rounded-xl border border-border/30 bg-muted/30 px-5 py-4">
 										<div className="mr-8">

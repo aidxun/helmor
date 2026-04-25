@@ -77,6 +77,7 @@ const AUTO_CLOSE_OPT_IN_ASKED_KEY: &str = "auto_close_opt_in_asked";
 /// Written by the streaming pipeline whenever Codex emits an
 /// `account/rateLimits/updated` notification, read by the composer ring.
 pub const CODEX_RATE_LIMITS_KEY: &str = "app.codex_rate_limits";
+pub const CLAUDE_RATE_LIMITS_KEY: &str = "app.claude_rate_limits";
 
 /// Action kinds the user has opted-in to auto-close. Action sessions whose
 /// `action_kind` appears in this list are hidden automatically after their

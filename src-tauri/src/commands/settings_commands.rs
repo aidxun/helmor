@@ -1,5 +1,7 @@
 use anyhow::Context;
 
+use tauri::AppHandle;
+
 use crate::{agents::ActionKind, db, settings};
 
 use super::common::{run_blocking, CmdResult};
@@ -51,6 +53,62 @@ pub async fn update_app_settings(
 #[tauri::command]
 pub async fn get_codex_rate_limits() -> CmdResult<Option<String>> {
     run_blocking(|| settings::load_setting_value(settings::CODEX_RATE_LIMITS_KEY)).await
+}
+
+#[tauri::command]
+pub async fn get_claude_rate_limits(
+    app: AppHandle,
+) -> CmdResult<crate::claude_rate_limits::RateLimitsQueryResult> {
+    run_blocking(move || {
+        let cached = settings::load_setting_value(settings::CLAUDE_RATE_LIMITS_KEY)?;
+        let now = chrono::Utc::now().timestamp();
+        let cached_snapshot = cached.as_deref().and_then(|raw| {
+            serde_json::from_str::<crate::claude_rate_limits::RateLimitSnapshot>(raw).ok()
+        });
+        if let Some(raw) = cached.as_deref() {
+            if let Ok(snapshot) =
+                serde_json::from_str::<crate::claude_rate_limits::RateLimitSnapshot>(raw)
+            {
+                if snapshot.is_fresh(now) {
+                    return Ok(crate::claude_rate_limits::query_result(
+                        Some(snapshot),
+                        crate::claude_rate_limits::RateLimitsQueryStatus::CacheHit,
+                        None,
+                    ));
+                }
+            }
+        }
+
+        match crate::claude_rate_limits::fetch_claude_rate_limits() {
+            Ok(snapshot) => {
+                let raw = serde_json::to_string(&snapshot)?;
+                settings::upsert_setting_value(settings::CLAUDE_RATE_LIMITS_KEY, &raw)?;
+                crate::ui_sync::publish(
+                    &app,
+                    crate::ui_sync::UiMutationEvent::ClaudeRateLimitsChanged,
+                );
+                Ok(crate::claude_rate_limits::query_result(
+                    Some(snapshot),
+                    crate::claude_rate_limits::RateLimitsQueryStatus::Fresh,
+                    None,
+                ))
+            }
+            Err(error) => {
+                tracing::warn!("Failed to refresh Claude rate limits: {error}");
+                let status = if cached_snapshot.is_some() {
+                    crate::claude_rate_limits::RateLimitsQueryStatus::StaleFallback
+                } else {
+                    crate::claude_rate_limits::RateLimitsQueryStatus::Error
+                };
+                Ok(crate::claude_rate_limits::query_result(
+                    cached_snapshot,
+                    status,
+                    Some(crate::claude_rate_limits::classify_error(&error)),
+                ))
+            }
+        }
+    })
+    .await
 }
 
 #[tauri::command]

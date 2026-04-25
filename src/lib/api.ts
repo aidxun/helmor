@@ -951,6 +951,7 @@ export type UiMutationEvent =
 	| { type: "sessionListChanged"; workspaceId: string }
 	| { type: "contextUsageChanged"; sessionId: string }
 	| { type: "codexRateLimitsChanged" }
+	| { type: "claudeRateLimitsChanged" }
 	| { type: "workspaceFilesChanged"; workspaceId: string }
 	| { type: "workspaceGitStateChanged"; workspaceId: string }
 	| { type: "workspaceForgeChanged"; workspaceId: string }
@@ -2167,6 +2168,41 @@ export async function getSessionContextUsage(
  *  emitted at least one `account/rateLimits/updated` notification. */
 export async function getCodexRateLimits(): Promise<string | null> {
 	return await invoke<string | null>("get_codex_rate_limits");
+}
+
+export type RateLimitWindowSnapshot = {
+	usedPercent: number;
+	windowDurationMins: number;
+	resetsAt: number | null;
+};
+
+export type NamedRateLimitWindowSnapshot = {
+	id: string;
+	title: string;
+	window: RateLimitWindowSnapshot;
+};
+
+export type RateLimitSnapshot = {
+	provider: string;
+	updatedAt: number;
+	primary: RateLimitWindowSnapshot | null;
+	secondary: RateLimitWindowSnapshot | null;
+	tertiary: RateLimitWindowSnapshot | null;
+	extraWindows: NamedRateLimitWindowSnapshot[];
+};
+
+export type RateLimitsQueryResult = {
+	snapshot: RateLimitSnapshot | null;
+	status: "cacheHit" | "fresh" | "staleFallback" | "error";
+	error: {
+		kind: "noCredentials" | "unauthorized" | "network" | "unknown";
+		message: string;
+	} | null;
+	ttlSeconds: number;
+};
+
+export async function getClaudeRateLimits(): Promise<RateLimitsQueryResult> {
+	return await invoke<RateLimitsQueryResult>("get_claude_rate_limits");
 }
 
 /** Live Claude-only context-usage fetch for the hover popover. Pure

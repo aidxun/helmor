@@ -7,14 +7,12 @@ import {
 } from "@/components/ui/hover-card";
 import {
 	claudeRichContextUsageQueryOptions,
-	codexRateLimitsQueryOptions,
 	sessionContextUsageQueryOptions,
 } from "@/lib/query-client";
 import { CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import {
 	parseClaudeRichMeta,
-	parseCodexRateLimits,
 	parseStoredMeta,
 	resolveContextUsageDisplay,
 } from "./parse";
@@ -60,14 +58,6 @@ export function ContextUsageRing({
 	);
 	const baseline = useMemo(() => parseStoredMeta(metaJson), [metaJson]);
 
-	const { data: rateLimitsRaw = null } = useQuery(
-		codexRateLimitsQueryOptions(),
-	);
-	const codexRateLimits = useMemo(
-		() => parseCodexRateLimits(rateLimitsRaw),
-		[rateLimitsRaw],
-	);
-
 	const [open, setOpen] = useState(false);
 
 	const isClaude = agentType === "claude";
@@ -92,14 +82,8 @@ export function ContextUsageRing({
 		[baseline, rich, composerModelId],
 	);
 
-	const hasCodexRateLimits =
-		agentType === "codex" &&
-		codexRateLimits !== null &&
-		(codexRateLimits.primary !== null || codexRateLimits.secondary !== null);
-
 	const visible =
 		alwaysShow ||
-		hasCodexRateLimits ||
 		(display.kind === "full" &&
 			display.percentage >= CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD);
 	if (!visible) return null;
@@ -168,8 +152,6 @@ export function ContextUsageRing({
 			<HoverCardContent side="top" align="end" className="w-[280px]">
 				<ContextUsagePopoverContent
 					display={display}
-					agentType={agentType}
-					codexRateLimits={codexRateLimits}
 					richLoading={isClaude && richFetching && rich === null}
 				/>
 			</HoverCardContent>
