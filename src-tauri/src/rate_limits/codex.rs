@@ -226,8 +226,18 @@ fn refresh_credentials(
 }
 
 /// Best-effort write-back so subsequent fetches (and the user's CLI)
-/// see the new tokens. Failure is non-fatal — we already have a valid
-/// in-memory credential, the next call will simply refresh again.
+/// see the new tokens.
+///
+/// We *must* write back: OpenAI's OAuth refresh endpoint rotates the
+/// refresh token (the old one is invalidated as soon as it is used),
+/// so if we keep the refreshed pair only in memory, the user's `codex`
+/// CLI will start failing to refresh on its own and demand a re-login.
+///
+/// Write is atomic — serialise to a sibling `*.tmp` file, fsync, then
+/// rename — so a crash mid-write can never leave a half-written
+/// `auth.json` that breaks both Helmor and the CLI. Failure is non-fatal
+/// at the call site (the in-memory credential is still valid for this
+/// run) but loud enough that ops can find it in the log.
 fn persist_refreshed_credentials(path: &Path, credentials: &CodexCredentials) -> Result<()> {
     let mut root: Value = match std::fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| serde_json::json!({})),
@@ -269,8 +279,44 @@ fn persist_refreshed_credentials(path: &Path, credentials: &CodexCredentials) ->
             .with_context(|| format!("Failed to create Codex auth dir {}", parent.display()))?;
     }
     let serialized = serde_json::to_vec_pretty(&root)?;
-    std::fs::write(path, serialized)
-        .with_context(|| format!("Failed to write {}", path.display()))?;
+    atomic_write(path, &serialized)
+}
+
+/// Write `bytes` to `path` atomically: open `path.tmp`, write, fsync,
+/// then rename over `path`. The rename is the file-system primitive
+/// that flips the inode — readers either see the previous file or the
+/// new one, never a partial write. mode `0o600` matches what the
+/// Codex CLI itself uses for `auth.json`.
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+
+    let mut tmp_path = path.as_os_str().to_owned();
+    tmp_path.push(".tmp");
+    let tmp_path = std::path::PathBuf::from(tmp_path);
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&tmp_path)
+        .with_context(|| format!("Failed to open {}", tmp_path.display()))?;
+    file.write_all(bytes)
+        .with_context(|| format!("Failed to write {}", tmp_path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("Failed to fsync {}", tmp_path.display()))?;
+    drop(file);
+
+    std::fs::rename(&tmp_path, path).with_context(|| {
+        format!(
+            "Failed to rename {} -> {}",
+            tmp_path.display(),
+            path.display()
+        )
+    })?;
     Ok(())
 }
 
@@ -361,5 +407,44 @@ mod tests {
             last_refresh: None,
         };
         assert!(!api_key_only.needs_refresh(10_000_000));
+    }
+
+    #[test]
+    fn atomic_write_round_trip_preserves_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        let payload = br#"{"tokens":{"access_token":"a"}}"#;
+        atomic_write(&path, payload).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), payload);
+        // Tmp sibling must not linger after a successful rename.
+        let mut tmp = path.as_os_str().to_owned();
+        tmp.push(".tmp");
+        assert!(!std::path::PathBuf::from(tmp).exists());
+    }
+
+    #[test]
+    fn persist_round_trip_keeps_credentials() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.json");
+        std::fs::write(
+            &path,
+            br#"{"tokens":{"access_token":"old","account_id":"acct"},"last_refresh":"2026-04-25T00:00:00Z"}"#,
+        )
+        .unwrap();
+
+        let credentials = CodexCredentials {
+            access_token: "new-access".to_string(),
+            refresh_token: "new-refresh".to_string(),
+            id_token: Some("new-id".to_string()),
+            account_id: Some("acct".to_string()),
+            last_refresh: Some(now_seconds()),
+        };
+        persist_refreshed_credentials(&path, &credentials).unwrap();
+
+        let read_back = parse_credentials(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(read_back.access_token, "new-access");
+        assert_eq!(read_back.refresh_token, "new-refresh");
+        assert_eq!(read_back.id_token.as_deref(), Some("new-id"));
+        assert_eq!(read_back.account_id.as_deref(), Some("acct"));
     }
 }

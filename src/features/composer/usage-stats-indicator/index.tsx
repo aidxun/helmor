@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
 import {
 	HoverCard,
 	HoverCardContent,
@@ -8,6 +8,7 @@ import {
 import {
 	claudeRateLimitsQueryOptions,
 	codexRateLimitsQueryOptions,
+	helmorQueryKeys,
 } from "@/lib/query-client";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,7 @@ const HOVER_CLOSE_DELAY_MS = 80;
 export function UsageStatsIndicator({ agentType, disabled, className }: Props) {
 	const { settings } = useSettings();
 	const [open, setOpen] = useState(false);
+	const queryClient = useQueryClient();
 	const show =
 		settings.showUsageStats &&
 		(agentType === "claude" || agentType === "codex");
@@ -40,6 +42,27 @@ export function UsageStatsIndicator({ agentType, disabled, className }: Props) {
 	);
 	const { data: claudeRaw = null } = useQuery(
 		claudeRateLimitsQueryOptions(show && !disabled && agentType === "claude"),
+	);
+
+	// Refresh on hover open. The Rust 30 s throttle keeps this from
+	// hammering upstream — within the throttle window the command just
+	// returns the cached body — so this can fire as eagerly as the user
+	// opens the popover.
+	const handleOpenChange = useCallback(
+		(next: boolean) => {
+			setOpen(next);
+			if (!next || disabled) return;
+			const key =
+				agentType === "claude"
+					? helmorQueryKeys.claudeRateLimits
+					: agentType === "codex"
+						? helmorQueryKeys.codexRateLimits
+						: null;
+			if (key) {
+				void queryClient.refetchQueries({ queryKey: key });
+			}
+		},
+		[agentType, disabled, queryClient],
 	);
 
 	const stats = useMemo(() => {
@@ -61,7 +84,7 @@ export function UsageStatsIndicator({ agentType, disabled, className }: Props) {
 	return (
 		<HoverCard
 			open={open}
-			onOpenChange={setOpen}
+			onOpenChange={handleOpenChange}
 			openDelay={HOVER_OPEN_DELAY_MS}
 			closeDelay={HOVER_CLOSE_DELAY_MS}
 		>
@@ -127,7 +150,9 @@ export function UsageStatsIndicator({ agentType, disabled, className }: Props) {
 // Geometry mirrors CodexBar's menu-bar IconRenderer so this indicator
 // reads with the same visual weight users get from the system menu
 // equivalent: 15 pt-wide track, 6 pt top bar, 4 pt bottom bar, 3 pt
-// gap, all centered inside an 18 pt square. Each fill colors
+// gap. The wrapper is `flex flex-col` rather than a fixed-size box, so
+// the 28 pt button host (`size-7`) handles centering — the bars
+// themselves stay tight against each other. Each fill colors
 // independently by its own usedPercent tier.
 const GLYPH_TRACK_WIDTH = 15;
 const GLYPH_PRIMARY_HEIGHT = 6;

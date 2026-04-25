@@ -168,6 +168,10 @@ fn keychain_accounts_without_prompt() -> Vec<String> {
         }
     };
 
+    // SAFETY: `kSecAttrAccount` is a static `CFStringRef` exported by
+    // the Security framework. Casting it to `CFTypeRef` is the standard
+    // way to use it as a dictionary key — the underlying object is
+    // immortal so no retain/release dance is required.
     let account_key = unsafe { kSecAttrAccount as CFTypeRef };
     results
         .into_iter()
@@ -176,6 +180,10 @@ fn keychain_accounts_without_prompt() -> Vec<String> {
                 return None;
             };
             let account = attrs.find(account_key)?;
+            // SAFETY: `attrs` returned a `CFTypeRef` we know is a
+            // `CFStringRef` (account attribute). `wrap_under_get_rule`
+            // takes a borrowed reference and increments the retain
+            // count, balanced by `CFString`'s `Drop`.
             let account = unsafe { CFString::wrap_under_get_rule(*account as _) };
             let account = account.to_string();
             (!account.trim().is_empty()).then_some(account)

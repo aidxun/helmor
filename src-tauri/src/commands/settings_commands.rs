@@ -1,10 +1,18 @@
 use anyhow::Context;
 
-use tauri::AppHandle;
-
-use crate::{agents::ActionKind, db, settings};
+use crate::{agents::ActionKind, db, rate_limits::throttle::Throttle, settings};
 
 use super::common::{run_blocking, CmdResult};
+
+/// 30 s belt-and-suspenders gate for rate-limit fetchers. Independent
+/// of the frontend's 2 min `refetchInterval` and hover-triggered
+/// refetches: even if the UI somehow hammers the command (event-loop
+/// bug, runaway hover handler), the upstream HTTP call still fires at
+/// most once per provider per 30 s. Within the cooldown window the
+/// caller gets the cached body verbatim.
+const RATE_LIMITS_THROTTLE_SECONDS: i64 = 30;
+static CLAUDE_RATE_LIMITS_THROTTLE: Throttle = Throttle::new(RATE_LIMITS_THROTTLE_SECONDS);
+static CODEX_RATE_LIMITS_THROTTLE: Throttle = Throttle::new(RATE_LIMITS_THROTTLE_SECONDS);
 
 #[tauri::command]
 pub async fn get_app_settings() -> CmdResult<std::collections::HashMap<String, String>> {
@@ -52,17 +60,26 @@ pub async fn update_app_settings(
 /// `app.codex_rate_limits` stores the raw response — no shape mapping —
 /// so downstream parsing lives entirely in the frontend, mirroring the
 /// Claude pipeline.
+///
+/// Frontend `useQuery` already caches the returned body and gates
+/// repeat calls via `staleTime` / `refetchInterval`. We deliberately do
+/// NOT publish a `*RateLimitsChanged` UI-sync event from this command
+/// — that would invalidate the same query key the frontend just
+/// resolved and trigger an immediate refetch, looping into HTTP 429.
 #[tauri::command]
-pub async fn get_codex_rate_limits(app: AppHandle) -> CmdResult<Option<String>> {
-    run_blocking(move || {
+pub async fn get_codex_rate_limits() -> CmdResult<Option<String>> {
+    run_blocking(|| {
         let cached = settings::load_setting_value(settings::CODEX_RATE_LIMITS_KEY)?;
+        if !CODEX_RATE_LIMITS_THROTTLE.should_fetch() {
+            return Ok(cached);
+        }
+        // Record before the HTTP roundtrip so a 429 or network error
+        // also serves the throttle cooldown — we never want a failure
+        // to invite an immediate retry.
+        CODEX_RATE_LIMITS_THROTTLE.record_attempt();
         match crate::rate_limits::codex::fetch_codex_rate_limits() {
             Ok(body) => {
                 settings::upsert_setting_value(settings::CODEX_RATE_LIMITS_KEY, &body)?;
-                crate::ui_sync::publish(
-                    &app,
-                    crate::ui_sync::UiMutationEvent::CodexRateLimitsChanged,
-                );
                 Ok(Some(body))
             }
             Err(error) => {
@@ -78,17 +95,20 @@ pub async fn get_codex_rate_limits(app: AppHandle) -> CmdResult<Option<String>> 
 /// attempts a live fetch and falls back to the cached body on failure.
 /// `app.claude_rate_limits` stores the raw Anthropic response — no
 /// shape mapping — so downstream parsing lives entirely in the frontend.
+///
+/// See `get_codex_rate_limits` for why this command does not publish a
+/// `*RateLimitsChanged` UI-sync event.
 #[tauri::command]
-pub async fn get_claude_rate_limits(app: AppHandle) -> CmdResult<Option<String>> {
-    run_blocking(move || {
+pub async fn get_claude_rate_limits() -> CmdResult<Option<String>> {
+    run_blocking(|| {
         let cached = settings::load_setting_value(settings::CLAUDE_RATE_LIMITS_KEY)?;
+        if !CLAUDE_RATE_LIMITS_THROTTLE.should_fetch() {
+            return Ok(cached);
+        }
+        CLAUDE_RATE_LIMITS_THROTTLE.record_attempt();
         match crate::rate_limits::claude::fetch_claude_rate_limits() {
             Ok(body) => {
                 settings::upsert_setting_value(settings::CLAUDE_RATE_LIMITS_KEY, &body)?;
-                crate::ui_sync::publish(
-                    &app,
-                    crate::ui_sync::UiMutationEvent::ClaudeRateLimitsChanged,
-                );
                 Ok(Some(body))
             }
             Err(error) => {

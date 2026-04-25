@@ -947,8 +947,6 @@ export type UiMutationEvent =
 	| { type: "workspaceChanged"; workspaceId: string }
 	| { type: "sessionListChanged"; workspaceId: string }
 	| { type: "contextUsageChanged"; sessionId: string }
-	| { type: "codexRateLimitsChanged" }
-	| { type: "claudeRateLimitsChanged" }
 	| { type: "workspaceFilesChanged"; workspaceId: string }
 	| { type: "workspaceGitStateChanged"; workspaceId: string }
 	| { type: "workspaceForgeChanged"; workspaceId: string }

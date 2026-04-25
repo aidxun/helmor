@@ -238,14 +238,20 @@ export function sessionContextUsageQueryOptions(sessionId: string) {
 	});
 }
 
-const RATE_LIMITS_STALE_TIME = 5 * 60_000;
+const RATE_LIMITS_STALE_TIME = 2 * 60_000;
 
+// Both rate-limit queries opt out of `refetchOnWindowFocus` so the
+// cadence is purely the 2 min `refetchInterval` plus an explicit
+// hover-triggered refetch from `UsageStatsIndicator`. The Rust command
+// layer additionally enforces a 30 s throttle as a hard ceiling, so a
+// user repeatedly opening the popover can't blow past upstream limits.
 export function codexRateLimitsQueryOptions(enabled: boolean) {
 	return queryOptions({
 		queryKey: helmorQueryKeys.codexRateLimits,
 		queryFn: getCodexRateLimits,
 		staleTime: RATE_LIMITS_STALE_TIME,
 		refetchInterval: enabled ? RATE_LIMITS_STALE_TIME : false,
+		refetchOnWindowFocus: false,
 		enabled,
 	});
 }
@@ -256,6 +262,7 @@ export function claudeRateLimitsQueryOptions(enabled: boolean) {
 		queryFn: getClaudeRateLimits,
 		staleTime: RATE_LIMITS_STALE_TIME,
 		refetchInterval: enabled ? RATE_LIMITS_STALE_TIME : false,
+		refetchOnWindowFocus: false,
 		enabled,
 	});
 }

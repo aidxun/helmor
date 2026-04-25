@@ -69,16 +69,6 @@ function handleUiMutation(
 					query.queryKey[1] === event.sessionId,
 			});
 			return;
-		case "codexRateLimitsChanged":
-			void queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.codexRateLimits,
-			});
-			return;
-		case "claudeRateLimitsChanged":
-			void queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.claudeRateLimits,
-			});
-			return;
 		case "workspaceFilesChanged":
 			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.workspaceGitActionStatus(event.workspaceId),
