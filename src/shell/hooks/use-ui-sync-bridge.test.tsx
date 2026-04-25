@@ -133,31 +133,6 @@ describe("useUiSyncBridge", () => {
 		});
 	});
 
-	it("invalidates the codex rate-limits query on codexRateLimitsChanged", async () => {
-		const queryClient = makeClient();
-		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
-
-		renderHook(() =>
-			useUiSyncBridge({
-				queryClient,
-				processPendingCliSends: vi.fn(),
-				reloadSettings: vi.fn(),
-				refreshGithubIdentity: vi.fn(),
-			}),
-		);
-
-		act(() => {
-			capturedSubscription?.({ type: "codexRateLimitsChanged" });
-		});
-
-		await waitFor(() => {
-			expect(invalidateQueries).toHaveBeenCalledWith({
-				queryKey: helmorQueryKeys.codexRateLimits,
-			});
-		});
-		expect(invalidateQueries).toHaveBeenCalledTimes(1);
-	});
-
 	it("invalidates baseline + rich on contextUsageChanged", async () => {
 		const queryClient = makeClient();
 		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");

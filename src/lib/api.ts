@@ -947,7 +947,6 @@ export type UiMutationEvent =
 	| { type: "workspaceChanged"; workspaceId: string }
 	| { type: "sessionListChanged"; workspaceId: string }
 	| { type: "contextUsageChanged"; sessionId: string }
-	| { type: "codexRateLimitsChanged" }
 	| { type: "workspaceFilesChanged"; workspaceId: string }
 	| { type: "workspaceGitStateChanged"; workspaceId: string }
 	| { type: "workspaceForgeChanged"; workspaceId: string }
@@ -2185,6 +2184,14 @@ export async function getSessionContextUsage(
  *  emitted at least one `account/rateLimits/updated` notification. */
 export async function getCodexRateLimits(): Promise<string | null> {
 	return await invoke<string | null>("get_codex_rate_limits");
+}
+
+/** Read the account-global Claude rate-limit snapshot. The string is
+ *  the raw Anthropic `/api/oauth/usage` response body — parsed on the
+ *  frontend via `parseClaudeRateLimits`. Null when no fetch has ever
+ *  succeeded (no cache, latest fetch failed). */
+export async function getClaudeRateLimits(): Promise<string | null> {
+	return await invoke<string | null>("get_claude_rate_limits");
 }
 
 /** Live Claude-only context-usage fetch for the hover popover. Pure

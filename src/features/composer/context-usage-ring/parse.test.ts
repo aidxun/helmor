@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type ClaudeRichContextUsage,
 	formatTokens,
+	parseClaudeRateLimits,
 	parseClaudeRichMeta,
 	parseCodexRateLimits,
 	parseStoredMeta,
@@ -213,19 +214,23 @@ describe("parseCodexRateLimits", () => {
 		expect(parseCodexRateLimits("{}")).toBeNull();
 	});
 
-	it("parses both windows with labels and reset times", () => {
+	it("parses wham/usage primary_window + secondary_window", () => {
 		const display = parseCodexRateLimits(
 			JSON.stringify({
-				primary: {
-					usedPercent: 27,
-					windowDurationMins: 300,
-					resetsAt: NOW + 3600,
+				plan_type: "pro",
+				rate_limit: {
+					primary_window: {
+						used_percent: 27,
+						limit_window_seconds: 18_000,
+						reset_at: NOW + 3600,
+					},
+					secondary_window: {
+						used_percent: 60,
+						limit_window_seconds: 604_800,
+						reset_at: NOW + 86_400,
+					},
 				},
-				secondary: {
-					usedPercent: 27,
-					windowDurationMins: 10080,
-					resetsAt: NOW + 86_400,
-				},
+				credits: { has_credits: true, unlimited: false, balance: "10.50" },
 			}),
 			NOW,
 		);
@@ -237,29 +242,66 @@ describe("parseCodexRateLimits", () => {
 			expired: false,
 		});
 		expect(display?.secondary?.label).toBe("7d limit");
+		expect(display?.notes).toEqual([
+			{ label: "Plan", value: "Pro" },
+			{ label: "Credits", value: "$10.50" },
+		]);
 	});
 
-	it("marks expired windows when resetsAt is in the past", () => {
+	it("renders plan + zero credits when both windows are exhausted/null", () => {
 		const display = parseCodexRateLimits(
 			JSON.stringify({
-				primary: {
-					usedPercent: 50,
-					windowDurationMins: 300,
-					resetsAt: NOW - 1,
+				plan_type: "prolite",
+				rate_limit: { primary_window: null, secondary_window: null },
+				credits: { has_credits: false, unlimited: false, balance: "0" },
+			}),
+			NOW,
+		);
+		expect(display?.primary).toBeNull();
+		expect(display?.secondary).toBeNull();
+		expect(display?.notes).toEqual([
+			{ label: "Plan", value: "Prolite" },
+			{ label: "Credits", value: "$0.00" },
+		]);
+	});
+
+	it("treats unlimited credits as a sentinel string", () => {
+		const display = parseCodexRateLimits(
+			JSON.stringify({
+				plan_type: "team",
+				credits: { unlimited: true, has_credits: true },
+			}),
+			NOW,
+		);
+		expect(display?.notes).toEqual([
+			{ label: "Plan", value: "Team" },
+			{ label: "Credits", value: "Unlimited" },
+		]);
+	});
+
+	it("marks expired windows when reset_at is in the past", () => {
+		const display = parseCodexRateLimits(
+			JSON.stringify({
+				rate_limit: {
+					primary_window: {
+						used_percent: 50,
+						limit_window_seconds: 18_000,
+						reset_at: NOW - 1,
+					},
 				},
-				secondary: null,
 			}),
 			NOW,
 		);
 		expect(display?.primary?.expired).toBe(true);
-		expect(display?.secondary).toBeNull();
 	});
 
-	it("clamps usedPercent into 0-100 and computes leftPercent", () => {
+	it("clamps used_percent into 0-100 and computes leftPercent", () => {
 		const display = parseCodexRateLimits(
 			JSON.stringify({
-				primary: { usedPercent: -10, windowDurationMins: 60 },
-				secondary: { usedPercent: 150, windowDurationMins: 60 },
+				rate_limit: {
+					primary_window: { used_percent: -10, limit_window_seconds: 3600 },
+					secondary_window: { used_percent: 150, limit_window_seconds: 3600 },
+				},
 			}),
 			NOW,
 		);
@@ -269,12 +311,120 @@ describe("parseCodexRateLimits", () => {
 		expect(display?.secondary?.leftPercent).toBe(0);
 	});
 
-	it("returns null when neither window is present", () => {
+	it("returns null when no windows / plan / credits are usable", () => {
 		expect(
 			parseCodexRateLimits(
-				JSON.stringify({ primary: null, secondary: null }),
+				JSON.stringify({ rate_limit: { primary_window: null } }),
 				NOW,
 			),
+		).toBeNull();
+	});
+
+	it("falls back to legacy CLI-pushed shape (camelCase root)", () => {
+		const display = parseCodexRateLimits(
+			JSON.stringify({
+				primary: {
+					usedPercent: 27,
+					windowDurationMins: 300,
+					resetsAt: NOW + 3600,
+				},
+				secondary: {
+					usedPercent: 60,
+					windowDurationMins: 10080,
+					resetsAt: NOW + 86_400,
+				},
+				planType: "plus",
+			}),
+			NOW,
+		);
+		expect(display?.primary?.label).toBe("5h limit");
+		expect(display?.secondary?.label).toBe("7d limit");
+		expect(display?.notes).toEqual([{ label: "Plan", value: "Plus" }]);
+	});
+});
+
+describe("parseClaudeRateLimits", () => {
+	const NOW = 1_777_000_000;
+
+	it("returns null for missing / unparseable input", () => {
+		expect(parseClaudeRateLimits(null)).toBeNull();
+		expect(parseClaudeRateLimits("not json")).toBeNull();
+		expect(parseClaudeRateLimits("{}")).toBeNull();
+	});
+
+	it("parses five_hour + seven_day into primary/secondary", () => {
+		const display = parseClaudeRateLimits(
+			JSON.stringify({
+				five_hour: { utilization: 12 },
+				seven_day: { utilization: 30 },
+			}),
+			NOW,
+		);
+		expect(display?.primary?.usedPercent).toBe(12);
+		expect(display?.primary?.label).toBe("5h limit");
+		expect(display?.secondary?.usedPercent).toBe(30);
+		expect(display?.secondary?.label).toBe("7d limit");
+		expect(display?.extraWindows).toEqual([]);
+	});
+
+	it("collects every seven_day_* field into extraWindows", () => {
+		const display = parseClaudeRateLimits(
+			JSON.stringify({
+				five_hour: { utilization: 1 },
+				seven_day: { utilization: 2 },
+				seven_day_sonnet: { utilization: 3 },
+				seven_day_opus: { utilization: 4 },
+				seven_day_omelette: { utilization: 5 },
+				seven_day_cowork: { utilization: 6 },
+				seven_day_new_window: { utilization: 7 },
+			}),
+			NOW,
+		);
+
+		// Sorted by `id` (claude-cowork → claude-new-window → claude-omelette
+		// → claude-opus → claude-sonnet) so the popover order is stable
+		// across refetches.
+		expect(display?.extraWindows.map((entry) => entry.title)).toEqual([
+			"Daily Routines",
+			"New Window",
+			"Designs",
+			"Opus",
+			"Sonnet",
+		]);
+	});
+
+	it("parses ISO resets_at into unix seconds", () => {
+		const display = parseClaudeRateLimits(
+			JSON.stringify({
+				five_hour: {
+					utilization: 8,
+					resets_at: "2026-04-25T06:30:00.000Z",
+				},
+			}),
+			NOW,
+		);
+		expect(display?.primary?.resetsAt).toBe(
+			Math.floor(Date.parse("2026-04-25T06:30:00.000Z") / 1000),
+		);
+	});
+
+	it("skips windows with non-numeric utilization", () => {
+		const display = parseClaudeRateLimits(
+			JSON.stringify({
+				five_hour: { utilization: "bad" },
+				seven_day: { utilization: 50 },
+				seven_day_sonnet: { utilization: null },
+			}),
+			NOW,
+		);
+		expect(display?.primary).toBeNull();
+		expect(display?.secondary?.usedPercent).toBe(50);
+		expect(display?.extraWindows).toEqual([]);
+	});
+
+	it("returns null when no usable windows are present", () => {
+		expect(
+			parseClaudeRateLimits(JSON.stringify({ extra_usage: { foo: 1 } }), NOW),
 		).toBeNull();
 	});
 });

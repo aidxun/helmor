@@ -73,10 +73,15 @@ pub fn upsert_setting_json<T: Serialize>(key: &str, value: &T) -> Result<()> {
 const AUTO_CLOSE_ACTION_KINDS_KEY: &str = "auto_close_action_kinds";
 const AUTO_CLOSE_OPT_IN_ASKED_KEY: &str = "auto_close_opt_in_asked";
 
-/// Account-global Codex rate-limit snapshot (raw `RateLimitSnapshot` JSON).
-/// Written by the streaming pipeline whenever Codex emits an
-/// `account/rateLimits/updated` notification, read by the composer ring.
+/// Account-global rate-limit snapshots: the raw upstream response body
+/// is stored verbatim (no shape mapping) by the corresponding
+/// `get_*_rate_limits` Tauri command after a live OAuth fetch, and read
+/// back by the same command as the cache-fallback when a fresh fetch
+/// fails. The frontend's `parse{Codex,Claude}RateLimits` does the
+/// shape work, so a schema change at the provider only needs a parser
+/// tweak — not a DB migration.
 pub const CODEX_RATE_LIMITS_KEY: &str = "app.codex_rate_limits";
+pub const CLAUDE_RATE_LIMITS_KEY: &str = "app.claude_rate_limits";
 
 /// Action kinds the user has opted-in to auto-close. Action sessions whose
 /// `action_kind` appears in this list are hidden automatically after their
