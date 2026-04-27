@@ -78,8 +78,8 @@ export function HelmorOnboardingMockup({
 				</div>
 				<div
 					aria-hidden
-					className={`pointer-events-none absolute -inset-2 z-20 bg-black/42 backdrop-grayscale transition-opacity duration-1000 ${
-						providerSpotlight ? "opacity-100" : "opacity-0"
+					className={`pointer-events-none absolute -inset-2 z-20 transition-colors duration-[600ms] ${
+						providerSpotlight ? "bg-black/55" : "bg-transparent"
 					}`}
 				/>
 			</div>
