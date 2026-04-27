@@ -27,7 +27,6 @@ describe("InspectorTabsSection", () => {
 				onTabChange={vi.fn()}
 				setupScriptState="idle"
 				runScriptState="running"
-				terminalCount={0}
 				canHoverExpand
 			>
 				<div>Terminal body</div>
@@ -69,7 +68,6 @@ describe("InspectorTabsSection", () => {
 				onTabChange={vi.fn()}
 				setupScriptState="idle"
 				runScriptState="running"
-				terminalCount={0}
 				canHoverExpand
 			>
 				<div>Terminal body</div>
@@ -99,7 +97,6 @@ describe("InspectorTabsSection", () => {
 				onTabChange={vi.fn()}
 				setupScriptState="idle"
 				runScriptState="running"
-				terminalCount={0}
 				canHoverExpand={false}
 			>
 				<div>Placeholder body</div>
