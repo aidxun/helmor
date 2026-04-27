@@ -623,6 +623,64 @@ export async function openForgeCliAuthTerminal(
 	}
 }
 
+export async function spawnForgeCliAuthTerminal(
+	provider: ForgeProvider,
+	host: string | null,
+	instanceId: string,
+	onEvent: (event: ScriptEvent) => void,
+): Promise<void> {
+	const channel = new Channel<ScriptEvent>();
+	channel.onmessage = onEvent;
+	await invoke("spawn_forge_cli_auth_terminal", {
+		provider,
+		host,
+		instanceId,
+		channel,
+	});
+}
+
+export async function stopForgeCliAuthTerminal(
+	provider: ForgeProvider,
+	host: string | null,
+	instanceId: string,
+): Promise<boolean> {
+	return invoke<boolean>("stop_forge_cli_auth_terminal", {
+		provider,
+		host,
+		instanceId,
+	});
+}
+
+export async function writeForgeCliAuthTerminalStdin(
+	provider: ForgeProvider,
+	host: string | null,
+	instanceId: string,
+	data: string,
+): Promise<boolean> {
+	return invoke<boolean>("write_forge_cli_auth_terminal_stdin", {
+		provider,
+		host,
+		instanceId,
+		data,
+	});
+}
+
+export async function resizeForgeCliAuthTerminal(
+	provider: ForgeProvider,
+	host: string | null,
+	instanceId: string,
+	cols: number,
+	rows: number,
+): Promise<boolean> {
+	return invoke<boolean>("resize_forge_cli_auth_terminal", {
+		provider,
+		host,
+		instanceId,
+		cols,
+		rows,
+	});
+}
+
 export async function loadDataInfo(): Promise<DataInfo | null> {
 	try {
 		return await invoke<DataInfo>("get_data_info");

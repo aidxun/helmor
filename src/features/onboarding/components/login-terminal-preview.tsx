@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { type RefObject, useCallback, useEffect, useRef } from "react";
 import {
 	type TerminalHandle,
 	TerminalOutput,
@@ -17,6 +17,70 @@ const providerLabels: Record<AgentLoginProvider, string> = {
 	claude: "Claude Code",
 	codex: "Codex",
 };
+
+export function OnboardingTerminalPreview({
+	title,
+	active,
+	className,
+	heightClassName = "h-[340px]",
+	terminalClassName = "h-[300px]",
+	panelClassName,
+	onData,
+	onResize,
+	terminalRef,
+	padding = "16px 0 72px 20px",
+}: {
+	title: string;
+	active: boolean;
+	className?: string;
+	heightClassName?: string;
+	terminalClassName?: string;
+	panelClassName?: string;
+	onData?: (data: string) => void;
+	onResize?: (cols: number, rows: number) => void;
+	terminalRef: RefObject<TerminalHandle | null>;
+	padding?: string;
+}) {
+	return (
+		<div
+			aria-hidden={!active}
+			className={cn(
+				"absolute top-1/2 right-0 w-[520px] -translate-y-1/2 transition-all duration-700 ease-[cubic-bezier(.22,.82,.2,1)]",
+				active
+					? "translate-x-0 opacity-100"
+					: "pointer-events-none translate-x-[calc(100%+5rem)] opacity-0",
+				className,
+			)}
+		>
+			<div
+				className={cn(
+					"overflow-hidden rounded-xl border border-border/60 bg-card shadow-2xl shadow-black/15",
+					heightClassName,
+					panelClassName,
+				)}
+			>
+				<div className="flex h-10 items-center gap-2 border-b border-border/55 bg-background px-4">
+					<span className="size-2.5 rounded-full bg-muted-foreground/35" />
+					<span className="size-2.5 rounded-full bg-muted-foreground/25" />
+					<span className="size-2.5 rounded-full bg-muted-foreground/20" />
+					<span className="ml-2 text-xs font-medium text-muted-foreground">
+						{title}
+					</span>
+				</div>
+				<TerminalOutput
+					terminalRef={terminalRef}
+					className={terminalClassName}
+					detectLinks
+					fontSize={12}
+					lineHeight={1.35}
+					padding={padding}
+					onData={onData}
+					onResize={onResize}
+				/>
+			</div>
+		</div>
+	);
+}
 
 export function LoginTerminalPreview({
 	provider,
@@ -94,35 +158,12 @@ export function LoginTerminalPreview({
 	);
 
 	return (
-		<div
-			aria-hidden={!active}
-			className={cn(
-				"absolute top-1/2 right-0 w-[520px] -translate-y-1/2 transition-all duration-700 ease-[cubic-bezier(.22,.82,.2,1)]",
-				active
-					? "translate-x-0 opacity-100"
-					: "pointer-events-none translate-x-[calc(100%+5rem)] opacity-0",
-			)}
-		>
-			<div className="h-[340px] overflow-hidden rounded-xl border border-border/60 bg-card shadow-2xl shadow-black/15">
-				<div className="flex h-10 items-center gap-2 border-b border-border/55 bg-background px-4">
-					<span className="size-2.5 rounded-full bg-muted-foreground/35" />
-					<span className="size-2.5 rounded-full bg-muted-foreground/25" />
-					<span className="size-2.5 rounded-full bg-muted-foreground/20" />
-					<span className="ml-2 text-xs font-medium text-muted-foreground">
-						{providerLabels[resolvedProvider]} login
-					</span>
-				</div>
-				<TerminalOutput
-					terminalRef={termRef}
-					className="h-[300px]"
-					detectLinks
-					fontSize={12}
-					lineHeight={1.35}
-					padding="16px 0 16px 20px"
-					onData={handleData}
-					onResize={handleResize}
-				/>
-			</div>
-		</div>
+		<OnboardingTerminalPreview
+			title={`${providerLabels[resolvedProvider]} login`}
+			active={active}
+			terminalRef={termRef}
+			onData={handleData}
+			onResize={handleResize}
+		/>
 	);
 }

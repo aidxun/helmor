@@ -234,6 +234,12 @@ vi.mock("@tauri-apps/api/core", () => ({
 				};
 			case "open_forge_cli_auth_terminal":
 				return undefined;
+			case "spawn_forge_cli_auth_terminal":
+				return undefined;
+			case "stop_forge_cli_auth_terminal":
+			case "write_forge_cli_auth_terminal_stdin":
+			case "resize_forge_cli_auth_terminal":
+				return false;
 			case "get_workspace_forge_check_insert_text":
 				return "";
 			case "drain_pending_cli_sends":
