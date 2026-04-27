@@ -27,13 +27,6 @@ export type TerminalHandle = {
 	write: (data: string) => void;
 	clear: () => void;
 	dispose: () => void;
-	/**
-	 * Force a FitAddon re-fit. Used when the terminal becomes visible after
-	 * being hidden (e.g. outer tab switch) — even though `visibility: hidden`
-	 * keeps DOM dimensions intact, xterm's renderer can drop intermediate
-	 * frames and benefits from one explicit fit + redraw on re-show.
-	 */
-	refit: () => void;
 };
 
 // Global suspend counter shared across every mounted TerminalOutput.
@@ -171,22 +164,10 @@ export function TerminalOutput({
 			onResizeRef.current?.(cols, rows);
 		});
 
-		const resizeObserver = new ResizeObserver((entries) => {
+		const resizeObserver = new ResizeObserver(() => {
 			// A caller is animating an ancestor — skip the per-frame reflow and
 			// rely on `refitListener` below to fit once when the animation ends.
 			if (terminalFitSuspendCount > 0) return;
-			// Skip while the container is collapsed to 0×0 (e.g. parent in
-			// `display: none` state during a tab transition). Calling
-			// FitAddon.fit() at zero size truncates xterm's internal buffer
-			// dimensions and the next visible frame renders empty until input
-			// arrives.
-			const entry = entries[0];
-			if (
-				entry &&
-				(entry.contentRect.width === 0 || entry.contentRect.height === 0)
-			) {
-				return;
-			}
 			runFit();
 		});
 		resizeObserver.observe(container);
@@ -215,7 +196,6 @@ export function TerminalOutput({
 					terminal.reset();
 				},
 				dispose: () => terminal.dispose(),
-				refit: () => runFit(),
 			};
 		}
 

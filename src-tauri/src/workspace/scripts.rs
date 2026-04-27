@@ -304,38 +304,7 @@ pub fn run_script(
         repo_id,
         script_type,
         workspace_id,
-        Some(script),
-        working_dir,
-        context,
-        channel,
-        &shell,
-        &["-i", "-l"],
-    )
-}
-
-/// Spawn a blank interactive login shell on a PTY without feeding any script.
-///
-/// Used by the Terminal tab — the user gets a normal `$SHELL` prompt at
-/// `working_dir` and can run whatever they want. The PTY stays open until
-/// the user types `exit` (or the shell otherwise dies) or the caller invokes
-/// [`ScriptProcessManager::kill`] via `stop_terminal`.
-#[allow(clippy::too_many_arguments)]
-pub fn run_terminal_session(
-    manager: &ScriptProcessManager,
-    repo_id: &str,
-    script_type: &str,
-    workspace_id: Option<&str>,
-    working_dir: &str,
-    context: &ScriptContext,
-    channel: Channel<ScriptEvent>,
-) -> Result<Option<i32>> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-    run_script_with_shell(
-        manager,
-        repo_id,
-        script_type,
-        workspace_id,
-        None,
+        script,
         working_dir,
         context,
         channel,
@@ -347,27 +316,21 @@ pub fn run_terminal_session(
 /// Internal implementation of [`run_script`] that takes the shell path and
 /// args explicitly. Exposed within the crate so tests can substitute a lean
 /// `/bin/sh` for the user's (potentially slow) interactive `$SHELL`.
-///
-/// When `script` is `Some`, the shell is fed the wrapped command and exits
-/// once the command completes. When `script` is `None`, the shell starts
-/// blank — used by the Terminal tab where the user types commands directly.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_script_with_shell(
     manager: &ScriptProcessManager,
     repo_id: &str,
     script_type: &str,
     workspace_id: Option<&str>,
-    script: Option<&str>,
+    script: &str,
     working_dir: &str,
     context: &ScriptContext,
     channel: Channel<ScriptEvent>,
     shell_path: &str,
     shell_args: &[&str],
 ) -> Result<Option<i32>> {
-    if let Some(s) = script {
-        if s.trim().is_empty() {
-            bail!("Script is empty");
-        }
+    if script.trim().is_empty() {
+        bail!("Script is empty");
     }
 
     let (master_fd, slave_fd) = open_pty()?;
@@ -444,11 +407,7 @@ pub(crate) fn run_script_with_shell(
 
     let _ = channel.send(ScriptEvent::Started {
         pid: pid as u32,
-        command: script.map(str::to_string).unwrap_or_else(|| {
-            // Terminal mode: no command was fed; report the shell invocation
-            // so frontends can show a stable label in the Started event.
-            format!("{shell_path} {}", shell_args.join(" "))
-        }),
+        command: script.to_string(),
     });
 
     let key: ProcessKey = (
@@ -498,14 +457,11 @@ pub(crate) fn run_script_with_shell(
     // The interactive shell will show its prompt, echo the command, execute
     // it, print a completion message, then exit. The PTY stays open the
     // entire time so Ctrl+C / typing reaches whatever the shell is running.
-    //
-    // Skipped in Terminal mode (`script == None`): the shell stays at its
-    // prompt and waits for the user to type something.
-    if let Some(script) = script {
-        let wrapped = format!(
-            "eval {}; __helmor_ec=$?; printf '\\r\\n\\033[2m[Completed with exit code %d]\\033[0m\\r\\n' $__helmor_ec; exit $__helmor_ec\n",
-            shell_escape(script),
-        );
+    let wrapped = format!(
+        "eval {}; __helmor_ec=$?; printf '\\r\\n\\033[2m[Completed with exit code %d]\\033[0m\\r\\n' $__helmor_ec; exit $__helmor_ec\n",
+        shell_escape(script),
+    );
+    {
         let mut file = stdin.lock().expect("stdin mutex poisoned");
         if let Err(e) = file.write_all(wrapped.as_bytes()) {
             tracing::warn!(error = %e, "initial PTY write failed");
@@ -725,7 +681,7 @@ mod tests {
                 &key_c.0,
                 &key_c.1,
                 key_c.2.as_deref(),
-                Some("sleep 60"),
+                "sleep 60",
                 &tempdir,
                 &ctx,
                 make_channel(),
@@ -804,7 +760,7 @@ mod tests {
                 // actually blocking on it. Then echo what we got. Absolute
                 // paths avoid depending on PATH (tests may run with a bare
                 // env where /bin isn't in PATH).
-                Some("/bin/sleep 0.3; read x; printf 'GOT:%s\\n' \"$x\""),
+                "/bin/sleep 0.3; read x; printf 'GOT:%s\\n' \"$x\"",
                 &tempdir,
                 &ctx,
                 ch,
@@ -891,7 +847,7 @@ mod tests {
                 // The initial sleep lets the resize below happen while the
                 // shell is waiting, so stty definitely sees the new size.
                 // Absolute paths avoid PATH assumptions.
-                Some("/bin/sleep 0.5; /bin/stty size"),
+                "/bin/sleep 0.5; /bin/stty size",
                 &tempdir,
                 &ctx,
                 ch,
@@ -953,7 +909,7 @@ mod tests {
             "test-repo",
             "setup",
             Some("ws-test"),
-            Some(script),
+            script,
             dir.to_str().unwrap(),
             &ctx,
             make_channel(),
