@@ -57,8 +57,8 @@ export function RepositoryPreferencesSection({ repoId }: { repoId: string }) {
 
 	return (
 		<>
-			<div className="rounded-xl border border-app-border/30 bg-app-base/20 px-5 py-4">
-				<div className="text-[13px] font-medium leading-snug text-app-foreground">
+			<div className="py-5">
+				<div className="text-[13px] font-medium leading-snug text-foreground">
 					Preferences
 				</div>
 				<div className="mt-1 text-[12px] leading-snug text-muted-foreground">

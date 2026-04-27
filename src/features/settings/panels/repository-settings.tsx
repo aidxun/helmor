@@ -42,6 +42,7 @@ import {
 	updateRepositoryRemote,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { SettingsGroup } from "../components/settings-row";
 import { RepositoryPreferencesSection } from "./repository-preferences-section";
 
 export function RepositorySettingsPanel({
@@ -129,9 +130,9 @@ export function RepositorySettingsPanel({
 	);
 
 	return (
-		<div className="space-y-3">
-			<div className="rounded-xl border border-app-border/30 bg-app-base/20 px-5 py-4">
-				<div className="text-[13px] font-medium leading-snug text-app-foreground">
+		<SettingsGroup>
+			<div className="py-5">
+				<div className="text-[13px] font-medium leading-snug text-foreground">
 					Remote origin
 				</div>
 				<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
@@ -189,8 +190,8 @@ export function RepositorySettingsPanel({
 				</div>
 			</div>
 
-			<div className="rounded-xl border border-app-border/30 bg-app-base/20 px-5 py-4">
-				<div className="text-[13px] font-medium leading-snug text-app-foreground">
+			<div className="py-5">
+				<div className="text-[13px] font-medium leading-snug text-foreground">
 					Branch new workspaces from
 				</div>
 				<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
@@ -229,7 +230,7 @@ export function RepositorySettingsPanel({
 			<RepositoryPreferencesSection repoId={repo.id} />
 
 			<DeleteRepoSection repo={repo} onDeleted={onRepoDeleted} />
-		</div>
+		</SettingsGroup>
 	);
 }
 
@@ -397,8 +398,8 @@ function ScriptsSection({
 	const setupHasScript = !!setupScript.trim();
 
 	return (
-		<div className="rounded-xl border border-app-border/30 bg-app-base/20 px-5 py-4">
-			<div className="text-[13px] font-medium leading-snug text-app-foreground">
+		<div className="py-5">
+			<div className="text-[13px] font-medium leading-snug text-foreground">
 				Scripts
 			</div>
 			<div className="mt-1 text-[12px] leading-snug text-muted-foreground">
@@ -492,8 +493,8 @@ function DeleteRepoSection({
 
 	return (
 		<>
-			<div className="rounded-xl border border-app-border/30 bg-app-base/20 px-5 py-4">
-				<div className="flex items-center gap-2 text-[13px] font-medium leading-snug text-app-foreground">
+			<div className="py-5">
+				<div className="flex items-center gap-2 text-[13px] font-medium leading-snug text-foreground">
 					<Trash2 className="size-3.5 text-destructive" strokeWidth={1.8} />
 					Delete Repository
 				</div>
