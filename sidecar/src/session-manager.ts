@@ -18,6 +18,7 @@ export interface SendMessageParams {
 	readonly permissionMode: string | undefined;
 	readonly effortLevel: string | undefined;
 	readonly fastMode: boolean | undefined;
+	readonly claudeEnvironment?: Readonly<Record<string, string>>;
 	/**
 	 * Extra directories the user linked via `/add-dir`. Passed to Claude as
 	 * `additionalDirectories`; merged into Codex's per-turn `sandboxPolicy`
@@ -44,6 +45,11 @@ export interface GetContextUsageParams {
 	readonly providerSessionId: string | null;
 	readonly model: string;
 	readonly cwd: string | undefined;
+}
+
+export interface GenerateTitleOptions {
+	readonly model?: string;
+	readonly claudeEnvironment?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -90,6 +96,7 @@ export interface SessionManager {
 		branchRenamePrompt: string | null,
 		emitter: SidecarEmitter,
 		timeoutMs?: number,
+		options?: GenerateTitleOptions,
 	): Promise<void>;
 
 	/**

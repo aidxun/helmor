@@ -26,6 +26,7 @@ import { errorDetails, logger } from "./logger.js";
 import { listProviderModels, modelSupportsFastMode } from "./model-catalog.js";
 import { createPushable, type Pushable } from "./pushable-iterable.js";
 import type {
+	GenerateTitleOptions,
 	GetContextUsageParams,
 	ListSlashCommandsParams,
 	ProviderModelInfo,
@@ -394,6 +395,7 @@ export class ClaudeSessionManager implements SessionManager {
 			permissionMode,
 			effortLevel,
 			fastMode,
+			claudeEnvironment,
 		} = params;
 		const abortController = new AbortController();
 		const additionalDirectories = [...(params.additionalDirectories ?? [])];
@@ -435,9 +437,17 @@ export class ClaudeSessionManager implements SessionManager {
 
 		const effectiveFastMode =
 			fastMode === true && modelSupportsFastMode("claude", model);
+		const claudeEnv =
+			claudeEnvironment && Object.keys(claudeEnvironment).length > 0
+				? claudeEnvironment
+				: undefined;
 		const additionalDirectoryEnv =
 			additionalDirectories.length > 0
 				? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1" }
+				: undefined;
+		const queryEnv =
+			claudeEnv || additionalDirectoryEnv
+				? { ...claudeEnv, ...additionalDirectoryEnv }
 				: undefined;
 
 		const q = query({
@@ -448,7 +458,7 @@ export class ClaudeSessionManager implements SessionManager {
 				...executableOptions(),
 				cwd: cwd || undefined,
 				...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
-				...(additionalDirectoryEnv ? { env: additionalDirectoryEnv } : {}),
+				...(queryEnv ? { env: queryEnv } : {}),
 				model: model || undefined,
 				...(resume ? { resume } : {}),
 				permissionMode: parsePermissionMode(permissionMode),
@@ -720,9 +730,16 @@ export class ClaudeSessionManager implements SessionManager {
 		branchRenamePrompt: string | null,
 		emitter: SidecarEmitter,
 		timeoutMs = TITLE_GENERATION_TIMEOUT_MS,
+		options?: GenerateTitleOptions,
 	): Promise<void> {
 		const abortController = new AbortController();
 		const timeout = setTimeout(() => abortController.abort(), timeoutMs);
+		const model = options?.model?.trim() || "haiku";
+		const claudeEnv =
+			options?.claudeEnvironment &&
+			Object.keys(options.claudeEnvironment).length > 0
+				? options.claudeEnvironment
+				: undefined;
 
 		const q = query({
 			prompt: buildTitlePrompt(userMessage, branchRenamePrompt),
@@ -730,7 +747,8 @@ export class ClaudeSessionManager implements SessionManager {
 				abortController,
 				pathToClaudeCodeExecutable: CLAUDE_CLI_PATH,
 				...executableOptions(),
-				model: "haiku",
+				...(claudeEnv ? { env: claudeEnv } : {}),
+				model,
 				permissionMode: "plan",
 				allowDangerouslySkipPermissions: true,
 			},
