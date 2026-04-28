@@ -14,7 +14,7 @@ use super::types::{ForgeCliStatus, ForgeLabels, ForgeProvider};
 
 const OPEN_TERMINAL_TIMEOUT: Duration = Duration::from_secs(10);
 const GITLAB_CLI_STATUS_CACHE_TTL: Duration = Duration::from_secs(2);
-const GITLAB_CLI_READY_DOWNGRADE_GRACE: Duration = Duration::from_secs(30);
+const GITLAB_CLI_READY_DOWNGRADE_GRACE: Duration = Duration::from_secs(600);
 
 type GitlabStatusCache = Mutex<HashMap<String, CachedEntry<ForgeCliStatus>>>;
 static GITLAB_STATUS_CACHE: LazyLock<GitlabStatusCache> =
@@ -47,7 +47,15 @@ pub fn get_forge_cli_status(provider: ForgeProvider, host: Option<&str>) -> Resu
 }
 
 pub fn open_forge_cli_auth_terminal(provider: ForgeProvider, host: Option<&str>) -> Result<()> {
-    let command = match provider {
+    let command = forge_cli_auth_command(provider, host)?;
+    open_terminal_with_command(&command)
+}
+
+pub(crate) fn forge_cli_auth_command(
+    provider: ForgeProvider,
+    host: Option<&str>,
+) -> Result<String> {
+    Ok(match provider {
         ForgeProvider::Github => format!("{} auth login", bundled_program_token("gh")?),
         ForgeProvider::Gitlab => {
             let host = host.unwrap_or("gitlab.com");
@@ -62,8 +70,7 @@ pub fn open_forge_cli_auth_terminal(provider: ForgeProvider, host: Option<&str>)
             )
         }
         ForgeProvider::Unknown => bail!("Unknown forge provider."),
-    };
-    open_terminal_with_command(&command)
+    })
 }
 
 /// Absolute bundled path (shell-quoted). In release builds, missing the

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { closeAllTerminalsForWorkspace } from "@/features/inspector/terminal-store";
 import {
 	type AddRepositoryResponse,
 	addRepositoryFromLocalPath,
@@ -33,6 +34,7 @@ import {
 	repositoriesQueryOptions,
 	sessionThreadMessagesQueryOptions,
 	workspaceDetailQueryOptions,
+	workspaceGitActionStatusQueryOptions,
 	workspaceGroupsQueryOptions,
 	workspaceSessionsQueryOptions,
 } from "@/lib/query-client";
@@ -425,6 +427,15 @@ export function useWorkspacesSidebarController({
 	const prefetchWorkspace = useCallback(
 		(workspaceId: string) => {
 			void (async () => {
+				// Kick off the git-status prefetch immediately — it's the single
+				// data source that gates the sidebar hover card and runs `git
+				// status` synchronously, which can take 100–500ms. Starting it
+				// in parallel with the detail/session prefetch means by the
+				// time the HoverCard's openDelay (~400ms) elapses, the data is
+				// usually already cached.
+				void queryClient.prefetchQuery(
+					workspaceGitActionStatusQueryOptions(workspaceId),
+				);
 				const [workspaceDetail, workspaceSessions] = await Promise.all([
 					queryClient.ensureQueryData(workspaceDetailQueryOptions(workspaceId)),
 					queryClient.ensureQueryData(
@@ -1026,6 +1037,10 @@ export function useWorkspacesSidebarController({
 
 	const handleDeleteWorkspace = useCallback(
 		(workspaceId: string) => {
+			// Tear down any live terminal shells in this workspace so they
+			// don't keep running in the background after the workspace is
+			// gone from the UI.
+			closeAllTerminalsForWorkspace(workspaceId);
 			const wasSelected = selectedWorkspaceId === workspaceId;
 			setPendingArchives((current) => {
 				if (!current.has(workspaceId)) {

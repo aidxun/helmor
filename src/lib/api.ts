@@ -76,6 +76,13 @@ export type WorkspaceRow = {
 	activeSessionTitle?: string | null;
 	activeSessionAgentType?: string | null;
 	activeSessionStatus?: string | null;
+	/** "Primary" conversation = the non-hidden, non-action session in this
+	 * workspace with the most messages (ties broken by recency). The
+	 * meaningful long-running chat — distinct from `activeSession*` which
+	 * may be a transient one-off action like create-pr. */
+	primarySessionId?: string | null;
+	primarySessionTitle?: string | null;
+	primarySessionAgentType?: string | null;
 	prTitle?: string | null;
 	prSyncState?: PrSyncState;
 	prUrl?: string | null;
@@ -85,6 +92,11 @@ export type WorkspaceRow = {
 	/** ISO-8601 timestamp — present for rows coming from the backend; absent
 	 * for ad-hoc optimistic rows that haven't been given one. */
 	createdAt?: string;
+	/** ISO-8601 timestamp — last DB-recorded change to the workspace. */
+	updatedAt?: string;
+	/** ISO-8601 timestamp — most recent user message across all sessions
+	 * in this workspace. Null when the workspace has no user messages yet. */
+	lastUserMessageAt?: string | null;
 };
 
 export type WorkspaceGroup = {
@@ -125,6 +137,11 @@ export type AgentSendRequest = {
 	provider: AgentProvider;
 	modelId: string;
 	prompt: string;
+	/** Hidden preamble prepended to `prompt` only on the wire to the agent
+	 *  (e.g. the user's "general preferences"). Persisted user-prompt
+	 *  content keeps `prompt` only — the prefix never enters the DB or
+	 *  the chat bubble. */
+	promptPrefix?: string | null;
 	resumeOnly?: boolean | null;
 	sessionId?: string | null;
 	helmorSessionId?: string | null;
@@ -154,6 +171,9 @@ export type WorkspaceSummary = {
 	activeSessionTitle?: string | null;
 	activeSessionAgentType?: string | null;
 	activeSessionStatus?: string | null;
+	primarySessionId?: string | null;
+	primarySessionTitle?: string | null;
+	primarySessionAgentType?: string | null;
 	prTitle?: string | null;
 	prSyncState?: PrSyncState;
 	prUrl?: string | null;
@@ -161,6 +181,8 @@ export type WorkspaceSummary = {
 	sessionCount?: number;
 	messageCount?: number;
 	createdAt: string;
+	updatedAt?: string;
+	lastUserMessageAt?: string | null;
 };
 
 export type RepositoryCreateOption = {
@@ -625,6 +647,64 @@ export async function openForgeCliAuthTerminal(
 	}
 }
 
+export async function spawnForgeCliAuthTerminal(
+	provider: ForgeProvider,
+	host: string | null,
+	instanceId: string,
+	onEvent: (event: ScriptEvent) => void,
+): Promise<void> {
+	const channel = new Channel<ScriptEvent>();
+	channel.onmessage = onEvent;
+	await invoke("spawn_forge_cli_auth_terminal", {
+		provider,
+		host,
+		instanceId,
+		channel,
+	});
+}
+
+export async function stopForgeCliAuthTerminal(
+	provider: ForgeProvider,
+	host: string | null,
+	instanceId: string,
+): Promise<boolean> {
+	return invoke<boolean>("stop_forge_cli_auth_terminal", {
+		provider,
+		host,
+		instanceId,
+	});
+}
+
+export async function writeForgeCliAuthTerminalStdin(
+	provider: ForgeProvider,
+	host: string | null,
+	instanceId: string,
+	data: string,
+): Promise<boolean> {
+	return invoke<boolean>("write_forge_cli_auth_terminal_stdin", {
+		provider,
+		host,
+		instanceId,
+		data,
+	});
+}
+
+export async function resizeForgeCliAuthTerminal(
+	provider: ForgeProvider,
+	host: string | null,
+	instanceId: string,
+	cols: number,
+	rows: number,
+): Promise<boolean> {
+	return invoke<boolean>("resize_forge_cli_auth_terminal", {
+		provider,
+		host,
+		instanceId,
+		cols,
+		rows,
+	});
+}
+
 export async function loadDataInfo(): Promise<DataInfo | null> {
 	try {
 		return await invoke<DataInfo>("get_data_info");
@@ -642,6 +722,23 @@ export type CliStatus = {
 
 export async function getCliStatus(): Promise<CliStatus> {
 	return await invoke<CliStatus>("get_cli_status");
+}
+
+export type HelmorSkillsStatus = {
+	installed: boolean;
+	claude: boolean;
+	codex: boolean;
+	command: string;
+};
+
+export async function getHelmorSkillsStatus(): Promise<HelmorSkillsStatus> {
+	try {
+		return await invoke<HelmorSkillsStatus>("get_helmor_skills_status");
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to load Helmor skills status."),
+		);
+	}
 }
 
 export async function getAppUpdateStatus(): Promise<AppUpdateStatus> {
@@ -668,6 +765,91 @@ export async function listenAppUpdateStatus(
 
 export async function installCli(): Promise<CliStatus> {
 	return await invoke<CliStatus>("install_cli");
+}
+
+export async function installHelmorSkills(): Promise<HelmorSkillsStatus> {
+	try {
+		return await invoke<HelmorSkillsStatus>("install_helmor_skills");
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to install Helmor skills."),
+		);
+	}
+}
+
+export async function enterOnboardingWindowMode(): Promise<void> {
+	await invoke("enter_onboarding_window_mode");
+}
+
+export async function exitOnboardingWindowMode(): Promise<void> {
+	await invoke("exit_onboarding_window_mode");
+}
+
+export type AgentLoginProvider = "claude" | "codex";
+
+export type AgentLoginStatusResult = {
+	claude: boolean;
+	codex: boolean;
+};
+
+export async function getAgentLoginStatus(): Promise<AgentLoginStatusResult> {
+	return await invoke<AgentLoginStatusResult>("get_agent_login_status");
+}
+
+export async function openAgentLoginTerminal(
+	provider: AgentLoginProvider,
+): Promise<void> {
+	await invoke("open_agent_login_terminal", { provider });
+}
+
+export async function spawnAgentLoginTerminal(
+	provider: AgentLoginProvider,
+	instanceId: string,
+	onEvent: (event: ScriptEvent) => void,
+): Promise<void> {
+	const channel = new Channel<ScriptEvent>();
+	channel.onmessage = onEvent;
+	await invoke("spawn_agent_login_terminal", {
+		provider,
+		instanceId,
+		channel,
+	});
+}
+
+export async function stopAgentLoginTerminal(
+	provider: AgentLoginProvider,
+	instanceId: string,
+): Promise<boolean> {
+	return invoke<boolean>("stop_agent_login_terminal", {
+		provider,
+		instanceId,
+	});
+}
+
+export async function writeAgentLoginTerminalStdin(
+	provider: AgentLoginProvider,
+	instanceId: string,
+	data: string,
+): Promise<boolean> {
+	return invoke<boolean>("write_agent_login_terminal_stdin", {
+		provider,
+		instanceId,
+		data,
+	});
+}
+
+export async function resizeAgentLoginTerminal(
+	provider: AgentLoginProvider,
+	instanceId: string,
+	cols: number,
+	rows: number,
+): Promise<boolean> {
+	return invoke<boolean>("resize_agent_login_terminal", {
+		provider,
+		instanceId,
+		cols,
+		rows,
+	});
 }
 
 export type DevResetResult = {
@@ -2406,6 +2588,76 @@ export async function resizeRepoScript(
 		repoId,
 		scriptType,
 		workspaceId: workspaceId ?? null,
+		cols,
+		rows,
+	});
+}
+
+/**
+ * Spawn a blank interactive `$SHELL -i -l` on a fresh PTY in the workspace
+ * directory. Each Terminal sub-tab in the Inspector is one of these.
+ *
+ * `instanceId` distinguishes concurrent terminals within the same workspace;
+ * the backend keys its `ScriptProcessManager` on `(repoId, "terminal:<instanceId>",
+ * workspaceId)`, so spawning twice with the same `instanceId` would replace
+ * the previous shell — callers must mint a fresh UUID per sub-tab.
+ *
+ * Nothing is persisted: closing the app discards every sub-tab and its
+ * output. Cross-tab / cross-workspace survival is in-memory only.
+ */
+export async function spawnTerminal(
+	repoId: string,
+	workspaceId: string,
+	instanceId: string,
+	onEvent: (event: ScriptEvent) => void,
+): Promise<void> {
+	const channel = new Channel<ScriptEvent>();
+	channel.onmessage = onEvent;
+	await invoke("spawn_terminal", {
+		repoId,
+		workspaceId,
+		instanceId,
+		channel,
+	});
+}
+
+export async function stopTerminal(
+	repoId: string,
+	workspaceId: string,
+	instanceId: string,
+): Promise<boolean> {
+	return invoke<boolean>("stop_terminal", {
+		repoId,
+		workspaceId,
+		instanceId,
+	});
+}
+
+export async function writeTerminalStdin(
+	repoId: string,
+	workspaceId: string,
+	instanceId: string,
+	data: string,
+): Promise<boolean> {
+	return invoke<boolean>("write_terminal_stdin", {
+		repoId,
+		workspaceId,
+		instanceId,
+		data,
+	});
+}
+
+export async function resizeTerminal(
+	repoId: string,
+	workspaceId: string,
+	instanceId: string,
+	cols: number,
+	rows: number,
+): Promise<boolean> {
+	return invoke<boolean>("resize_terminal", {
+		repoId,
+		workspaceId,
+		instanceId,
 		cols,
 		rows,
 	});
