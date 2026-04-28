@@ -146,7 +146,6 @@ export function TerminalInstancePanel({
 
 	return (
 		<div
-			data-focus-scope="terminal"
 			id={`inspector-panel-terminal-${instance.id}`}
 			role="tabpanel"
 			aria-labelledby={`inspector-tab-terminal-${instance.id}`}

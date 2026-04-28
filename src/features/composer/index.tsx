@@ -448,6 +448,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 		<div
 			ref={composerRootRef}
 			aria-label="Workspace composer"
+			data-focus-scope="composer"
 			onKeyDownCapture={handleComposerKeyDownCapture}
 			className={cn(
 				"relative flex flex-col rounded-2xl border border-border/40 bg-sidebar shadow-[0_-1px_8px_rgba(0,0,0,0.05),0_0_0_1px_rgba(255,255,255,0.02)]",

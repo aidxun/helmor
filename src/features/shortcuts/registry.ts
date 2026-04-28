@@ -11,7 +11,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Previous workspace",
 		group: "Navigation",
 		defaultHotkey: "Mod+Alt+ArrowUp",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -19,7 +19,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Next workspace",
 		group: "Navigation",
 		defaultHotkey: "Mod+Alt+ArrowDown",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -59,7 +59,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Reopen closed session",
 		group: "Session",
 		defaultHotkey: "Mod+Shift+T",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -75,7 +75,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Open repository in default app",
 		group: "Workspace",
 		defaultHotkey: "Mod+O",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -83,7 +83,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Create new workspace",
 		group: "Workspace",
 		defaultHotkey: "Mod+N",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -91,16 +91,17 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Add repository",
 		group: "Workspace",
 		defaultHotkey: "Mod+Shift+N",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
 		id: "script.run",
 		title: "Run / stop script",
 		group: "Actions",
-		// chat-only so the terminal owns Mod+R for shell readline.
+		// Excludes "terminal" so Mod+R stays free for shell readline
+		// (reverse-search). Anywhere else — chat, editor, sidebars — fires.
 		defaultHotkey: "Mod+R",
-		scopes: ["chat"],
+		scopes: ["chat", "editor"],
 		editable: true,
 	},
 	{
@@ -108,7 +109,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Create PR",
 		group: "Actions",
 		defaultHotkey: "Mod+Shift+P",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -116,7 +117,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Commit and push",
 		group: "Actions",
 		defaultHotkey: "Mod+Shift+Y",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -124,7 +125,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Pull latest from main",
 		group: "Actions",
 		defaultHotkey: "Mod+Shift+L",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -132,7 +133,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Merge PR",
 		group: "Actions",
 		defaultHotkey: "Mod+Shift+M",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -140,7 +141,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Fix errors",
 		group: "Actions",
 		defaultHotkey: "Mod+Shift+X",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -148,7 +149,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Open PR in browser",
 		group: "Actions",
 		defaultHotkey: "Mod+Shift+G",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -172,7 +173,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Toggle left sidebar",
 		group: "System",
 		defaultHotkey: "Mod+B",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -180,7 +181,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Toggle right sidebar",
 		group: "System",
 		defaultHotkey: "Mod+Alt+B",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -188,7 +189,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Toggle zen mode",
 		group: "System",
 		defaultHotkey: "Mod+.",
-		scopes: ["chat"],
+		scopes: ["app"],
 		editable: true,
 	},
 	{
@@ -231,7 +232,9 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Toggle plan mode",
 		group: "Composer",
 		defaultHotkey: "Shift+Tab",
-		scopes: ["chat"],
+		// composer-only: don't let Shift+Tab steal default a11y focus traversal
+		// from the inspector / message list.
+		scopes: ["composer"],
 		editable: true,
 	},
 	{
@@ -239,7 +242,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		title: "Open model picker",
 		group: "Composer",
 		defaultHotkey: "Alt+P",
-		scopes: ["chat"],
+		scopes: ["composer"],
 		editable: true,
 	},
 	{

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { getActiveScope } from "./focus-scope";
+import { getActiveScopes } from "./focus-scope";
 import { normalizeShortcutEvent } from "./format";
 import { isShortcutRecordingActive } from "./recording-state";
 import {
@@ -56,14 +56,14 @@ export function useAppShortcuts({ overrides, handlers }: UseAppShortcutsArgs) {
 
 			const hotkey = normalizeShortcutEvent(event);
 			if (!hotkey) return;
-			const activeScope = getActiveScope();
+			const activeScopes = getActiveScopes();
 
 			const match = registrationsRef.current.find(
 				(registration) =>
 					registration.enabled &&
 					registration.hotkey === hotkey &&
 					(registration.scopes.includes("app") ||
-						registration.scopes.includes(activeScope)),
+						registration.scopes.some((scope) => activeScopes.includes(scope))),
 			);
 			if (!match) return;
 			event.preventDefault();

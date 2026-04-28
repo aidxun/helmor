@@ -119,6 +119,68 @@ describe("useAppShortcuts", () => {
 		expect(sessionNew).not.toHaveBeenCalled();
 	});
 
+	it("routes both chat- and composer-bound shortcuts when typing in nested composer scope", () => {
+		const sessionNew = vi.fn();
+		const togglePlanMode = vi.fn();
+
+		function Harness() {
+			useAppShortcuts({
+				overrides: {},
+				handlers: [
+					{ id: "session.new", callback: sessionNew },
+					{ id: "composer.togglePlanMode", callback: togglePlanMode },
+				],
+			});
+			return (
+				<div data-focus-scope="chat">
+					<div data-focus-scope="composer">
+						<input data-testid="composer-input" />
+					</div>
+				</div>
+			);
+		}
+
+		const { getByTestId } = render(<Harness />);
+		(getByTestId("composer-input") as HTMLInputElement).focus();
+
+		// Cmd+T (chat) still works while typing in composer.
+		fireModT();
+		expect(sessionNew).toHaveBeenCalledTimes(1);
+
+		// Shift+Tab (composer) fires.
+		window.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true }),
+		);
+		expect(togglePlanMode).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not fire composer-only shortcuts when chat focus is outside composer", () => {
+		const togglePlanMode = vi.fn();
+
+		function Harness() {
+			useAppShortcuts({
+				overrides: {},
+				handlers: [{ id: "composer.togglePlanMode", callback: togglePlanMode }],
+			});
+			return (
+				<div data-focus-scope="chat">
+					<input data-testid="inspector-input" />
+					<div data-focus-scope="composer">
+						<input data-testid="composer-input" />
+					</div>
+				</div>
+			);
+		}
+
+		const { getByTestId } = render(<Harness />);
+		(getByTestId("inspector-input") as HTMLInputElement).focus();
+
+		window.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true }),
+		);
+		expect(togglePlanMode).not.toHaveBeenCalled();
+	});
+
 	it("fires app-scope shortcuts regardless of focus scope", () => {
 		const themeToggle = vi.fn();
 

@@ -45,10 +45,12 @@ export type ShortcutGroup =
 	| "Terminal";
 
 // Scopes a shortcut can live in. "app" = always active regardless of focus.
-// All others gate on the nearest [data-focus-scope] DOM ancestor of the
-// active element. New scopes (e.g. "editor") get appended here as panels
-// learn to own their own keymap.
-export type ShortcutScope = "app" | "chat" | "terminal" | "editor";
+// All others gate on [data-focus-scope] DOM ancestors of the active element;
+// nested scopes accumulate (e.g. focusing inside the composer surfaces both
+// "composer" and "chat"), so a shortcut bound to "chat" still fires while
+// typing — and a "composer"-only shortcut stays off when chat focus lives
+// elsewhere (inspector, message list).
+export type ShortcutScope = "app" | "chat" | "composer" | "terminal" | "editor";
 
 export type ShortcutDefinition = {
 	id: ShortcutId;

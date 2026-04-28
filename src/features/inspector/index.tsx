@@ -184,9 +184,10 @@ export function WorkspaceInspectorSidebar({
 
 	const isTerminalTabActive = terminalInstances.some((t) => t.id === activeTab);
 
-	// Terminal-scope shortcuts. Fire only while xterm has DOM focus — the
-	// `data-focus-scope="terminal"` tag on the panel resolves to "terminal" via
-	// getActiveScope — so they don't compete with chat's Mod+T / Mod+W.
+	// Terminal-scope shortcuts. Fire while focus is anywhere in the inspector
+	// tabs section (Setup / Run / Terminal) — the `data-focus-scope="terminal"`
+	// tag on the section root resolves to "terminal" via getActiveScopes — so
+	// they don't compete with chat's Mod+T / Mod+W.
 	const navigateTerminal = useCallback(
 		(offset: -1 | 1) => {
 			if (terminalInstances.length === 0) return;

@@ -1769,30 +1769,29 @@ function AppShell({
 				callback: handleOpenPreferredEditor,
 				enabled:
 					isIdentityConnected &&
-					workspaceViewMode === "conversation" &&
 					Boolean(selectedWorkspaceId && preferredEditor),
 			},
 			{
 				id: "workspace.new" as const,
 				callback: () =>
 					window.dispatchEvent(new Event("helmor:open-new-workspace")),
-				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+				enabled: isIdentityConnected,
 			},
 			{
 				id: "workspace.addRepository" as const,
 				callback: () =>
 					window.dispatchEvent(new Event("helmor:open-add-repository")),
-				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+				enabled: isIdentityConnected,
 			},
 			{
 				id: "workspace.previous" as const,
 				callback: () => handleNavigateWorkspaces(-1),
-				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+				enabled: isIdentityConnected,
 			},
 			{
 				id: "workspace.next" as const,
 				callback: () => handleNavigateWorkspaces(1),
-				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+				enabled: isIdentityConnected,
 			},
 			{
 				id: "session.previous" as const,
@@ -1820,7 +1819,7 @@ function AppShell({
 			{
 				id: "session.reopenClosed" as const,
 				callback: () => void handleReopenClosedSession(),
-				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+				enabled: isIdentityConnected,
 			},
 			{
 				id: "script.run" as const,
@@ -1835,53 +1834,47 @@ function AppShell({
 			{
 				id: "sidebar.left.toggle" as const,
 				callback: () => setSidebarCollapsed((collapsed) => !collapsed),
-				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+				enabled: isIdentityConnected,
 			},
 			{
 				id: "sidebar.right.toggle" as const,
 				callback: () => setInspectorCollapsed((collapsed) => !collapsed),
-				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+				enabled: isIdentityConnected,
 			},
 			{
 				id: "zen.toggle" as const,
 				callback: handleToggleZenMode,
-				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+				enabled: isIdentityConnected,
 			},
 			{
 				id: "action.createPr" as const,
 				callback: () => void handleInspectorCommitAction("create-pr"),
-				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+				enabled: isIdentityConnected,
 			},
 			{
 				id: "action.commitAndPush" as const,
 				callback: () => void handleInspectorCommitAction("commit-and-push"),
-				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+				enabled: isIdentityConnected,
 			},
 			{
 				id: "action.pullLatest" as const,
 				callback: () => void handlePullLatest(),
-				enabled:
-					isIdentityConnected &&
-					workspaceViewMode === "conversation" &&
-					Boolean(selectedWorkspaceId),
+				enabled: isIdentityConnected && Boolean(selectedWorkspaceId),
 			},
 			{
 				id: "action.mergePr" as const,
 				callback: () => void handleInspectorCommitAction("merge"),
-				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+				enabled: isIdentityConnected,
 			},
 			{
 				id: "action.fixErrors" as const,
 				callback: () => void handleInspectorCommitAction("fix"),
-				enabled: isIdentityConnected && workspaceViewMode === "conversation",
+				enabled: isIdentityConnected,
 			},
 			{
 				id: "action.openPullRequest" as const,
 				callback: handleOpenPullRequest,
-				enabled:
-					isIdentityConnected &&
-					workspaceViewMode === "conversation" &&
-					Boolean(pullRequestUrl),
+				enabled: isIdentityConnected && Boolean(pullRequestUrl),
 			},
 			{
 				id: "composer.focus" as const,

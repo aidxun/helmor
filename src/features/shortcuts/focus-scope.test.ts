@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	_resetActiveScopeForTesting,
 	DEFAULT_FOCUS_SCOPE,
-	getActiveScope,
+	getActiveScopes,
 } from "./focus-scope";
 
 beforeEach(() => {
@@ -14,12 +14,12 @@ afterEach(() => {
 	document.body.innerHTML = "";
 });
 
-describe("getActiveScope", () => {
+describe("getActiveScopes", () => {
 	it("returns the default when nothing is focused", () => {
-		expect(getActiveScope()).toBe(DEFAULT_FOCUS_SCOPE);
+		expect(getActiveScopes()).toEqual([DEFAULT_FOCUS_SCOPE]);
 	});
 
-	it("walks up to the closest [data-focus-scope] ancestor", () => {
+	it("walks up to the [data-focus-scope] ancestor", () => {
 		document.body.innerHTML = `
 			<div data-focus-scope="terminal">
 				<div>
@@ -29,7 +29,9 @@ describe("getActiveScope", () => {
 		`;
 		const probe = document.getElementById("probe") as HTMLInputElement;
 		probe.focus();
-		expect(getActiveScope()).toBe("terminal");
+		// Pure terminal scope — chat-bound shortcuts (Cmd+T) must NOT fire,
+		// so chat is deliberately absent.
+		expect(getActiveScopes()).toEqual(["terminal"]);
 	});
 
 	it("falls back to default for unknown scope values", () => {
@@ -39,19 +41,38 @@ describe("getActiveScope", () => {
 			</div>
 		`;
 		(document.getElementById("probe") as HTMLInputElement).focus();
-		expect(getActiveScope()).toBe(DEFAULT_FOCUS_SCOPE);
+		expect(getActiveScopes()).toEqual([DEFAULT_FOCUS_SCOPE]);
 	});
 
-	it("nested scopes use the innermost tag", () => {
+	it("collects nested scopes leaf-first", () => {
 		document.body.innerHTML = `
 			<div data-focus-scope="chat">
-				<div data-focus-scope="terminal">
+				<div data-focus-scope="composer">
 					<input id="probe" />
 				</div>
 			</div>
 		`;
 		(document.getElementById("probe") as HTMLInputElement).focus();
-		expect(getActiveScope()).toBe("terminal");
+		// Composer is nested inside chat — both scopes are active so
+		// chat-bound shortcuts (Cmd+T) AND composer-bound shortcuts
+		// (Shift+Tab) fire while typing in the composer.
+		expect(getActiveScopes()).toEqual(["composer", "chat"]);
+	});
+
+	it("inherits chat from composer even when DOM-sibling (not nested)", () => {
+		// Real layout: composer is rendered as a sibling of the chat panel,
+		// not a descendant. SCOPE_PARENTS still pulls in chat so session-
+		// navigation (chat-only) shortcuts work while typing.
+		document.body.innerHTML = `
+			<div data-focus-scope="chat">
+				<input id="msg" />
+			</div>
+			<div data-focus-scope="composer">
+				<input id="probe" />
+			</div>
+		`;
+		(document.getElementById("probe") as HTMLInputElement).focus();
+		expect(getActiveScopes()).toEqual(["composer", "chat"]);
 	});
 
 	it("keeps sticky scope when focused element is removed but container still exists", () => {
@@ -67,14 +88,14 @@ describe("getActiveScope", () => {
 		`;
 		const probe = document.getElementById("probe") as HTMLInputElement;
 		probe.focus();
-		expect(getActiveScope()).toBe("terminal");
+		expect(getActiveScopes()).toEqual(["terminal"]);
 
 		document.getElementById("t1")?.remove();
 		expect(document.activeElement).toBe(document.body);
 
 		// One terminal container still exists — sticky should hold so the
 		// next shortcut routes to the panel the user just engaged with.
-		expect(getActiveScope()).toBe("terminal");
+		expect(getActiveScopes()).toEqual(["terminal"]);
 	});
 
 	it("drops sticky when the engaged scope is no longer in the DOM", () => {
@@ -88,10 +109,10 @@ describe("getActiveScope", () => {
 		`;
 		const probe = document.getElementById("probe") as HTMLInputElement;
 		probe.focus();
-		expect(getActiveScope()).toBe("terminal");
+		expect(getActiveScopes()).toEqual(["terminal"]);
 
 		document.getElementById("t1")?.remove();
-		expect(getActiveScope()).toBe(DEFAULT_FOCUS_SCOPE);
+		expect(getActiveScopes()).toEqual([DEFAULT_FOCUS_SCOPE]);
 	});
 
 	it("updates sticky when user explicitly focuses a different scope", () => {
@@ -104,10 +125,10 @@ describe("getActiveScope", () => {
 			</div>
 		`;
 		(document.getElementById("t") as HTMLInputElement).focus();
-		expect(getActiveScope()).toBe("terminal");
+		expect(getActiveScopes()).toEqual(["terminal"]);
 
 		(document.getElementById("c") as HTMLInputElement).focus();
-		expect(getActiveScope()).toBe("chat");
+		expect(getActiveScopes()).toEqual(["chat"]);
 	});
 
 	it("treats explicit focus on an unscoped surface as a return to default", () => {
@@ -118,9 +139,9 @@ describe("getActiveScope", () => {
 			<input id="sidebar" />
 		`;
 		(document.getElementById("t") as HTMLInputElement).focus();
-		expect(getActiveScope()).toBe("terminal");
+		expect(getActiveScopes()).toEqual(["terminal"]);
 
 		(document.getElementById("sidebar") as HTMLInputElement).focus();
-		expect(getActiveScope()).toBe(DEFAULT_FOCUS_SCOPE);
+		expect(getActiveScopes()).toEqual([DEFAULT_FOCUS_SCOPE]);
 	});
 });

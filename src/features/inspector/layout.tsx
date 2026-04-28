@@ -367,6 +367,32 @@ export function InspectorTabsSection({
 
 	const zoomedSize = `${TABS_HOVER_ZOOM_MULTIPLIER * 100}%`;
 
+	// Smart tab click: closed → open + activate; open + clicking the active
+	// tab → collapse; open + different tab → just switch. Lets the user use
+	// any tab as a toggle handle, not just the chevron.
+	const handleTabClick = useCallback(
+		(tabId: string) => {
+			if (!open) {
+				onTabChange(tabId);
+				onToggle();
+				return;
+			}
+			if (activeTab === tabId) {
+				onToggle();
+				return;
+			}
+			onTabChange(tabId);
+		},
+		[open, activeTab, onTabChange, onToggle],
+	);
+
+	// "+" / placeholder Terminal: spawning a terminal while the panel is
+	// collapsed would create one the user can't see — pop the panel open too.
+	const handleNewTerminalClick = useCallback(() => {
+		if (!open) onToggle();
+		onAddTerminal();
+	}, [open, onAddTerminal, onToggle]);
+
 	return (
 		<div
 			ref={wrapperRef}
@@ -438,6 +464,9 @@ export function InspectorTabsSection({
 			>
 				<section
 					aria-label="Inspector section Tabs"
+					// Whole scripts-area belongs to terminal scope so Mod+T from
+					// Run output spawns a terminal instead of a chat session.
+					data-focus-scope="terminal"
 					className={cn(
 						"relative flex min-h-0 flex-1 flex-col overflow-hidden border-b border-border/60 bg-sidebar",
 						// Draw the top edge line on the section itself so it paints
@@ -485,7 +514,7 @@ export function InspectorTabsSection({
 										"shrink-0",
 										activeTab === "setup" && "text-foreground",
 									)}
-									onClick={() => onTabChange("setup")}
+									onClick={() => handleTabClick("setup")}
 								>
 									<ScriptStatusIcon state={setupScriptState} />
 									Setup
@@ -509,7 +538,7 @@ export function InspectorTabsSection({
 										"shrink-0",
 										activeTab === "run" && "text-foreground",
 									)}
-									onClick={() => onTabChange("run")}
+									onClick={() => handleTabClick("run")}
 								>
 									<ScriptStatusIcon state={runScriptState} />
 									Run
@@ -533,7 +562,7 @@ export function InspectorTabsSection({
 										aria-selected={false}
 										tabIndex={-1}
 										disabled={!canSpawnTerminal}
-										onClick={onAddTerminal}
+										onClick={handleNewTerminalClick}
 										className={cn(
 											INSPECTOR_TAB_BUTTON_CLASS,
 											"shrink-0 disabled:cursor-not-allowed disabled:opacity-50",
@@ -563,11 +592,11 @@ export function InspectorTabsSection({
 													"group/tab relative flex h-full min-w-[5rem] shrink-0 transform-gpu cursor-pointer items-center overflow-hidden px-3 text-[12px] font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-0",
 													isActive && "text-foreground",
 												)}
-												onClick={() => onTabChange(instance.id)}
+												onClick={() => handleTabClick(instance.id)}
 												onKeyDown={(e) => {
 													if (e.key === "Enter" || e.key === " ") {
 														e.preventDefault();
-														onTabChange(instance.id);
+														handleTabClick(instance.id);
 													}
 												}}
 											>
@@ -603,7 +632,7 @@ export function InspectorTabsSection({
 										<button
 											type="button"
 											aria-label="New terminal"
-											onClick={onAddTerminal}
+											onClick={handleNewTerminalClick}
 											disabled={!canSpawnTerminal}
 											className="ml-1 flex h-full w-6 shrink-0 cursor-pointer items-center justify-center self-center text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50"
 										>
