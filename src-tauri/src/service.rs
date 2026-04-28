@@ -174,7 +174,7 @@ pub fn send_message(
                 .unwrap_or_else(|| "default".to_string())
         });
     let model_id = model_id.as_str();
-    let model = crate::agents::resolve_model(model_id);
+    let model = crate::agents::resolve_model_with_settings(model_id);
 
     // ── App delegation ──────────────────────────────────────────────
     // When the desktop app is running, queue the prompt as a pending
@@ -256,9 +256,44 @@ pub fn send_message(
         "prompt": params.prompt,
         "model": model.cli_model,
         "cwd": cwd,
-        "provider": model.provider,
+        "provider": model.runtime_provider,
+        "logicalProvider": model.provider,
         "permissionMode": params.permission_mode.as_deref().unwrap_or("auto"),
     });
+    let mut provider_env = serde_json::Map::new();
+    if let Some(base_url) = model.anthropic_base_url.as_deref() {
+        provider_env.insert(
+            "ANTHROPIC_BASE_URL".to_string(),
+            serde_json::Value::String(base_url.to_string()),
+        );
+    }
+    if let Some(api_key) = model.anthropic_api_key.as_deref() {
+        provider_env.insert(
+            "ANTHROPIC_API_KEY".to_string(),
+            serde_json::Value::String(api_key.to_string()),
+        );
+    }
+    if let Some(model) = model.anthropic_default_opus_model.as_deref() {
+        provider_env.insert(
+            "ANTHROPIC_DEFAULT_OPUS_MODEL".to_string(),
+            serde_json::Value::String(model.to_string()),
+        );
+    }
+    if let Some(model) = model.anthropic_default_sonnet_model.as_deref() {
+        provider_env.insert(
+            "ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(),
+            serde_json::Value::String(model.to_string()),
+        );
+    }
+    if let Some(model) = model.anthropic_default_haiku_model.as_deref() {
+        provider_env.insert(
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL".to_string(),
+            serde_json::Value::String(model.to_string()),
+        );
+    }
+    if !provider_env.is_empty() {
+        payload["providerEnv"] = serde_json::Value::Object(provider_env);
+    }
     if !additional_directories.is_empty() {
         payload["additionalDirectories"] = serde_json::Value::Array(
             additional_directories
@@ -316,7 +351,7 @@ pub fn send_message(
         // Match streaming.rs: only Claude's `system.init` carries an
         // authoritative session_id. SessionStart hook events emit a stale
         // session_id that would poison the next resume.
-        let is_provider_session_marker = match model.provider.as_str() {
+        let is_provider_session_marker = match model.runtime_provider.as_str() {
             "claude" => event.is_claude_session_init(),
             _ => true,
         };

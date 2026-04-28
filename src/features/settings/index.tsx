@@ -57,6 +57,7 @@ import { AccountPanel } from "./panels/account";
 import { AppUpdatesPanel } from "./panels/app-updates";
 import { CliInstallPanel } from "./panels/cli-install";
 import { ConductorImportPanel } from "./panels/conductor-import";
+import { CustomProvidersPanel } from "./panels/custom-providers";
 import { DevToolsPanel } from "./panels/dev-tools";
 import { RepositorySettingsPanel } from "./panels/repository-settings";
 
@@ -69,6 +70,7 @@ type SettingsSection =
 	| "shortcuts"
 	| "appearance"
 	| "model"
+	| "providers"
 	| "git"
 	| "experimental"
 	| "import"
@@ -170,6 +172,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 		"general",
 		"appearance",
 		"model",
+		"providers",
 		"shortcuts",
 		"git",
 		"experimental",
@@ -490,6 +493,18 @@ export const SettingsDialog = memo(function SettingsDialog({
 										</div>
 									</SettingsRow>
 								</SettingsGroup>
+							)}
+
+							{activeSection === "providers" && (
+								<CustomProvidersPanel
+									providers={settings.customProviders}
+									onChange={(customProviders) => {
+										updateSettings({ customProviders });
+										void queryClient.invalidateQueries({
+											queryKey: helmorQueryKeys.agentModelSections,
+										});
+									}}
+								/>
 							)}
 
 							{activeSection === "git" && (

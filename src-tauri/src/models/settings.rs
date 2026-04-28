@@ -9,6 +9,29 @@ pub struct BranchPrefixSettings {
     pub branch_prefix_custom: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomProviderSettings {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub api_key: String,
+    #[serde(default)]
+    pub opus_model: String,
+    #[serde(default)]
+    pub sonnet_model: String,
+    #[serde(default)]
+    pub haiku_model: String,
+    #[serde(default, rename = "models")]
+    pub legacy_models: Vec<String>,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
 pub fn load_setting_value(key: &str) -> Result<Option<String>> {
     let connection = db::read_conn()?;
     let mut statement = connection
@@ -82,6 +105,7 @@ const AUTO_CLOSE_OPT_IN_ASKED_KEY: &str = "auto_close_opt_in_asked";
 /// tweak — not a DB migration.
 pub const CODEX_RATE_LIMITS_KEY: &str = "app.codex_rate_limits";
 pub const CLAUDE_RATE_LIMITS_KEY: &str = "app.claude_rate_limits";
+pub const CUSTOM_PROVIDERS_KEY: &str = "app.custom_providers";
 
 /// Action kinds the user has opted-in to auto-close. Action sessions whose
 /// `action_kind` appears in this list are hidden automatically after their
@@ -105,6 +129,61 @@ pub fn load_auto_close_opt_in_asked() -> Result<Vec<crate::agents::ActionKind>> 
 
 pub fn save_auto_close_opt_in_asked(kinds: &[crate::agents::ActionKind]) -> Result<()> {
     upsert_setting_json(AUTO_CLOSE_OPT_IN_ASKED_KEY, &kinds)
+}
+
+pub fn load_custom_providers() -> Result<Vec<CustomProviderSettings>> {
+    let providers = load_setting_json::<Vec<CustomProviderSettings>>(CUSTOM_PROVIDERS_KEY)?
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|provider| {
+            provider.enabled
+                && !provider.id.trim().is_empty()
+                && !provider.name.trim().is_empty()
+                && !provider.base_url.trim().is_empty()
+                && !provider.api_key.trim().is_empty()
+        })
+        .map(|mut provider| {
+            provider.id = provider.id.trim().to_string();
+            provider.name = provider.name.trim().to_string();
+            provider.base_url = provider.base_url.trim().trim_end_matches('/').to_string();
+            provider.api_key = provider.api_key.trim().to_string();
+            provider.legacy_models = provider
+                .legacy_models
+                .into_iter()
+                .map(|model| model.trim().to_string())
+                .filter(|model| !model.is_empty())
+                .collect();
+            provider.opus_model = trim_or_legacy(&provider.opus_model, &provider.legacy_models, 0);
+            provider.sonnet_model =
+                trim_or_legacy(&provider.sonnet_model, &provider.legacy_models, 1);
+            provider.haiku_model =
+                trim_or_legacy(&provider.haiku_model, &provider.legacy_models, 2);
+            provider
+        })
+        .filter(|provider| {
+            !provider.opus_model.is_empty()
+                || !provider.sonnet_model.is_empty()
+                || !provider.haiku_model.is_empty()
+        })
+        .collect();
+    Ok(providers)
+}
+
+fn trim_or_legacy(value: &str, legacy_models: &[String], index: usize) -> String {
+    let trimmed = value.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    match legacy_models.get(index) {
+        Some(model) => model.to_string(),
+        None => String::new(),
+    }
+}
+
+pub fn load_custom_provider(provider_id: &str) -> Result<Option<CustomProviderSettings>> {
+    Ok(load_custom_providers()?
+        .into_iter()
+        .find(|provider| provider.id == provider_id))
 }
 
 pub fn load_branch_prefix_settings() -> Result<BranchPrefixSettings> {
@@ -196,6 +275,22 @@ mod tests {
             })
             .unwrap();
         assert_eq!(value, "v2");
+    }
+
+    #[test]
+    fn custom_provider_legacy_models_do_not_backfill_missing_aliases() {
+        assert_eq!(
+            super::trim_or_legacy("", &["xiaomi/mimo-v2.5".into()], 0),
+            "xiaomi/mimo-v2.5"
+        );
+        assert_eq!(
+            super::trim_or_legacy("", &["xiaomi/mimo-v2.5".into()], 1),
+            ""
+        );
+        assert_eq!(
+            super::trim_or_legacy("", &["xiaomi/mimo-v2.5".into()], 2),
+            ""
+        );
     }
 
     #[test]

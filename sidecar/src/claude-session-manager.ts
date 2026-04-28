@@ -118,6 +118,32 @@ function executableOptions(): {
 	return { executable: CLAUDE_EXECUTABLE_OVERRIDE as "bun" };
 }
 
+const CUSTOM_PROVIDER_ANTHROPIC_ENV_KEYS = [
+	"ANTHROPIC_AUTH_TOKEN",
+	"ANTHROPIC_BASE_URL",
+	"ANTHROPIC_API_KEY",
+	"ANTHROPIC_MODEL",
+	"ANTHROPIC_SMALL_FAST_MODEL",
+	"ANTHROPIC_DEFAULT_OPUS_MODEL",
+	"ANTHROPIC_DEFAULT_SONNET_MODEL",
+	"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+	"ANTHROPIC_CUSTOM_HEADERS",
+] as const;
+
+export function claudeEnv(
+	providerEnv: Readonly<Record<string, string>> | undefined,
+	extraEnv: Readonly<Record<string, string>> | undefined,
+): Record<string, string> | undefined {
+	const env: Record<string, string> = {};
+	if (providerEnv) {
+		for (const key of CUSTOM_PROVIDER_ANTHROPIC_ENV_KEYS) {
+			env[key] = "";
+		}
+	}
+	Object.assign(env, providerEnv ?? {}, extraEnv ?? {});
+	return Object.keys(env).length > 0 ? env : undefined;
+}
+
 interface LiveSession {
 	readonly query: Query;
 	readonly abortController: AbortController;
@@ -439,6 +465,7 @@ export class ClaudeSessionManager implements SessionManager {
 			additionalDirectories.length > 0
 				? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1" }
 				: undefined;
+		const env = claudeEnv(params.providerEnv, additionalDirectoryEnv);
 
 		const q = query({
 			prompt: isResumeOnly ? "" : promptSource,
@@ -448,7 +475,7 @@ export class ClaudeSessionManager implements SessionManager {
 				...executableOptions(),
 				cwd: cwd || undefined,
 				...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
-				...(additionalDirectoryEnv ? { env: additionalDirectoryEnv } : {}),
+				...(env ? { env } : {}),
 				model: model || undefined,
 				...(resume ? { resume } : {}),
 				permissionMode: parsePermissionMode(permissionMode),

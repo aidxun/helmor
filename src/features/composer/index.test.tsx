@@ -699,6 +699,60 @@ describe("WorkspaceComposer", () => {
 		expect(screen.queryByLabelText("Fast mode")).not.toBeInTheDocument();
 	});
 
+	it("preserves slashes in custom provider model labels", () => {
+		const queryClient = createHelmorQueryClient();
+
+		render(
+			<TooltipProvider delayDuration={0}>
+				<QueryClientProvider client={queryClient}>
+					<WorkspaceComposer
+						contextKey="session:session-1"
+						onSubmit={vi.fn()}
+						disabled={false}
+						submitDisabled={false}
+						sending={false}
+						selectedModelId="custom:mioffice:opus"
+						modelSections={[
+							{
+								id: "custom:mioffice",
+								label: "Mioffice",
+								options: [
+									{
+										id: "custom:mioffice:opus",
+										provider: "custom:mioffice",
+										label: "xiaomi/mimo-v2-flash",
+										cliModel: "opus",
+										runtimeProvider: "claude",
+										effortLevels: ["low", "medium", "high"],
+										supportsFastMode: false,
+									},
+								],
+							},
+						]}
+						onSelectModel={vi.fn()}
+						provider="custom:mioffice"
+						effortLevel="high"
+						onSelectEffort={vi.fn()}
+						permissionMode="acceptEdits"
+						onChangePermissionMode={vi.fn()}
+						restoreImages={[]}
+						restoreFiles={[]}
+						restoreCustomTags={[]}
+					/>
+				</QueryClientProvider>
+			</TooltipProvider>,
+		);
+
+		const modelButton = screen.getByRole("button", {
+			name: /xiaomi\/mimo-v2-flash/,
+		});
+		expect(modelButton).toHaveTextContent("xiaomi/mimo-v2-flash");
+
+		expect(modelButton.querySelector("span")?.textContent).toContain(
+			"xiaomi/mimo-v2-flash",
+		);
+	});
+
 	it("renders the fast mode lottie overlay only during the fast prelude", () => {
 		const queryClient = createHelmorQueryClient();
 

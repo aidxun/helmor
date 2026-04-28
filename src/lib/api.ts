@@ -113,13 +113,14 @@ export type DataInfo = {
 	archiveRoot: string;
 };
 
-export type AgentProvider = "claude" | "codex";
+export type AgentProvider = string;
 
 export type AgentModelOption = {
 	id: string;
 	provider: AgentProvider;
 	label: string;
 	cliModel: string;
+	runtimeProvider?: "claude" | "codex";
 	effortLevels?: string[];
 	supportsFastMode?: boolean;
 };

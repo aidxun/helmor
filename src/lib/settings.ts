@@ -11,6 +11,17 @@ export type FollowUpBehavior = "steer" | "queue";
 
 export type ShortcutOverrides = Record<string, string | null>;
 
+export type CustomProviderSettings = {
+	id: string;
+	name: string;
+	baseUrl: string;
+	apiKey: string;
+	opusModel: string;
+	sonnetModel: string;
+	haikuModel: string;
+	enabled: boolean;
+};
+
 export type AppSettings = {
 	fontSize: number;
 	branchPrefixType: "github" | "custom" | "none";
@@ -32,6 +43,7 @@ export type AppSettings = {
 	showUsageStats: boolean;
 	onboardingCompleted: boolean;
 	shortcuts: ShortcutOverrides;
+	customProviders: CustomProviderSettings[];
 };
 
 /**
@@ -58,6 +70,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	showUsageStats: true,
 	onboardingCompleted: false,
 	shortcuts: {},
+	customProviders: [],
 };
 
 export const THEME_STORAGE_KEY = "helmor-theme";
@@ -79,6 +92,7 @@ const SETTINGS_KEY_MAP: Record<Exclude<keyof AppSettings, "theme">, string> = {
 	showUsageStats: "app.show_usage_stats",
 	onboardingCompleted: "app.onboarding_completed",
 	shortcuts: "app.shortcuts",
+	customProviders: "app.custom_providers",
 };
 
 function parseShortcutOverrides(raw: string | undefined): ShortcutOverrides {
@@ -95,6 +109,61 @@ function parseShortcutOverrides(raw: string | undefined): ShortcutOverrides {
 		) as ShortcutOverrides;
 	} catch {
 		return DEFAULT_SETTINGS.shortcuts;
+	}
+}
+
+function parseCustomProviders(
+	raw: string | undefined,
+): CustomProviderSettings[] {
+	if (!raw) return DEFAULT_SETTINGS.customProviders;
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		if (!Array.isArray(parsed)) return DEFAULT_SETTINGS.customProviders;
+		return parsed
+			.map((item): CustomProviderSettings | null => {
+				if (!item || typeof item !== "object") return null;
+				const record = item as Record<string, unknown>;
+				const id = typeof record.id === "string" ? record.id.trim() : "";
+				const name = typeof record.name === "string" ? record.name.trim() : "";
+				const baseUrl =
+					typeof record.baseUrl === "string" ? record.baseUrl.trim() : "";
+				const apiKey =
+					typeof record.apiKey === "string" ? record.apiKey.trim() : "";
+				const legacyModels = Array.isArray(record.models)
+					? record.models
+							.filter((model): model is string => typeof model === "string")
+							.map((model) => model.trim())
+							.filter(Boolean)
+					: [];
+				const opusModel =
+					typeof record.opusModel === "string"
+						? record.opusModel.trim()
+						: (legacyModels[0] ?? "");
+				const sonnetModel =
+					typeof record.sonnetModel === "string"
+						? record.sonnetModel.trim()
+						: (legacyModels[1] ?? "");
+				const haikuModel =
+					typeof record.haikuModel === "string"
+						? record.haikuModel.trim()
+						: (legacyModels[2] ?? "");
+				if (!id || !name || !baseUrl) return null;
+				return {
+					id,
+					name,
+					baseUrl,
+					apiKey,
+					opusModel,
+					sonnetModel,
+					haikuModel,
+					enabled: record.enabled !== false,
+				};
+			})
+			.filter(
+				(provider): provider is CustomProviderSettings => provider !== null,
+			);
+	} catch {
+		return DEFAULT_SETTINGS.customProviders;
 	}
 }
 
@@ -155,6 +224,9 @@ export async function loadSettings(): Promise<AppSettings> {
 					? raw[SETTINGS_KEY_MAP.onboardingCompleted] === "true"
 					: DEFAULT_SETTINGS.onboardingCompleted,
 			shortcuts: parseShortcutOverrides(raw[SETTINGS_KEY_MAP.shortcuts]),
+			customProviders: parseCustomProviders(
+				raw[SETTINGS_KEY_MAP.customProviders],
+			),
 		};
 	} catch {
 		return { ...DEFAULT_SETTINGS };
@@ -178,7 +250,7 @@ export async function saveSettings(patch: Partial<AppSettings>): Promise<void> {
 		const value = patch[key as keyof Omit<AppSettings, "theme">];
 		if (value !== undefined) {
 			settings[dbKey] =
-				key === "shortcuts"
+				key === "shortcuts" || key === "customProviders"
 					? JSON.stringify(value)
 					: value === null
 						? ""

@@ -16,7 +16,9 @@ mod streaming;
 mod support;
 
 pub use self::action_kind::ActionKind;
-pub use self::catalog::{resolve_model, AgentModelOption, AgentModelSection, ResolvedModel};
+pub use self::catalog::{
+    resolve_model, resolve_model_with_settings, AgentModelOption, AgentModelSection, ResolvedModel,
+};
 pub use self::queries::{
     fetch_agent_model_sections, fetch_live_context_usage, GenerateSessionTitleRequest,
     GenerateSessionTitleResponse, GetLiveContextUsageRequest, ListSlashCommandsRequest,
@@ -210,7 +212,7 @@ pub async fn send_agent_message_stream(
         return Err(anyhow::anyhow!("Prompt cannot be empty.").into());
     }
 
-    let model = resolve_model(&request.model_id);
+    let model = resolve_model_with_settings(&request.model_id);
 
     if request.provider != model.provider {
         return Err(anyhow::anyhow!(

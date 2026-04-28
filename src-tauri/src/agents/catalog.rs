@@ -7,6 +7,8 @@ pub struct AgentModelOption {
     pub provider: String,
     pub label: String,
     pub cli_model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effort_levels: Vec<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -69,6 +71,66 @@ pub fn static_model_sections() -> Vec<AgentModelSection> {
     ]
 }
 
+pub fn model_sections() -> Vec<AgentModelSection> {
+    let mut sections = static_model_sections();
+    match crate::settings::load_custom_providers() {
+        Ok(providers) => {
+            sections.extend(providers.into_iter().map(custom_provider_section));
+        }
+        Err(error) => {
+            tracing::warn!("Failed to load custom providers for model catalog: {error:#}");
+        }
+    }
+    sections
+}
+
+fn custom_provider_section(provider: crate::settings::CustomProviderSettings) -> AgentModelSection {
+    let provider_id = custom_provider_id(&provider.id);
+    let options = custom_provider_models(&provider, &provider_id);
+    AgentModelSection {
+        id: provider_id.clone(),
+        label: provider.name,
+        status: AgentModelSectionStatus::Ready,
+        options,
+    }
+}
+
+fn custom_provider_models(
+    provider: &crate::settings::CustomProviderSettings,
+    provider_id: &str,
+) -> Vec<AgentModelOption> {
+    [
+        (
+            "opus",
+            provider.opus_model.as_str(),
+            vec!["low", "medium", "high", "xhigh", "max"],
+        ),
+        (
+            "sonnet",
+            provider.sonnet_model.as_str(),
+            vec!["low", "medium", "high", "max"],
+        ),
+        ("haiku", provider.haiku_model.as_str(), Vec::new()),
+    ]
+    .into_iter()
+    .filter_map(|(alias, mapped_model, effort_levels)| {
+        let mapped_model = mapped_model.trim();
+        if mapped_model.is_empty() {
+            return None;
+        }
+        Some(AgentModelOption {
+            id: custom_model_id(&provider.id, alias),
+            provider: provider_id.to_string(),
+            label: mapped_model.to_string(),
+            cli_model: alias.to_string(),
+            runtime_provider: Some("claude".to_string()),
+            effort_levels: effort_levels.into_iter().map(str::to_string).collect(),
+            supports_fast_mode: false,
+        })
+    })
+    .collect()
+}
+
 fn claude_model(
     id: &str,
     label: &str,
@@ -80,6 +142,7 @@ fn claude_model(
         provider: "claude".to_string(),
         label: label.to_string(),
         cli_model: id.to_string(),
+        runtime_provider: None,
         effort_levels: effort_levels
             .iter()
             .map(|level| level.to_string())
@@ -94,6 +157,7 @@ fn codex_model(id: &str, label: &str) -> AgentModelOption {
         provider: "codex".to_string(),
         label: label.to_string(),
         cli_model: id.to_string(),
+        runtime_provider: None,
         effort_levels: ["low", "medium", "high", "xhigh"]
             .into_iter()
             .map(str::to_string)
@@ -107,7 +171,13 @@ fn codex_model(id: &str, label: &str) -> AgentModelOption {
 pub struct ResolvedModel {
     pub id: String,
     pub provider: String,
+    pub runtime_provider: String,
     pub cli_model: String,
+    pub anthropic_base_url: Option<String>,
+    pub anthropic_api_key: Option<String>,
+    pub anthropic_default_opus_model: Option<String>,
+    pub anthropic_default_sonnet_model: Option<String>,
+    pub anthropic_default_haiku_model: Option<String>,
 }
 
 /// Resolve a model ID to provider + cli_model. Provider is inferred from the
@@ -122,8 +192,70 @@ pub fn resolve_model(model_id: &str) -> ResolvedModel {
     ResolvedModel {
         id: model_id.to_string(),
         provider: provider.to_string(),
+        runtime_provider: provider.to_string(),
         cli_model: model_id.to_string(),
+        anthropic_base_url: None,
+        anthropic_api_key: None,
+        anthropic_default_opus_model: None,
+        anthropic_default_sonnet_model: None,
+        anthropic_default_haiku_model: None,
     }
+}
+
+pub fn resolve_model_with_settings(model_id: &str) -> ResolvedModel {
+    if let Some((provider_id, cli_model)) = parse_custom_model_id(model_id) {
+        match crate::settings::load_custom_provider(&provider_id) {
+            Ok(Some(provider)) => {
+                return ResolvedModel {
+                    id: model_id.to_string(),
+                    provider: custom_provider_id(&provider.id),
+                    runtime_provider: "claude".to_string(),
+                    cli_model,
+                    anthropic_base_url: Some(provider.base_url),
+                    anthropic_api_key: Some(provider.api_key),
+                    anthropic_default_opus_model: non_empty(provider.opus_model),
+                    anthropic_default_sonnet_model: non_empty(provider.sonnet_model),
+                    anthropic_default_haiku_model: non_empty(provider.haiku_model),
+                };
+            }
+            Ok(None) => {
+                tracing::warn!(provider_id, model_id, "Custom provider not found");
+            }
+            Err(error) => {
+                tracing::warn!(
+                    provider_id,
+                    model_id,
+                    "Failed to load custom provider: {error:#}"
+                );
+            }
+        }
+    }
+    resolve_model(model_id)
+}
+
+fn non_empty(value: String) -> Option<String> {
+    if value.trim().is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+pub fn custom_provider_id(id: &str) -> String {
+    format!("custom:{id}")
+}
+
+fn custom_model_id(provider_id: &str, model: &str) -> String {
+    format!("custom:{provider_id}:{model}")
+}
+
+fn parse_custom_model_id(model_id: &str) -> Option<(String, String)> {
+    let rest = model_id.strip_prefix("custom:")?;
+    let (provider_id, cli_model) = rest.split_once(':')?;
+    if provider_id.trim().is_empty() || cli_model.trim().is_empty() {
+        return None;
+    }
+    Some((provider_id.to_string(), cli_model.to_string()))
 }
 
 #[cfg(test)]
@@ -171,6 +303,37 @@ mod tests {
             .options
             .iter()
             .all(|model| model.supports_fast_mode));
+    }
+
+    #[test]
+    fn custom_provider_models_show_mapped_model_ids_only() {
+        let provider = crate::settings::CustomProviderSettings {
+            id: "mioffice".to_string(),
+            name: "Mioffice".to_string(),
+            base_url: "https://api.example.com/anthropic".to_string(),
+            api_key: "sk-test".to_string(),
+            opus_model: String::new(),
+            sonnet_model: "xiaomi/mimo-v2.5".to_string(),
+            haiku_model: "mimo-v2.5-mini".to_string(),
+            legacy_models: Vec::new(),
+            enabled: true,
+        };
+
+        let options = custom_provider_models(&provider, "custom:mioffice");
+
+        assert_eq!(
+            options
+                .iter()
+                .map(|model| (model.id.as_str(), model.label.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("custom:mioffice:sonnet", "xiaomi/mimo-v2.5"),
+                ("custom:mioffice:haiku", "mimo-v2.5-mini"),
+            ]
+        );
+        assert!(options
+            .iter()
+            .all(|model| model.provider == "custom:mioffice"));
     }
 
     #[test]

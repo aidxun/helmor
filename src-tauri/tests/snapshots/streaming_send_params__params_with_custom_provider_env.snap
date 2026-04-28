@@ -1,0 +1,21 @@
+---
+source: tests/streaming_send_params.rs
+assertion_line: 145
+expression: "&params"
+---
+cwd: /abs/workspace
+effortLevel: high
+fastMode: false
+logicalProvider: "custom:mioffice"
+model: claude-opus-4
+permissionMode: bypassPermissions
+prompt: hello
+provider: claude
+providerEnv:
+  ANTHROPIC_API_KEY: sk-test
+  ANTHROPIC_BASE_URL: "https://api.example.com/anthropic"
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: provider/small-model
+  ANTHROPIC_DEFAULT_OPUS_MODEL: provider/big-model
+  ANTHROPIC_DEFAULT_SONNET_MODEL: provider/default-model
+resume: ~
+sessionId: sidecar-sess-1

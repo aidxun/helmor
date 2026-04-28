@@ -15,6 +15,12 @@ pub struct BuildSendMessageParamsInput<'a> {
     pub cwd: &'a str,
     pub resume_session_id: Option<&'a str>,
     pub provider: &'a str,
+    pub runtime_provider: &'a str,
+    pub anthropic_base_url: Option<&'a str>,
+    pub anthropic_api_key: Option<&'a str>,
+    pub anthropic_default_opus_model: Option<&'a str>,
+    pub anthropic_default_sonnet_model: Option<&'a str>,
+    pub anthropic_default_haiku_model: Option<&'a str>,
     pub effort_level: Option<&'a str>,
     pub permission_mode: Option<&'a str>,
     pub fast_mode: bool,
@@ -35,11 +41,48 @@ pub fn build_send_message_params(input: BuildSendMessageParamsInput<'_>) -> Valu
         "model": input.cli_model,
         "cwd": input.cwd,
         "resume": input.resume_session_id,
-        "provider": input.provider,
+        "provider": input.runtime_provider,
+        "logicalProvider": input.provider,
         "effortLevel": input.effort_level,
         "permissionMode": input.permission_mode,
         "fastMode": input.fast_mode,
     });
+    if let Some(obj) = params.as_object_mut() {
+        let mut provider_env = serde_json::Map::new();
+        if let Some(base_url) = input.anthropic_base_url {
+            provider_env.insert(
+                "ANTHROPIC_BASE_URL".to_string(),
+                Value::String(base_url.to_string()),
+            );
+        }
+        if let Some(api_key) = input.anthropic_api_key {
+            provider_env.insert(
+                "ANTHROPIC_API_KEY".to_string(),
+                Value::String(api_key.to_string()),
+            );
+        }
+        if let Some(model) = input.anthropic_default_opus_model {
+            provider_env.insert(
+                "ANTHROPIC_DEFAULT_OPUS_MODEL".to_string(),
+                Value::String(model.to_string()),
+            );
+        }
+        if let Some(model) = input.anthropic_default_sonnet_model {
+            provider_env.insert(
+                "ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(),
+                Value::String(model.to_string()),
+            );
+        }
+        if let Some(model) = input.anthropic_default_haiku_model {
+            provider_env.insert(
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL".to_string(),
+                Value::String(model.to_string()),
+            );
+        }
+        if !provider_env.is_empty() {
+            obj.insert("providerEnv".to_string(), Value::Object(provider_env));
+        }
+    }
     if !additional_directories.is_empty() {
         if let Some(obj) = params.as_object_mut() {
             obj.insert(

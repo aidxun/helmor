@@ -8,6 +8,7 @@ additionalDirectories:
 cwd: /abs/workspace
 effortLevel: high
 fastMode: false
+logicalProvider: claude
 model: claude-opus-4
 permissionMode: bypassPermissions
 prompt: hello

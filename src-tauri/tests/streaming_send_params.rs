@@ -94,6 +94,12 @@ fn base_input<'a>(session_id: Option<&'a str>) -> BuildSendMessageParamsInput<'a
         cwd: "/abs/workspace",
         resume_session_id: None,
         provider: "claude",
+        runtime_provider: "claude",
+        anthropic_base_url: None,
+        anthropic_api_key: None,
+        anthropic_default_opus_model: None,
+        anthropic_default_sonnet_model: None,
+        anthropic_default_haiku_model: None,
         effort_level: Some("high"),
         permission_mode: Some("bypassPermissions"),
         fast_mode: false,
@@ -122,6 +128,21 @@ fn includes_additional_directories_from_workspace() {
 
     let params = build(base_input(Some("s-2")));
     assert_yaml_snapshot!("params_with_linked_dirs", &params);
+}
+
+#[test]
+fn includes_custom_provider_env() {
+    let mut input = base_input(None);
+    input.provider = "custom:mioffice";
+    input.runtime_provider = "claude";
+    input.anthropic_base_url = Some("https://api.example.com/anthropic");
+    input.anthropic_api_key = Some("sk-test");
+    input.anthropic_default_opus_model = Some("provider/big-model");
+    input.anthropic_default_sonnet_model = Some("provider/default-model");
+    input.anthropic_default_haiku_model = Some("provider/small-model");
+
+    let params = build(input);
+    assert_yaml_snapshot!("params_with_custom_provider_env", &params);
 }
 
 #[test]

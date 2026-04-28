@@ -174,6 +174,26 @@ function onEditorError(error: Error) {
 	console.error("[Composer Lexical]", error);
 }
 
+function ModelLabelText({ label }: { label: string }) {
+	const parts = label.split("/");
+	return (
+		<span
+			className="font-mono tabular-nums whitespace-pre"
+			style={{
+				fontVariantLigatures: "none",
+				fontFeatureSettings: '"liga" 0, "calt" 0',
+			}}
+		>
+			{parts.map((part, index) => (
+				<span key={`${part}-${index}`}>
+					{index > 0 ? <span>/</span> : null}
+					{part}
+				</span>
+			))}
+		</span>
+	);
+}
+
 export const WorkspaceComposer = memo(function WorkspaceComposer({
 	contextKey,
 	onSubmit,
@@ -631,11 +651,13 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 											) : (
 												<ClaudeIcon className="size-[13px]" />
 											)}
-											<span>
-												{selectedModel?.label ??
-													selectedModelId ??
-													"Select model"}
-											</span>
+											{selectedModel?.label || selectedModelId ? (
+												<ModelLabelText
+													label={selectedModel?.label ?? selectedModelId ?? ""}
+												/>
+											) : (
+												<span>Select model</span>
+											)}
 											<ChevronDown
 												className="size-3 opacity-40"
 												strokeWidth={2}
@@ -669,9 +691,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 																		<ClaudeIcon />
 																	)}
 																</span>
-																<span className="font-mono tabular-nums">
-																	{option.label}
-																</span>
+																<ModelLabelText label={option.label} />
 															</div>
 														</DropdownMenuItem>
 													))}

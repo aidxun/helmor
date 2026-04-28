@@ -26,6 +26,7 @@ export interface SendMessageParams {
 	 * arrays everywhere.
 	 */
 	readonly additionalDirectories?: readonly string[];
+	readonly providerEnv?: Readonly<Record<string, string>>;
 }
 
 export interface ListSlashCommandsParams {

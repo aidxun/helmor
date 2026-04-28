@@ -828,7 +828,7 @@ fn spawn_background_refresh(
 }
 
 pub fn fetch_agent_model_sections() -> Vec<super::catalog::AgentModelSection> {
-    super::catalog::static_model_sections()
+    super::catalog::model_sections()
 }
 
 // ---------------------------------------------------------------------------

@@ -111,7 +111,24 @@ export function parseElicitationResultContent(
 
 export function parseProvider(value: unknown): Provider {
 	if (value === "claude" || value === "codex") return value;
+	if (typeof value === "string" && value.startsWith("custom:")) return "claude";
 	throw new Error(`unknown provider: ${String(value)}`);
+}
+
+function parseOptionalStringRecord(
+	params: Record<string, unknown>,
+	key: string,
+): Record<string, string> | undefined {
+	const value = params[key];
+	if (value === undefined || value === null) return undefined;
+	if (typeof value !== "object" || Array.isArray(value)) {
+		throw new Error(`params.${key} must be an object`);
+	}
+	return Object.fromEntries(
+		Object.entries(value as Record<string, unknown>).filter(
+			(entry): entry is [string, string] => typeof entry[1] === "string",
+		),
+	);
 }
 
 export function parseSendMessageParams(
@@ -130,6 +147,7 @@ export function parseSendMessageParams(
 			params,
 			"additionalDirectories",
 		),
+		providerEnv: parseOptionalStringRecord(params, "providerEnv"),
 	};
 }
 

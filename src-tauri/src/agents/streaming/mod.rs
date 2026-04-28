@@ -124,6 +124,12 @@ pub(super) fn stream_via_sidecar(
         cwd: &working_directory.display().to_string(),
         resume_session_id: resume_session_id.as_deref(),
         provider: &model.provider,
+        runtime_provider: &model.runtime_provider,
+        anthropic_base_url: model.anthropic_base_url.as_deref(),
+        anthropic_api_key: model.anthropic_api_key.as_deref(),
+        anthropic_default_opus_model: model.anthropic_default_opus_model.as_deref(),
+        anthropic_default_sonnet_model: model.anthropic_default_sonnet_model.as_deref(),
+        anthropic_default_haiku_model: model.anthropic_default_haiku_model.as_deref(),
         effort_level: request.effort_level.as_deref(),
         permission_mode: request.permission_mode.as_deref(),
         fast_mode: request.fast_mode.unwrap_or(false),
@@ -172,6 +178,7 @@ pub(super) fn stream_via_sidecar(
 
     let model_id = model.id.clone();
     let provider = model.provider.clone();
+    let runtime_provider = model.runtime_provider.clone();
     let model_copy = model.clone();
     let prompt_copy = prompt.to_string();
     let working_dir_str = working_directory.display().to_string();
@@ -391,7 +398,7 @@ pub(super) fn stream_via_sidecar(
             // "No conversation found". Codex flattens every notification with
             // its real thread_id, so any event is safe.
             let is_provider_session_marker = match model_copy.provider.as_str() {
-                "claude" => event.is_claude_session_init(),
+                _ if runtime_provider == "claude" => event.is_claude_session_init(),
                 _ => true,
             };
             if is_provider_session_marker {
