@@ -400,10 +400,10 @@ export function resolveSessionSelectedModelId({
 	const selectedModelId = session
 		? (modelSelections[getComposerContextKey(null, session.id)] ?? null)
 		: null;
-	return (
-		selectedModelId ??
-		inferDefaultModelId(session, modelSections, settingsDefaultModelId)
-	);
+	if (selectedModelId && findModelOption(modelSections, selectedModelId)) {
+		return selectedModelId;
+	}
+	return inferDefaultModelId(session, modelSections, settingsDefaultModelId);
 }
 
 export function resolveSessionDisplayProvider({

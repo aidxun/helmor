@@ -442,6 +442,24 @@ describe("resolveSessionSelectedModelId", () => {
 		).toBe("gpt-4o");
 	});
 
+	it("ignores stale composer-selected models that are no longer in the catalog", () => {
+		expect(
+			resolveSessionSelectedModelId({
+				session: {
+					id: "session-1",
+					agentType: null,
+					model: null,
+					lastUserMessageAt: null,
+				},
+				modelSelections: {
+					"session:session-1": "custom:deleted-provider:sonnet",
+				},
+				modelSections: MODEL_SECTIONS,
+				settingsDefaultModelId: "gpt-4o",
+			}),
+		).toBe("gpt-4o");
+	});
+
 	it("falls back to the persisted session model", () => {
 		expect(
 			resolveSessionSelectedModelId({

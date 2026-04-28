@@ -135,11 +135,10 @@ fn includes_custom_provider_env() {
     let mut input = base_input(None);
     input.provider = "custom:mioffice";
     input.runtime_provider = "claude";
+    input.cli_model = "sonnet";
     input.anthropic_base_url = Some("https://api.example.com/anthropic");
     input.anthropic_api_key = Some("sk-test");
-    input.anthropic_default_opus_model = Some("provider/big-model");
-    input.anthropic_default_sonnet_model = Some("provider/default-model");
-    input.anthropic_default_haiku_model = Some("provider/small-model");
+    input.anthropic_default_sonnet_model = Some("provider/selected-model");
 
     let params = build(input);
     assert_yaml_snapshot!("params_with_custom_provider_env", &params);

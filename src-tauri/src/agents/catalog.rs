@@ -99,36 +99,28 @@ fn custom_provider_models(
     provider: &crate::settings::CustomProviderSettings,
     provider_id: &str,
 ) -> Vec<AgentModelOption> {
-    [
-        (
-            "opus",
-            provider.opus_model.as_str(),
-            vec!["low", "medium", "high", "xhigh", "max"],
-        ),
-        (
-            "sonnet",
-            provider.sonnet_model.as_str(),
-            vec!["low", "medium", "high", "max"],
-        ),
-        ("haiku", provider.haiku_model.as_str(), Vec::new()),
-    ]
-    .into_iter()
-    .filter_map(|(alias, mapped_model, effort_levels)| {
-        let mapped_model = mapped_model.trim();
-        if mapped_model.is_empty() {
-            return None;
-        }
-        Some(AgentModelOption {
-            id: custom_model_id(&provider.id, alias),
-            provider: provider_id.to_string(),
-            label: mapped_model.to_string(),
-            cli_model: alias.to_string(),
-            runtime_provider: Some("claude".to_string()),
-            effort_levels: effort_levels.into_iter().map(str::to_string).collect(),
-            supports_fast_mode: false,
+    provider
+        .models
+        .iter()
+        .filter_map(|mapped_model| {
+            let mapped_model = mapped_model.trim();
+            if mapped_model.is_empty() {
+                return None;
+            }
+            Some(AgentModelOption {
+                id: custom_model_id(&provider.id, mapped_model),
+                provider: provider_id.to_string(),
+                label: mapped_model.to_string(),
+                cli_model: "sonnet".to_string(),
+                runtime_provider: Some("claude".to_string()),
+                effort_levels: ["low", "medium", "high", "max"]
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+                supports_fast_mode: false,
+            })
         })
-    })
-    .collect()
+        .collect()
 }
 
 fn claude_model(
@@ -203,19 +195,19 @@ pub fn resolve_model(model_id: &str) -> ResolvedModel {
 }
 
 pub fn resolve_model_with_settings(model_id: &str) -> ResolvedModel {
-    if let Some((provider_id, cli_model)) = parse_custom_model_id(model_id) {
+    if let Some((provider_id, selected_model)) = parse_custom_model_id(model_id) {
         match crate::settings::load_custom_provider(&provider_id) {
             Ok(Some(provider)) => {
                 return ResolvedModel {
                     id: model_id.to_string(),
                     provider: custom_provider_id(&provider.id),
                     runtime_provider: "claude".to_string(),
-                    cli_model,
+                    cli_model: "sonnet".to_string(),
                     anthropic_base_url: Some(provider.base_url),
                     anthropic_api_key: Some(provider.api_key),
-                    anthropic_default_opus_model: non_empty(provider.opus_model),
-                    anthropic_default_sonnet_model: non_empty(provider.sonnet_model),
-                    anthropic_default_haiku_model: non_empty(provider.haiku_model),
+                    anthropic_default_opus_model: None,
+                    anthropic_default_sonnet_model: Some(selected_model),
+                    anthropic_default_haiku_model: None,
                 };
             }
             Ok(None) => {
@@ -231,14 +223,6 @@ pub fn resolve_model_with_settings(model_id: &str) -> ResolvedModel {
         }
     }
     resolve_model(model_id)
-}
-
-fn non_empty(value: String) -> Option<String> {
-    if value.trim().is_empty() {
-        None
-    } else {
-        Some(value)
-    }
 }
 
 pub fn custom_provider_id(id: &str) -> String {
@@ -312,10 +296,10 @@ mod tests {
             name: "Mioffice".to_string(),
             base_url: "https://api.example.com/anthropic".to_string(),
             api_key: "sk-test".to_string(),
+            models: vec!["xiaomi/mimo-v2.5".to_string(), "mimo-v2.5-mini".to_string()],
             opus_model: String::new(),
-            sonnet_model: "xiaomi/mimo-v2.5".to_string(),
-            haiku_model: "mimo-v2.5-mini".to_string(),
-            legacy_models: Vec::new(),
+            sonnet_model: String::new(),
+            haiku_model: String::new(),
             enabled: true,
         };
 
@@ -327,8 +311,8 @@ mod tests {
                 .map(|model| (model.id.as_str(), model.label.as_str()))
                 .collect::<Vec<_>>(),
             vec![
-                ("custom:mioffice:sonnet", "xiaomi/mimo-v2.5"),
-                ("custom:mioffice:haiku", "mimo-v2.5-mini"),
+                ("custom:mioffice:xiaomi/mimo-v2.5", "xiaomi/mimo-v2.5"),
+                ("custom:mioffice:mimo-v2.5-mini", "mimo-v2.5-mini"),
             ]
         );
         assert!(options

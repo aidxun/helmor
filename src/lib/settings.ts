@@ -16,9 +16,7 @@ export type CustomProviderSettings = {
 	name: string;
 	baseUrl: string;
 	apiKey: string;
-	opusModel: string;
-	sonnetModel: string;
-	haikuModel: string;
+	models: string[];
 	enabled: boolean;
 };
 
@@ -135,27 +133,21 @@ function parseCustomProviders(
 							.map((model) => model.trim())
 							.filter(Boolean)
 					: [];
-				const opusModel =
-					typeof record.opusModel === "string"
-						? record.opusModel.trim()
-						: (legacyModels[0] ?? "");
-				const sonnetModel =
+				const aliasModels = [
+					typeof record.opusModel === "string" ? record.opusModel.trim() : "",
 					typeof record.sonnetModel === "string"
 						? record.sonnetModel.trim()
-						: (legacyModels[1] ?? "");
-				const haikuModel =
-					typeof record.haikuModel === "string"
-						? record.haikuModel.trim()
-						: (legacyModels[2] ?? "");
+						: "",
+					typeof record.haikuModel === "string" ? record.haikuModel.trim() : "",
+				].filter(Boolean);
+				const models = Array.from(new Set([...legacyModels, ...aliasModels]));
 				if (!id || !name || !baseUrl) return null;
 				return {
 					id,
 					name,
 					baseUrl,
 					apiKey,
-					opusModel,
-					sonnetModel,
-					haikuModel,
+					models,
 					enabled: record.enabled !== false,
 				};
 			})

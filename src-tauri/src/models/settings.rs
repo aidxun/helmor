@@ -17,13 +17,13 @@ pub struct CustomProviderSettings {
     pub base_url: String,
     pub api_key: String,
     #[serde(default)]
+    pub models: Vec<String>,
+    #[serde(default)]
     pub opus_model: String,
     #[serde(default)]
     pub sonnet_model: String,
     #[serde(default)]
     pub haiku_model: String,
-    #[serde(default, rename = "models")]
-    pub legacy_models: Vec<String>,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
 }
@@ -147,37 +147,35 @@ pub fn load_custom_providers() -> Result<Vec<CustomProviderSettings>> {
             provider.name = provider.name.trim().to_string();
             provider.base_url = provider.base_url.trim().trim_end_matches('/').to_string();
             provider.api_key = provider.api_key.trim().to_string();
-            provider.legacy_models = provider
-                .legacy_models
+            provider.models = provider
+                .models
                 .into_iter()
                 .map(|model| model.trim().to_string())
                 .filter(|model| !model.is_empty())
                 .collect();
-            provider.opus_model = trim_or_legacy(&provider.opus_model, &provider.legacy_models, 0);
-            provider.sonnet_model =
-                trim_or_legacy(&provider.sonnet_model, &provider.legacy_models, 1);
-            provider.haiku_model =
-                trim_or_legacy(&provider.haiku_model, &provider.legacy_models, 2);
+            if provider.models.is_empty() {
+                provider.models = [
+                    &provider.opus_model,
+                    &provider.sonnet_model,
+                    &provider.haiku_model,
+                ]
+                .into_iter()
+                .map(|model| model.trim().to_string())
+                .filter(|model| !model.is_empty())
+                .collect();
+            }
+            let mut unique_models = Vec::new();
+            for model in provider.models {
+                if !unique_models.contains(&model) {
+                    unique_models.push(model);
+                }
+            }
+            provider.models = unique_models;
             provider
         })
-        .filter(|provider| {
-            !provider.opus_model.is_empty()
-                || !provider.sonnet_model.is_empty()
-                || !provider.haiku_model.is_empty()
-        })
+        .filter(|provider| !provider.models.is_empty())
         .collect();
     Ok(providers)
-}
-
-fn trim_or_legacy(value: &str, legacy_models: &[String], index: usize) -> String {
-    let trimmed = value.trim();
-    if !trimmed.is_empty() {
-        return trimmed.to_string();
-    }
-    match legacy_models.get(index) {
-        Some(model) => model.to_string(),
-        None => String::new(),
-    }
 }
 
 pub fn load_custom_provider(provider_id: &str) -> Result<Option<CustomProviderSettings>> {
@@ -275,22 +273,6 @@ mod tests {
             })
             .unwrap();
         assert_eq!(value, "v2");
-    }
-
-    #[test]
-    fn custom_provider_legacy_models_do_not_backfill_missing_aliases() {
-        assert_eq!(
-            super::trim_or_legacy("", &["xiaomi/mimo-v2.5".into()], 0),
-            "xiaomi/mimo-v2.5"
-        );
-        assert_eq!(
-            super::trim_or_legacy("", &["xiaomi/mimo-v2.5".into()], 1),
-            ""
-        );
-        assert_eq!(
-            super::trim_or_legacy("", &["xiaomi/mimo-v2.5".into()], 2),
-            ""
-        );
     }
 
     #[test]
