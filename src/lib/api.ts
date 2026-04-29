@@ -2326,6 +2326,16 @@ export async function createSession(
 	});
 }
 
+export async function forkSession(
+	sourceSessionId: string,
+	forkAfterMessageId: string,
+): Promise<CreateSessionResponse> {
+	return invoke<CreateSessionResponse>("fork_session", {
+		sourceSessionId,
+		forkAfterMessageId,
+	});
+}
+
 export async function renameSession(
 	sessionId: string,
 	title: string,

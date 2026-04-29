@@ -255,6 +255,7 @@ pub fn run() {
             commands::workspace_commands::list_workspace_groups,
             commands::session_commands::list_workspace_sessions,
             commands::session_commands::create_session,
+            commands::session_commands::fork_session,
             commands::session_commands::rename_session,
             commands::session_commands::hide_session,
             commands::session_commands::unhide_session,

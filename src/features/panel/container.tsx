@@ -10,7 +10,7 @@ import type {
 	WorkspaceDetail,
 	WorkspaceSessionSummary,
 } from "@/lib/api";
-import { createSession, loadRepoScripts } from "@/lib/api";
+import { createSession, forkSession, loadRepoScripts } from "@/lib/api";
 import {
 	helmorQueryKeys,
 	sessionThreadMessagesQueryOptions,
@@ -23,6 +23,7 @@ import {
 	WORKSPACE_SCRIPT_PROMPTS,
 	type WorkspaceScriptType,
 } from "@/lib/workspace-script-actions";
+import { ForkProvider } from "./fork-context";
 import { WorkspacePanel } from "./index";
 import type { SessionCloseRequest } from "./use-confirm-session-close";
 
@@ -101,6 +102,7 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	}, [sessionSelectionHistory, sessions]);
 
 	const autoCreatingWorkspaceRef = useRef<Set<string>>(new Set());
+	const pendingForkedMessagesRef = useRef<ThreadMessageLike[] | null>(null);
 
 	useEffect(() => {
 		if (!displayedWorkspaceId || selectedWorkspaceId !== displayedWorkspaceId) {
@@ -266,6 +268,24 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 			onResolveDisplayedSession(threadSessionId);
 		}
 	}, [displayedSessionId, onResolveDisplayedSession, threadSessionId]);
+
+	// Safety net: if the messages cache was overwritten after a fork session
+	// switch, re-seed from the pending forked messages ref.
+	useEffect(() => {
+		const pending = pendingForkedMessagesRef.current;
+		if (!pending || !threadSessionId) {
+			return;
+		}
+		const cacheKey = [
+			...helmorQueryKeys.sessionMessages(threadSessionId),
+			"thread",
+		];
+		const cached = queryClient.getQueryData<ThreadMessageLike[]>(cacheKey);
+		if (!cached || cached.length === 0) {
+			queryClient.setQueryData(cacheKey, pending);
+		}
+		pendingForkedMessagesRef.current = null;
+	}, [queryClient, threadSessionId]);
 
 	useEffect(() => {
 		if (!threadSessionId) {
@@ -459,6 +479,101 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 		[queryClient],
 	);
 
+	const handleForkSession = useCallback(
+		async (messageId: string) => {
+			if (!displayedSessionId || !displayedWorkspaceId) {
+				return;
+			}
+
+			const forkIndex = messages.findIndex((m) => m.id === messageId);
+			if (forkIndex === -1) {
+				return;
+			}
+
+			// Include the turn-result system message that follows the
+			// assistant message — it carries the timestamp and copy/fork
+			// affordances that the new session needs to display.
+			const end =
+				forkIndex + 1 < messages.length &&
+				messages[forkIndex + 1].role === "system"
+					? forkIndex + 2
+					: forkIndex + 1;
+			const forkedMessages = messages.slice(0, end);
+			const sourceSession = sessions.find((s) => s.id === displayedSessionId);
+			const forkTitle = `${sourceSession?.title ?? "Untitled"} (fork)`;
+
+			try {
+				const { sessionId: newSessionId } = await forkSession(
+					displayedSessionId,
+					messageId,
+				);
+
+				const now = new Date().toISOString();
+				queryClient.setQueryData(
+					helmorQueryKeys.workspaceDetail(displayedWorkspaceId),
+					(current: WorkspaceDetail | null | undefined) => {
+						if (!current) {
+							return current;
+						}
+						return {
+							...current,
+							activeSessionId: newSessionId,
+							activeSessionTitle: forkTitle,
+							activeSessionAgentType: null,
+							activeSessionStatus: "idle",
+							sessionCount: current.sessionCount + 1,
+						};
+					},
+				);
+				queryClient.setQueryData(
+					helmorQueryKeys.workspaceSessions(displayedWorkspaceId),
+					(current: WorkspaceSessionSummary[] | undefined) => [
+						...(current ?? []).map((s) => ({ ...s, active: false })),
+						{
+							id: newSessionId,
+							workspaceId: displayedWorkspaceId,
+							title: forkTitle,
+							agentType: null,
+							status: "idle",
+							model: sourceSession?.model ?? null,
+							permissionMode: sourceSession?.permissionMode ?? "default",
+							providerSessionId: null,
+							effortLevel: sourceSession?.effortLevel ?? null,
+							unreadCount: 0,
+							fastMode: false,
+							createdAt: now,
+							updatedAt: now,
+							lastUserMessageAt: null,
+							isHidden: false,
+							actionKind: null,
+							active: true,
+						},
+					],
+				);
+				queryClient.setQueryData(
+					[...helmorQueryKeys.sessionMessages(newSessionId), "thread"],
+					forkedMessages,
+				);
+
+				pendingForkedMessagesRef.current = forkedMessages;
+				onSelectSessionRef.current(newSessionId);
+
+				void invalidateWorkspaceQueries();
+			} catch (error) {
+				console.error("Failed to fork session:", error);
+				void invalidateWorkspaceQueries();
+			}
+		},
+		[
+			displayedSessionId,
+			displayedWorkspaceId,
+			messages,
+			sessions,
+			queryClient,
+			invalidateWorkspaceQueries,
+		],
+	);
+
 	// All callback props that go into <WorkspacePanel> must be reference
 	// stable so that the memoed header sub-component bails out across stream
 	// ticks. We capture the latest `onSelectSession` in a ref and route the
@@ -515,31 +630,33 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 	);
 
 	return (
-		<WorkspacePanel
-			workspace={workspace}
-			sessions={sessions}
-			selectedSessionId={selectedSessionIdForPanel}
-			sessionDisplayProviders={sessionDisplayProviders}
-			sessionPanes={sessionPanes}
-			loadingWorkspace={loadingWorkspace}
-			loadingSession={loadingSession}
-			refreshingWorkspace={refreshingWorkspace}
-			refreshingSession={refreshingSession}
-			sending={sending}
-			sendingSessionIds={sendingSessionIds}
-			interactionRequiredSessionIds={interactionRequiredSessionIds}
-			onSelectSession={handleSelectSession}
-			onPrefetchSession={handlePrefetchSession}
-			onSessionsChanged={handleSessionsChanged}
-			onSessionRenamed={handleSessionRenamed}
-			onWorkspaceChanged={handleWorkspaceChanged}
-			onRequestCloseSession={onRequestCloseSession}
-			headerActions={headerActions}
-			headerLeading={headerLeading}
-			newSessionShortcut={getShortcut(settings.shortcuts, "session.new")}
-			missingScriptTypes={missingScriptTypes}
-			onInitializeScript={handleInitializeScript}
-			changeRequest={workspaceChangeRequest}
-		/>
+		<ForkProvider value={handleForkSession}>
+			<WorkspacePanel
+				workspace={workspace}
+				sessions={sessions}
+				selectedSessionId={selectedSessionIdForPanel}
+				sessionDisplayProviders={sessionDisplayProviders}
+				sessionPanes={sessionPanes}
+				loadingWorkspace={loadingWorkspace}
+				loadingSession={loadingSession}
+				refreshingWorkspace={refreshingWorkspace}
+				refreshingSession={refreshingSession}
+				sending={sending}
+				sendingSessionIds={sendingSessionIds}
+				interactionRequiredSessionIds={interactionRequiredSessionIds}
+				onSelectSession={handleSelectSession}
+				onPrefetchSession={handlePrefetchSession}
+				onSessionsChanged={handleSessionsChanged}
+				onSessionRenamed={handleSessionRenamed}
+				onWorkspaceChanged={handleWorkspaceChanged}
+				onRequestCloseSession={onRequestCloseSession}
+				headerActions={headerActions}
+				headerLeading={headerLeading}
+				newSessionShortcut={getShortcut(settings.shortcuts, "session.new")}
+				missingScriptTypes={missingScriptTypes}
+				onInitializeScript={handleInitializeScript}
+				changeRequest={workspaceChangeRequest}
+			/>
+		</ForkProvider>
 	);
 });

@@ -38,6 +38,14 @@ pub async fn create_session(
 }
 
 #[tauri::command]
+pub async fn fork_session(
+    source_session_id: String,
+    fork_after_message_id: String,
+) -> CmdResult<sessions::CreateSessionResponse> {
+    run_blocking(move || sessions::fork_session(&source_session_id, &fork_after_message_id)).await
+}
+
+#[tauri::command]
 pub async fn rename_session(session_id: String, title: String) -> CmdResult<()> {
     run_blocking(move || sessions::rename_session(&session_id, &title)).await
 }

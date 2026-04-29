@@ -2,6 +2,7 @@ import { formatDistanceToNow } from "date-fns";
 import {
 	AlertCircle,
 	AlertTriangle,
+	GitFork,
 	Info,
 	MessageSquareText,
 } from "lucide-react";
@@ -17,6 +18,7 @@ import type {
 	SystemNoticePart,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useForkMessage } from "../fork-context";
 import { CopyMessageButton } from "./copy-message";
 import type { RenderedMessage } from "./shared";
 import {
@@ -137,10 +139,15 @@ export function ChatSystemMessage({
 	previousAssistantMessage?: RenderedMessage | null;
 }) {
 	const parts = message.content as MessagePart[];
+	const forkMessage = useForkMessage();
 	const copyTarget =
 		previousAssistantMessage?.role === "assistant"
 			? previousAssistantMessage
 			: message;
+	const forkTargetId =
+		previousAssistantMessage?.role === "assistant"
+			? previousAssistantMessage.id
+			: null;
 
 	return (
 		<div
@@ -165,6 +172,18 @@ export function ChatSystemMessage({
 					<MessageTimestamp createdAt={message.createdAt} />
 				) : null}
 			</div>
+			{forkMessage && forkTargetId ? (
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-xs"
+					aria-label="Fork session from here"
+					onClick={() => forkMessage(forkTargetId)}
+					className="size-5 shrink-0 text-muted-foreground/30 opacity-0 hover:text-muted-foreground group-hover/sys:opacity-100"
+				>
+					<GitFork className="size-3" strokeWidth={1.8} />
+				</Button>
+			) : null}
 			<CopyMessageButton
 				message={copyTarget}
 				className="size-5 shrink-0 text-muted-foreground/30 opacity-0 hover:text-muted-foreground group-hover/sys:opacity-100"

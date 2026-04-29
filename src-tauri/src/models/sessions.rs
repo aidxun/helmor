@@ -425,6 +425,134 @@ pub fn create_session(
     Ok(CreateSessionResponse { session_id })
 }
 
+/// Create a new session that forks from a historical point in an existing
+/// session. All messages up to (and including) `fork_after_message_id` are
+/// copied into the new session. The agent session (`provider_session_id`) is
+/// NOT carried over — the fork starts a fresh agent context.
+///
+/// Returns an error if the source session is currently streaming (status is
+/// not `idle`), since mid-stream messages may be incomplete.
+pub fn fork_session(
+    source_session_id: &str,
+    fork_after_message_id: &str,
+) -> Result<CreateSessionResponse> {
+    let mut connection = db::write_conn()?;
+    let transaction = connection
+        .transaction()
+        .context("Failed to start fork-session transaction")?;
+
+    // Look up the source session.
+    let (workspace_id, source_title, source_status, source_model, source_permission_mode, source_effort_level): (
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = transaction
+        .query_row(
+            "SELECT workspace_id, title, status, model, permission_mode, effort_level FROM sessions WHERE id = ?1",
+            [source_session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+        )
+        .with_context(|| format!("Source session {source_session_id} not found"))?;
+
+    // Reject forking from an active session — messages may be incomplete.
+    if source_status != "idle" {
+        bail!("Cannot fork from a session that is currently active (status: {source_status})");
+    }
+
+    // Resolve the fork point's rowid for reliable ordering.
+    let fork_rowid: i64 = transaction
+        .query_row(
+            "SELECT rowid FROM session_messages WHERE id = ?1 AND session_id = ?2",
+            (fork_after_message_id, source_session_id),
+            |row| row.get(0),
+        )
+        .with_context(|| {
+            format!("Fork point message {fork_after_message_id} not found in session {source_session_id}")
+        })?;
+
+    // Create the new session. Model, permission mode, and effort level are
+    // carried over from the source so the forked session starts with the
+    // same agent configuration.
+    let new_session_id = uuid::Uuid::new_v4().to_string();
+    let new_title = format!("{source_title} (fork)");
+    let new_permission_mode = source_permission_mode.unwrap_or_else(|| "default".to_string());
+    let new_effort_level = source_effort_level.unwrap_or_else(|| {
+        settings::load_setting_value("app.default_effort")
+            .ok()
+            .flatten()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "high".to_string())
+    });
+
+    transaction
+        .execute(
+            r#"
+            INSERT INTO sessions (id, workspace_id, status, title, permission_mode, model, effort_level)
+            VALUES (?1, ?2, 'idle', ?3, ?4, ?5, ?6)
+            "#,
+            (&new_session_id, &workspace_id, &new_title, &new_permission_mode, &source_model, &new_effort_level),
+        )
+        .context("Failed to create forked session")?;
+
+    // Copy messages up to and including the fork point.
+    // Generate fresh UUIDs on the Rust side to match the codebase convention
+    // (Uuid::new_v4) rather than using SQL hex(randomblob(16)).
+    {
+        let mut stmt = transaction.prepare(
+            "SELECT role, content, sent_at, created_at \
+             FROM session_messages \
+             WHERE session_id = ?1 AND rowid <= ?2 \
+             ORDER BY rowid ASC",
+        )?;
+        let rows: Vec<(String, String, Option<String>, String)> = stmt
+            .query_map((source_session_id, fork_rowid), |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        for (role, content, sent_at, created_at) in &rows {
+            let new_msg_id = uuid::Uuid::new_v4().to_string();
+            transaction.execute(
+                r#"
+                INSERT INTO session_messages (id, session_id, role, content, sent_at, created_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                "#,
+                (
+                    new_msg_id,
+                    &new_session_id,
+                    role,
+                    content,
+                    sent_at,
+                    created_at,
+                ),
+            )?;
+        }
+    }
+
+    // Set as the workspace's active session.
+    let updated_rows = transaction
+        .execute(
+            "UPDATE workspaces SET active_session_id = ?1 WHERE id = ?2",
+            (&new_session_id, &workspace_id),
+        )
+        .context("Failed to set active session for fork")?;
+
+    if updated_rows != 1 {
+        bail!("Active session update affected {updated_rows} rows for workspace {workspace_id}");
+    }
+
+    transaction
+        .commit()
+        .context("Failed to commit fork-session")?;
+
+    Ok(CreateSessionResponse {
+        session_id: new_session_id,
+    })
+}
+
 /// Read the `model` column from a session row.
 pub fn get_session_model(session_id: &str) -> Result<Option<String>> {
     let conn = db::read_conn()?;
