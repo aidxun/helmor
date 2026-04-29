@@ -6,7 +6,13 @@ expression: entries
   emitted: []
   side_effects: []
 - event_type: error
-  emitted: []
+  emitted:
+    - kind: Update
+      messages:
+        - role: system
+          part_types:
+            - system-notice
+          streaming: ~
   side_effects: []
 - event_type: item/agentMessage/delta
   emitted: []
@@ -17,6 +23,10 @@ expression: entries
       messages:
         - role: system
           part_types:
+            - system-notice
+          streaming: ~
+        - role: system
+          part_types:
             - text
           streaming: ~
   side_effects: []
@@ -24,6 +34,10 @@ expression: entries
   emitted:
     - kind: Update
       messages:
+        - role: system
+          part_types:
+            - system-notice
+          streaming: ~
         - role: system
           part_types:
             - text

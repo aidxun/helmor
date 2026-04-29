@@ -126,6 +126,7 @@ async function driveToSendMessage(sessionId: string) {
 		notificationGate: null,
 		lastSentModel: "",
 		lastRetryAt: null,
+		lastRetryNotice: null,
 	});
 
 	const sendMessagePromise = manager.sendMessage(
@@ -301,6 +302,52 @@ describe("CodexAppServerManager.steer gate — real manager wiring", () => {
 			(e) => (e as { type?: string }).type === "error",
 		);
 		expect(reconnectError).toBeUndefined();
+		expect(events).toContainEqual({
+			id: "stream-rid-1",
+			type: "system",
+			subtype: "codex_reconnecting",
+			attempt: 1,
+			max_retries: 5,
+			retry_delay_ms: 0,
+			error: "Reconnecting... 1/5",
+		});
+
+		await finish(fake, sendMessagePromise);
+	});
+
+	test("structured retry notices are delivered once with heartbeat", async () => {
+		const { fake, events, sendMessagePromise } = await driveToSendMessage("s1");
+
+		await fake.fireNotification("error", {
+			willRetry: true,
+			error: { message: "Reconnecting... 2/5" },
+		});
+		await fake.fireNotification("error", {
+			willRetry: true,
+			error: { message: "Reconnecting... 2/5" },
+		});
+		await new Promise((r) => setTimeout(r, 0));
+
+		expect(
+			events.filter((e) => (e as { type?: string }).type === "heartbeat"),
+		).toHaveLength(2);
+		expect(
+			events.filter(
+				(e) =>
+					(e as { type?: string; subtype?: string }).type === "system" &&
+					(e as { subtype?: string }).subtype === "codex_reconnecting",
+			),
+		).toEqual([
+			{
+				id: "stream-rid-1",
+				type: "system",
+				subtype: "codex_reconnecting",
+				attempt: 2,
+				max_retries: 5,
+				retry_delay_ms: 0,
+				error: "Reconnecting... 2/5",
+			},
+		]);
 
 		await finish(fake, sendMessagePromise);
 	});

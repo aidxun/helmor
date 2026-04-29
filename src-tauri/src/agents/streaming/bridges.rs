@@ -14,7 +14,7 @@
 //! pure — anything that needs DB access or pipeline state belongs in the
 //! state machine, not in a bridge.
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::agents::AgentStreamEvent;
 
@@ -170,6 +170,26 @@ pub(super) fn is_retryable_sidecar_error(raw: &Value) -> bool {
         .is_some_and(is_reconnecting_notice)
 }
 
+/// Build a non-terminal pipeline event for a retryable sidecar error. This
+/// keeps older sidecars (which forwarded Codex reconnect progress as
+/// `type:error`) visible to the user without terminating the stream.
+pub(super) fn retry_notice_event_from_error(raw: &Value) -> Value {
+    let message = raw
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("Retrying provider request");
+    let (attempt, max_retries) = reconnect_counts(message).unwrap_or((0, 0));
+
+    json!({
+        "type": "system",
+        "subtype": "codex_reconnecting",
+        "attempt": attempt,
+        "max_retries": max_retries,
+        "retry_delay_ms": 0,
+        "error": message,
+    })
+}
+
 fn is_reconnecting_notice(message: &str) -> bool {
     let message = message.trim_start();
     let suffix = message
@@ -183,32 +203,36 @@ fn is_reconnecting_notice(message: &str) -> bool {
 }
 
 fn starts_with_retry_count(message: &str) -> bool {
+    reconnect_counts(message).is_some()
+}
+
+fn reconnect_counts(message: &str) -> Option<(u64, u64)> {
     let mut chars = message.chars().peekable();
-    if !consume_ascii_digits(&mut chars) {
-        return false;
-    }
+    let attempt = consume_ascii_digits(&mut chars)?;
     while chars.peek().is_some_and(|c| c.is_ascii_whitespace()) {
         chars.next();
     }
     if chars.next() != Some('/') {
-        return false;
+        return None;
     }
     while chars.peek().is_some_and(|c| c.is_ascii_whitespace()) {
         chars.next();
     }
-    consume_ascii_digits(&mut chars)
+    let max = consume_ascii_digits(&mut chars)?;
+    Some((attempt, max))
 }
 
-fn consume_ascii_digits<I>(chars: &mut std::iter::Peekable<I>) -> bool
+fn consume_ascii_digits<I>(chars: &mut std::iter::Peekable<I>) -> Option<u64>
 where
     I: Iterator<Item = char>,
 {
-    let mut consumed = false;
+    let mut value = String::new();
     while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-        consumed = true;
-        chars.next();
+        if let Some(ch) = chars.next() {
+            value.push(ch);
+        }
     }
-    consumed
+    (!value.is_empty()).then(|| value.parse().unwrap_or(0))
 }
 
 /// Pure constructor for `AgentStreamEvent::Error`. Caller decides

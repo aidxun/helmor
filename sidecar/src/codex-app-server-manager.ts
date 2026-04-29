@@ -39,6 +39,7 @@ const CODEX_BIN_PATH = process.env.HELMOR_CODEX_BIN_PATH || "codex";
 /** How long after a "Reconnecting…" stderr line we keep emitting
  *  synthetic heartbeats while Codex owns its retry loop. */
 const RETRY_SUPPRESSION_MS = 30_000;
+const RETRY_NOTICE_DEDUPE_MS = 1_000;
 
 const HELMOR_CLIENT_INFO = {
 	clientInfo: {
@@ -66,17 +67,33 @@ function isRecoverableResumeError(err: unknown): boolean {
 	return RECOVERABLE_RESUME_SNIPPETS.some((s) => msg.includes(s));
 }
 
-function isLegacyReconnectNotice(message: string): boolean {
+function reconnectSuffix(message: string): string | null {
 	const trimmed = message.trimStart();
 	const prefix = trimmed.startsWith("Reconnecting...")
 		? "Reconnecting..."
 		: trimmed.startsWith("Reconnecting…")
 			? "Reconnecting…"
 			: null;
-	if (!prefix) return false;
+	if (!prefix) return null;
 
-	const suffix = trimmed.slice(prefix.length).trimStart();
-	return suffix === "" || /^\d+\s*\/\s*\d+/.test(suffix);
+	return trimmed.slice(prefix.length).trimStart();
+}
+
+function isLegacyReconnectNotice(message: string): boolean {
+	const suffix = reconnectSuffix(message);
+	return suffix !== null && (suffix === "" || /^\d+\s*\/\s*\d+/.test(suffix));
+}
+
+function parseReconnectCounts(message: string): {
+	attempt: number;
+	max: number;
+} {
+	const suffix = reconnectSuffix(message);
+	const match = suffix?.match(/^(\d+)\s*\/\s*(\d+)/);
+	return {
+		attempt: match ? Number(match[1]) : 0,
+		max: match ? Number(match[2]) : 0,
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +135,9 @@ interface AppServerContext {
 	 *  SSE retry loop — Codex will recover on its own, so terminating
 	 *  the turn would be premature. */
 	lastRetryAt: number | null;
+	/** Last reconnect notice forwarded to the pipeline. Dedupe stderr +
+	 *  JSON-RPC echoes so the user sees liveness without duplicate rows. */
+	lastRetryNotice: { key: string; at: number } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -345,7 +365,7 @@ export class CodexAppServerManager implements SessionManager {
 						Date.now() - lastRetry < RETRY_SUPPRESSION_MS &&
 						isLegacyReconnectNotice(msg);
 					if (suppressForProtocolRetry || suppressForLegacyRetryWindow) {
-						emitter.heartbeat(requestId);
+						emitRetryNotice(ctx, requestId, msg);
 						logger.info(
 							"suppressing retryable Codex error; awaiting recovery",
 							{
@@ -815,19 +835,15 @@ export class CodexAppServerManager implements SessionManager {
 			onError: (err) => {
 				logger.error("codex app-server error", errorDetails(err));
 			},
-			onRetry: () => {
+			onRetry: (message) => {
 				const c = ctxRef.current;
 				if (!c) return;
 				c.lastRetryAt = Date.now();
 				// Pulse a synthetic heartbeat so Rust's 45s watchdog doesn't
 				// declare the sidecar dead while Codex is silently retrying
 				// against an upstream provider (e.g. Azure OpenAI mini-outage).
-				if (c.activeRequestId && c.activeEmitter) {
-					try {
-						c.activeEmitter.heartbeat(c.activeRequestId);
-					} catch {
-						// stdout closed — caller will notice
-					}
+				if (c.activeRequestId) {
+					emitRetryNotice(c, c.activeRequestId, message);
 				}
 				logger.debug("codex retry detected; suppression window armed", {
 					sessionId,
@@ -894,6 +910,7 @@ export class CodexAppServerManager implements SessionManager {
 			notificationGate: null,
 			lastSentModel: model ?? "",
 			lastRetryAt: null,
+			lastRetryNotice: null,
 		};
 
 		this.sessions.set(sessionId, ctx);
@@ -905,6 +922,44 @@ export class CodexAppServerManager implements SessionManager {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function retryNoticeKey(message: string): string {
+	return message.replace(/…/g, "...").replace(/\s+/g, " ").trim();
+}
+
+function emitRetryNotice(
+	ctx: AppServerContext,
+	requestId: string,
+	message: string,
+): void {
+	if (!ctx.activeEmitter) return;
+
+	try {
+		ctx.activeEmitter.heartbeat(requestId);
+	} catch {
+		return;
+	}
+
+	const now = Date.now();
+	const key = retryNoticeKey(message);
+	if (
+		ctx.lastRetryNotice?.key === key &&
+		now - ctx.lastRetryNotice.at < RETRY_NOTICE_DEDUPE_MS
+	) {
+		return;
+	}
+	ctx.lastRetryNotice = { key, at: now };
+
+	const { attempt, max } = parseReconnectCounts(message);
+	ctx.activeEmitter.passthrough(requestId, {
+		type: "system",
+		subtype: "codex_reconnecting",
+		attempt,
+		max_retries: max,
+		retry_delay_ms: 0,
+		error: message,
+	});
+}
 
 function flattenNotification(
 	n: JsonRpcNotification,

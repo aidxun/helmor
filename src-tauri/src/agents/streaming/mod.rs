@@ -386,8 +386,8 @@ pub(super) fn stream_via_sidecar(
 
             // Older sidecars forwarded Codex app-server retry notices as terminal
             // `type:error` events after losing the structured `willRetry=true`
-            // bit. Treat those as liveness pings so an upstream SSE reconnect
-            // cannot prematurely terminate the Helmor stream.
+            // bit. Treat those as liveness pings AND surface a non-terminal
+            // retry notice so the user does not see a long silent pause.
             if model_copy.provider == "codex"
                 && event.event_type() == "error"
                 && bridges::is_retryable_sidecar_error(&event.raw)
@@ -398,7 +398,27 @@ pub(super) fn stream_via_sidecar(
                     .get("message")
                     .and_then(Value::as_str)
                     .unwrap_or("retryable sidecar error");
-                tracing::debug!(rid = %rid, heartbeat_count, "Ignoring retryable sidecar error: {message}");
+                tracing::debug!(rid = %rid, heartbeat_count, "Forwarding retryable sidecar error as notice: {message}");
+
+                if let Some(pipeline_state) = pipeline.as_mut() {
+                    let notice = bridges::retry_notice_event_from_error(&event.raw);
+                    let line = serde_json::to_string(&notice).unwrap_or_default();
+                    let emit = pipeline_state.push_event(&notice, &line);
+                    match turn_session.handle_stream_event(emit) {
+                        Ok(actions) => {
+                            for action in actions {
+                                actions::apply_action(action, &apply_ctx);
+                            }
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                rid = %rid,
+                                error = ?err,
+                                "retry_notice transition rejected",
+                            );
+                        }
+                    }
+                }
                 continue;
             }
 

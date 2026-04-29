@@ -305,7 +305,14 @@ fn dispatch_one(
             if session.ctx.provider == "codex"
                 && super::bridges::is_retryable_sidecar_error(raw) =>
         {
-            Ok(vec![])
+            if let Some(pipeline_state) = pipeline.as_mut() {
+                let notice = super::bridges::retry_notice_event_from_error(raw);
+                let raw_str = serde_json::to_string(&notice).unwrap_or_default();
+                let emit = pipeline_state.push_event(&notice, &raw_str);
+                session.handle_stream_event(emit)
+            } else {
+                Ok(vec![])
+            }
         }
         "error" => {
             // Persistence success is fixed at `true` so the test focuses
