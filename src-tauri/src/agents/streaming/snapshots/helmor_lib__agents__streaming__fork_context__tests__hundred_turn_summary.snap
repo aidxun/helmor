@@ -1,0 +1,12 @@
+---
+source: src/agents/streaming/fork_context.rs
+expression: "(result.len(), line_count, has_ellipsis, starts_with_header,\nresult.contains(\"Turn 0:\"), result.contains(\"Turn 99:\"),)"
+---
+(
+    15599,
+    84,
+    true,
+    true,
+    true,
+    true,
+)

@@ -15,6 +15,7 @@ mod active_streams;
 mod bridges;
 mod cleanup;
 mod context_usage;
+mod fork_context;
 mod params;
 mod session_id;
 mod state;
@@ -109,7 +110,7 @@ pub(super) fn stream_via_sidecar(
     let fork_context = if resume_session_id.is_none() {
         helmor_session_id
             .as_deref()
-            .and_then(build_fork_context_prefix)
+            .and_then(fork_context::build_fork_context_prefix)
     } else {
         None
     };
@@ -1030,85 +1031,6 @@ pub(super) fn stream_via_sidecar(
     });
 
     Ok(())
-}
-
-/// When a session has messages in the DB but no provider session to resume
-/// (e.g. a freshly forked session), build a context prefix so the agent
-/// sees the prior conversation. Returns `None` when the session is empty
-/// or the DB read fails.
-fn build_fork_context_prefix(helmor_session_id: &str) -> Option<String> {
-    let conn = crate::models::db::read_conn().ok()?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT role, content FROM session_messages \
-             WHERE session_id = ?1 ORDER BY rowid ASC",
-        )
-        .ok()?;
-    let rows: Vec<(String, String)> = stmt
-        .query_map([helmor_session_id], |row| Ok((row.get(0)?, row.get(1)?)))
-        .ok()?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    if rows.is_empty() {
-        return None;
-    }
-
-    let mut context = String::from("Previous conversation for context:");
-    for (role, content) in &rows {
-        let text = extract_text_from_content(role, content);
-        if text.is_empty() {
-            continue;
-        }
-        let label = match role.as_str() {
-            "user" => "User",
-            "assistant" => "Assistant",
-            _ => continue, // skip system, error, result, etc.
-        };
-        context.push_str(&format!("\n{label}: {text}"));
-    }
-
-    // Only return if we actually extracted something beyond the header.
-    if context.len() > "Previous conversation for context:".len() {
-        Some(context)
-    } else {
-        None
-    }
-}
-
-/// Extract readable text from a session message's JSON content.
-fn extract_text_from_content(role: &str, content: &str) -> String {
-    let Ok(val) = serde_json::from_str::<serde_json::Value>(content) else {
-        return String::new();
-    };
-
-    match role {
-        "user" => val
-            .get("text")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        "assistant" => {
-            // Assistant content is an array of parts; collect text parts.
-            let parts = match val.as_array() {
-                Some(a) => a,
-                None => return String::new(),
-            };
-            let mut text = String::new();
-            for part in parts {
-                if part.get("type").and_then(|v| v.as_str()) == Some("text") {
-                    if let Some(t) = part.get("text").and_then(|v| v.as_str()) {
-                        if !text.is_empty() {
-                            text.push('\n');
-                        }
-                        text.push_str(t);
-                    }
-                }
-            }
-            text
-        }
-        _ => String::new(),
-    }
 }
 
 fn build_exit_plan_review_message(

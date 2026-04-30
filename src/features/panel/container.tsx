@@ -558,7 +558,17 @@ export const WorkspacePanelContainer = memo(function WorkspacePanelContainer({
 				pendingForkedMessagesRef.current = forkedMessages;
 				onSelectSessionRef.current(newSessionId);
 
-				void invalidateWorkspaceQueries();
+				void Promise.all([
+					invalidateWorkspaceQueries(),
+					queryClient.prefetchQuery(
+						sessionThreadMessagesQueryOptions(newSessionId),
+					),
+				]).finally(() => {
+					// Release the ref once the server-side data is cached —
+					// the pending copy is no longer needed and keeping it
+					// around would double memory for large conversations.
+					pendingForkedMessagesRef.current = null;
+				});
 			} catch (error) {
 				console.error("Failed to fork session:", error);
 				void invalidateWorkspaceQueries();

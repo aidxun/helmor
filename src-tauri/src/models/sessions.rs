@@ -498,37 +498,32 @@ pub fn fork_session(
         .context("Failed to create forked session")?;
 
     // Copy messages up to and including the fork point.
-    // Generate fresh UUIDs on the Rust side to match the codebase convention
-    // (Uuid::new_v4) rather than using SQL hex(randomblob(16)).
+    // Stream row-by-row (cursor) instead of collecting into a Vec —
+    // keeps memory O(1) for large conversations. Fresh UUIDs are
+    // generated on the Rust side to match the codebase convention.
     {
-        let mut stmt = transaction.prepare(
+        let mut select_stmt = transaction.prepare(
             "SELECT role, content, sent_at, created_at \
              FROM session_messages \
              WHERE session_id = ?1 AND rowid <= ?2 \
              ORDER BY rowid ASC",
         )?;
-        let rows: Vec<(String, String, Option<String>, String)> = stmt
-            .query_map((source_session_id, fork_rowid), |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-
-        for (role, content, sent_at, created_at) in &rows {
-            let new_msg_id = uuid::Uuid::new_v4().to_string();
-            transaction.execute(
-                r#"
-                INSERT INTO session_messages (id, session_id, role, content, sent_at, created_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                "#,
-                (
-                    new_msg_id,
-                    &new_session_id,
-                    role,
-                    content,
-                    sent_at,
-                    created_at,
-                ),
-            )?;
+        let mut insert_stmt = transaction.prepare(
+            r#"
+            INSERT INTO session_messages (id, session_id, role, content, sent_at, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "#,
+        )?;
+        let mut rows = select_stmt.query((source_session_id, fork_rowid))?;
+        while let Some(row) = rows.next()? {
+            insert_stmt.execute(rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                &new_session_id,
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+            ])?;
         }
     }
 

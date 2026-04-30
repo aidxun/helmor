@@ -131,6 +131,37 @@ function shouldShowTimestamp(parts: MessagePart[]) {
 	);
 }
 
+function MessageActions({
+	copyTarget,
+	forkTargetId,
+}: {
+	copyTarget: RenderedMessage;
+	forkTargetId?: string | null;
+}) {
+	const forkMessage = useForkMessage();
+
+	return (
+		<div className="flex items-center gap-1">
+			<CopyMessageButton
+				message={copyTarget}
+				className="size-5 shrink-0 text-muted-foreground/30 opacity-0 transition-none hover:text-muted-foreground group-hover/sys:opacity-100"
+			/>
+			{forkMessage && forkTargetId ? (
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-xs"
+					aria-label="Fork session from here"
+					onClick={() => forkMessage(forkTargetId)}
+					className="size-5 shrink-0 text-muted-foreground/30 opacity-0 transition-none hover:bg-transparent hover:text-muted-foreground group-hover/sys:opacity-100"
+				>
+					<GitFork className="size-3" strokeWidth={1.8} />
+				</Button>
+			) : null}
+		</div>
+	);
+}
+
 export function ChatSystemMessage({
 	message,
 	previousAssistantMessage,
@@ -139,7 +170,6 @@ export function ChatSystemMessage({
 	previousAssistantMessage?: RenderedMessage | null;
 }) {
 	const parts = message.content as MessagePart[];
-	const forkMessage = useForkMessage();
 	const copyTarget =
 		previousAssistantMessage?.role === "assistant"
 			? previousAssistantMessage
@@ -172,22 +202,7 @@ export function ChatSystemMessage({
 					<MessageTimestamp createdAt={message.createdAt} />
 				) : null}
 			</div>
-			{forkMessage && forkTargetId ? (
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon-xs"
-					aria-label="Fork session from here"
-					onClick={() => forkMessage(forkTargetId)}
-					className="size-5 shrink-0 text-muted-foreground/30 opacity-0 hover:text-muted-foreground group-hover/sys:opacity-100"
-				>
-					<GitFork className="size-3" strokeWidth={1.8} />
-				</Button>
-			) : null}
-			<CopyMessageButton
-				message={copyTarget}
-				className="size-5 shrink-0 text-muted-foreground/30 opacity-0 hover:text-muted-foreground group-hover/sys:opacity-100"
-			/>
+			<MessageActions copyTarget={copyTarget} forkTargetId={forkTargetId} />
 		</div>
 	);
 }
