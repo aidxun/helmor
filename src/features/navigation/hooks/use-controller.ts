@@ -78,6 +78,7 @@ type WorkspaceToastFn = (
 
 type UseWorkspacesSidebarControllerArgs = {
 	selectedWorkspaceId: string | null;
+	autoSelectEnabled?: boolean;
 	onSelectWorkspace: (workspaceId: string | null) => void;
 	pushWorkspaceToast: WorkspaceToastFn;
 };
@@ -86,6 +87,7 @@ const WORKSPACE_GROUPS_INITIAL_DATA = workspaceGroupsQueryOptions().initialData;
 
 export function useWorkspacesSidebarController({
 	selectedWorkspaceId,
+	autoSelectEnabled = true,
 	onSelectWorkspace,
 	pushWorkspaceToast,
 }: UseWorkspacesSidebarControllerArgs) {
@@ -371,6 +373,10 @@ export function useWorkspacesSidebarController({
 	}, [baseGroups, pendingCreations]);
 
 	useEffect(() => {
+		if (!autoSelectEnabled) {
+			return;
+		}
+
 		if (
 			selectedWorkspaceId === null &&
 			groupsQuery.data === undefined &&
@@ -414,6 +420,7 @@ export function useWorkspacesSidebarController({
 			onSelectWorkspace(nextWorkspaceId);
 		}
 	}, [
+		autoSelectEnabled,
 		archivedQuery.data,
 		archivedSummaries,
 		groups,
