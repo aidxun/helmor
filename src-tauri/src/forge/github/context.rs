@@ -1,6 +1,6 @@
 //! Resolves the per-workspace preconditions every GitHub call needs:
-//! workspace row, owner+repo from the remote URL, current branch, the
-//! bound forge account login, and whether the local branch has a
+//! workspace row, owner+repo from the remote URL, the PR head branch,
+//! the bound forge account login, and whether the local branch has a
 //! remote-tracking ref. Higher-level entry points (`mod.rs`,
 //! `pull_request`, `actions`) consume a `GithubContext` instead of
 //! re-deriving these values four times.
@@ -18,6 +18,9 @@ use super::api::parse_github_remote;
 pub(super) struct GithubContext {
     pub owner: String,
     pub name: String,
+    /// Branch name to pass as GitHub's `headRefName`. If the local
+    /// branch tracks a differently named remote branch, this is the
+    /// upstream branch name rather than the local branch name.
     pub branch: String,
     /// gh account login bound to this repo. Always non-empty (NULL
     /// rows short-circuit before a context is ever produced).
@@ -101,7 +104,7 @@ pub(super) fn load_github_context(
         return Ok(GithubResolution::Unauthenticated);
     }
 
-    let has_remote_tracking = workspace_branch_has_remote_tracking(&record);
+    let (branch, has_remote_tracking) = pr_head_branch_for(&record, &branch);
 
     Ok(GithubResolution::Ready(GithubContext {
         owner,
@@ -136,17 +139,36 @@ fn login_definitely_logged_out(login: &str) -> bool {
         .is_definitely_logged_out()
 }
 
-/// `true` when the workspace's local branch has a remote-tracking ref.
-fn workspace_branch_has_remote_tracking(record: &workspace_models::WorkspaceRecord) -> bool {
+fn pr_head_branch_for(
+    record: &workspace_models::WorkspaceRecord,
+    local_branch: &str,
+) -> (String, bool) {
+    let Some(remote_tracking_ref) = workspace_remote_tracking_ref(record) else {
+        return (local_branch.to_string(), false);
+    };
+    let head_branch = remote_tracking_branch_name(&remote_tracking_ref)
+        .unwrap_or(local_branch)
+        .to_string();
+    (head_branch, true)
+}
+
+fn remote_tracking_branch_name(remote_tracking_ref: &str) -> Option<&str> {
+    remote_tracking_ref
+        .split_once('/')
+        .map(|(_, branch)| branch)
+        .filter(|branch| !branch.is_empty())
+}
+
+fn workspace_remote_tracking_ref(record: &workspace_models::WorkspaceRecord) -> Option<String> {
     let Ok(workspace_dir) =
         crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)
     else {
-        return false;
+        return None;
     };
     if !workspace_dir.exists() {
-        return false;
+        return None;
     }
-    git_ops::resolve_remote_tracking_ref(&workspace_dir, record.remote.as_deref()).is_some()
+    git_ops::resolve_remote_tracking_ref(&workspace_dir, record.remote.as_deref())
 }
 
 #[cfg(test)]
@@ -354,6 +376,68 @@ mod tests {
         // context back so the caller can decide whether to short-circuit
         // on `has_remote_tracking`.
         assert!(!ctx.has_remote_tracking);
+    }
+
+    #[test]
+    fn uses_upstream_branch_name_when_local_branch_was_renamed() {
+        let env = crate::testkit::TestEnv::new("github-ctx-renamed-local-branch");
+        let origin = crate::testkit::GitTestRepo::init();
+        let workspace_dir = crate::data_dir::workspace_dir("Repo", "workspace-dir").unwrap();
+        std::fs::create_dir_all(workspace_dir.parent().unwrap()).unwrap();
+        git_ops::run_git(
+            [
+                "clone",
+                &origin.path().display().to_string(),
+                &workspace_dir.display().to_string(),
+            ],
+            None,
+        )
+        .unwrap();
+        git_ops::run_git(
+            ["config", "user.email", "helmor@example.com"],
+            Some(&workspace_dir),
+        )
+        .unwrap();
+        git_ops::run_git(["config", "user.name", "Helmor Test"], Some(&workspace_dir)).unwrap();
+        git_ops::run_git(
+            ["checkout", "-b", "feature/local-name"],
+            Some(&workspace_dir),
+        )
+        .unwrap();
+        git_ops::run_git(
+            [
+                "push",
+                "--set-upstream",
+                "origin",
+                "HEAD:refs/heads/feature/remote-name",
+            ],
+            Some(&workspace_dir),
+        )
+        .unwrap();
+
+        let conn = env.db_connection();
+        insert_repo(
+            &conn,
+            "r-renamed",
+            "Repo",
+            Some("git@github.com:octocat/hello-world.git"),
+            Some("octocat"),
+        );
+        insert_workspace(
+            &conn,
+            "w-renamed",
+            "r-renamed",
+            "ready",
+            Some("feature/local-name"),
+        );
+        drop(conn);
+
+        let resolution = load_github_context("w-renamed", HostAuthCheck::Skip).unwrap();
+        let GithubResolution::Ready(ctx) = resolution else {
+            panic!("expected Ready");
+        };
+        assert_eq!(ctx.branch, "feature/remote-name");
+        assert!(ctx.has_remote_tracking);
     }
 
     #[test]
