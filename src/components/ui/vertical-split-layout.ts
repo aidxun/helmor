@@ -142,6 +142,9 @@ export function clampVerticalSplitSizes({
 	return nextSizes;
 }
 
+// Open at the panel's remembered size (its `defaultSize` on first open,
+// or the size it was last resized to). Only shrink other open secondary
+// panels when there's actual overflow — never compress them preemptively.
 export function openVerticalSplitPanel({
 	panelId,
 	...config
@@ -164,46 +167,32 @@ export function openVerticalSplitPanel({
 		(total, item) => total + item.minSize,
 		0,
 	);
-	const maxSize = Math.max(panel.minSize, bodyBudget - otherMinSize);
-	const nextSizes = {
-		...config.sizes,
-		[panelId]: maxSize,
-	};
 
-	for (const item of otherOpenSecondaryPanels) {
-		nextSizes[item.id] = item.minSize;
+	const remembered = getPanelSize(panel, config.sizes);
+	const maxAllowed = Math.max(panel.minSize, bodyBudget - otherMinSize);
+	const target = Math.min(maxAllowed, Math.max(panel.minSize, remembered));
+
+	const nextSizes = { ...config.sizes, [panelId]: target };
+
+	let overflow =
+		otherOpenSecondaryPanels.reduce(
+			(total, item) => total + getPanelSize(item, nextSizes),
+			0,
+		) +
+		target -
+		bodyBudget;
+	for (
+		let index = otherOpenSecondaryPanels.length - 1;
+		index >= 0 && overflow > 0;
+		index -= 1
+	) {
+		const item = otherOpenSecondaryPanels[index];
+		if (!item) continue;
+		const currentSize = getPanelSize(item, nextSizes);
+		const reduction = Math.min(overflow, currentSize - item.minSize);
+		nextSizes[item.id] = currentSize - reduction;
+		overflow -= reduction;
 	}
 
 	return nextSizes;
-}
-
-export function closeVerticalSplitPanel({
-	panelId,
-	...config
-}: VerticalSplitLayoutConfig & {
-	panelId: VerticalSplitPanelId;
-}): VerticalSplitPanelSizeState {
-	if (panelId === config.primaryPanelId) return config.sizes;
-
-	const panelIndex = config.panels.findIndex((item) => item.id === panelId);
-	const panel = config.panels[panelIndex];
-	if (!panel?.open) return config.sizes;
-
-	let previousOpenSecondaryPanel: VerticalSplitPanelConfig | undefined;
-	for (let index = panelIndex - 1; index >= 0; index -= 1) {
-		const item = config.panels[index];
-		if (item && item.id !== config.primaryPanelId && item.open) {
-			previousOpenSecondaryPanel = item;
-			break;
-		}
-	}
-
-	if (!previousOpenSecondaryPanel) return config.sizes;
-
-	return {
-		...config.sizes,
-		[previousOpenSecondaryPanel.id]:
-			getPanelSize(previousOpenSecondaryPanel, config.sizes) +
-			getPanelSize(panel, config.sizes),
-	};
 }

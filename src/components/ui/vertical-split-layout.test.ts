@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
 	clampVerticalSplitSizes,
-	closeVerticalSplitPanel,
 	getInitialVerticalSplitSizes,
 	getPrimaryPanelSize,
 	openVerticalSplitPanel,
@@ -130,19 +129,34 @@ describe("vertical split layout", () => {
 		).toBe(96);
 	});
 
-	it("opens a secondary panel to fill available space", () => {
+	it("opens a secondary panel at its remembered size and leaves siblings untouched", () => {
 		const next = openVerticalSplitPanel({
 			...baseConfig,
 			panelId: "terminal",
 		});
 
+		// Terminal returns to its remembered size (180), actions stays put,
+		// and the primary auto-shrinks to absorb the difference.
 		expect(next).toEqual({
-			actions: 72,
-			terminal: 333,
+			actions: 160,
+			terminal: 180,
 		});
 	});
 
-	it("compresses open secondary panels to minimum when opening another panel", () => {
+	it("falls back to defaultSize when opening a panel with no remembered size", () => {
+		const next = openVerticalSplitPanel({
+			...baseConfig,
+			sizes: { actions: 160 },
+			panelId: "terminal",
+		});
+
+		expect(next).toEqual({
+			actions: 160,
+			terminal: 180,
+		});
+	});
+
+	it("shrinks other secondary panels only as much as needed to fit the remembered size", () => {
 		const next = openVerticalSplitPanel({
 			...baseConfig,
 			sizes: {
@@ -152,9 +166,12 @@ describe("vertical split layout", () => {
 			panelId: "terminal",
 		});
 
+		// actions had absorbed extra space from a previous close. Opening
+		// terminal at its remembered 180 only takes back what's needed —
+		// it doesn't crush actions all the way to its 72px minimum.
 		expect(next).toEqual({
-			actions: 72,
-			terminal: 333,
+			actions: 225,
+			terminal: 180,
 		});
 		expect(
 			getPrimaryPanelSize({
@@ -167,45 +184,21 @@ describe("vertical split layout", () => {
 		).toBe(96);
 	});
 
-	it("transfers a closed lower panel's space to the open panel above it", () => {
-		const openPanels = panels.map((panel) =>
-			panel.id === "terminal" ? { ...panel, open: true } : panel,
-		);
-		const next = closeVerticalSplitPanel({
+	it("clamps the remembered size when it would push the primary below its minimum", () => {
+		const next = openVerticalSplitPanel({
 			...baseConfig,
-			panels: openPanels,
 			sizes: {
 				actions: 160,
-				terminal: 180,
+				terminal: 1000,
 			},
 			panelId: "terminal",
 		});
 
+		// Remembered 1000 is clamped so primary keeps its 96px floor.
+		// bodyBudget(405) - actions.minSize(72) = 333.
 		expect(next).toEqual({
-			actions: 340,
-			terminal: 180,
-		});
-	});
-
-	it("lets the primary panel absorb closed space when no open secondary panel is above", () => {
-		const actionsClosedPanels = panels.map((panel) =>
-			panel.id === "actions" ? { ...panel, open: false } : panel,
-		);
-		const next = closeVerticalSplitPanel({
-			...baseConfig,
-			panels: actionsClosedPanels.map((panel) =>
-				panel.id === "terminal" ? { ...panel, open: true } : panel,
-			),
-			sizes: {
-				actions: 160,
-				terminal: 180,
-			},
-			panelId: "terminal",
-		});
-
-		expect(next).toEqual({
-			actions: 160,
-			terminal: 180,
+			actions: 72,
+			terminal: 333,
 		});
 	});
 

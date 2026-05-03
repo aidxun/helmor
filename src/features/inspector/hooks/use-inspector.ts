@@ -9,7 +9,6 @@ import {
 } from "react";
 import {
 	clampVerticalSplitSizes,
-	closeVerticalSplitPanel,
 	getInitialVerticalSplitSizes,
 	openVerticalSplitPanel,
 	resizeVerticalSplitPanel,
@@ -35,8 +34,6 @@ const INSPECTOR_TERMINAL_PANEL_ID = "terminal";
 const MIN_INSPECTOR_PRIMARY_HEIGHT = 128;
 const MIN_INSPECTOR_ACTIONS_HEIGHT = 112;
 const MIN_INSPECTOR_TERMINAL_HEIGHT = 160;
-const DEFAULT_INSPECTOR_ACTIONS_HEIGHT = 160;
-const DEFAULT_INSPECTOR_TERMINAL_HEIGHT = 180;
 
 type UseWorkspaceInspectorSidebarArgs = {
 	workspaceRootPath?: string | null;
@@ -64,13 +61,15 @@ export function useWorkspaceInspectorSidebar({
 				id: INSPECTOR_ACTIONS_PANEL_ID,
 				open: actionsOpen,
 				minSize: MIN_INSPECTOR_ACTIONS_HEIGHT,
-				defaultSize: DEFAULT_INSPECTOR_ACTIONS_HEIGHT,
+				// First open uses minSize. Resizing then "remembers" the user's
+				// last height so subsequent toggles restore it.
+				defaultSize: MIN_INSPECTOR_ACTIONS_HEIGHT,
 			},
 			{
 				id: INSPECTOR_TERMINAL_PANEL_ID,
 				open: tabsOpen,
 				minSize: MIN_INSPECTOR_TERMINAL_HEIGHT,
-				defaultSize: DEFAULT_INSPECTOR_TERMINAL_HEIGHT,
+				defaultSize: MIN_INSPECTOR_TERMINAL_HEIGHT,
 			},
 		],
 		[actionsOpen, tabsOpen],
@@ -207,19 +206,11 @@ export function useWorkspaceInspectorSidebar({
 		});
 	}, [changesQuery.data]);
 
+	// Closing only flips `open`; sizes stay in `panelSizes` so reopening
+	// restores the panel's last height. The primary panel auto-grows via
+	// `getPrimaryPanelSize`, which only sums open secondary panels.
 	const handleToggleTabs = useCallback(() => {
 		if (tabsOpen) {
-			setPanelSizes((current) =>
-				closeVerticalSplitPanel({
-					containerSize: containerRef.current?.clientHeight ?? 0,
-					headerSize: INSPECTOR_SECTION_HEADER_HEIGHT,
-					minPrimarySize: MIN_INSPECTOR_PRIMARY_HEIGHT,
-					primaryPanelId: INSPECTOR_PRIMARY_PANEL_ID,
-					panels: inspectorPanels,
-					sizes: current,
-					panelId: INSPECTOR_TERMINAL_PANEL_ID,
-				}),
-			);
 			setTabsOpen(false);
 			return;
 		}
@@ -239,17 +230,6 @@ export function useWorkspaceInspectorSidebar({
 
 	const handleToggleActions = useCallback(() => {
 		if (actionsOpen) {
-			setPanelSizes((current) =>
-				closeVerticalSplitPanel({
-					containerSize: containerRef.current?.clientHeight ?? 0,
-					headerSize: INSPECTOR_SECTION_HEADER_HEIGHT,
-					minPrimarySize: MIN_INSPECTOR_PRIMARY_HEIGHT,
-					primaryPanelId: INSPECTOR_PRIMARY_PANEL_ID,
-					panels: inspectorPanels,
-					sizes: current,
-					panelId: INSPECTOR_ACTIONS_PANEL_ID,
-				}),
-			);
 			setActionsOpen(false);
 			return;
 		}
@@ -345,8 +325,7 @@ export function useWorkspaceInspectorSidebar({
 
 	return {
 		actionsHeight:
-			panelSizes[INSPECTOR_ACTIONS_PANEL_ID] ??
-			DEFAULT_INSPECTOR_ACTIONS_HEIGHT,
+			panelSizes[INSPECTOR_ACTIONS_PANEL_ID] ?? MIN_INSPECTOR_ACTIONS_HEIGHT,
 		actionsOpen,
 		actionsRef,
 		activeTab,
@@ -363,8 +342,7 @@ export function useWorkspaceInspectorSidebar({
 		scriptsLoaded,
 		setActiveTab,
 		tabsBodyHeight:
-			panelSizes[INSPECTOR_TERMINAL_PANEL_ID] ??
-			DEFAULT_INSPECTOR_TERMINAL_HEIGHT,
+			panelSizes[INSPECTOR_TERMINAL_PANEL_ID] ?? MIN_INSPECTOR_TERMINAL_HEIGHT,
 		tabsOpen,
 		tabsWrapperRef,
 	};
