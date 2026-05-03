@@ -7,9 +7,10 @@
 
 use anyhow::{bail, Result};
 
-use crate::{git_ops, models::workspaces as workspace_models, workspace_state::WorkspaceState};
+use crate::{models::workspaces as workspace_models, workspace_state::WorkspaceState};
 
 use super::api::parse_github_remote;
+use crate::forge::branch::forge_head_branch_for;
 
 /// Snapshot of every value the GitHub backend needs once we've decided
 /// the workspace looks viable enough to query. The pre-flight in
@@ -104,7 +105,7 @@ pub(super) fn load_github_context(
         return Ok(GithubResolution::Unauthenticated);
     }
 
-    let (branch, has_remote_tracking) = pr_head_branch_for(&record, &branch);
+    let (branch, has_remote_tracking) = forge_head_branch_for(&record, &branch);
 
     Ok(GithubResolution::Ready(GithubContext {
         owner,
@@ -139,41 +140,10 @@ fn login_definitely_logged_out(login: &str) -> bool {
         .is_definitely_logged_out()
 }
 
-fn pr_head_branch_for(
-    record: &workspace_models::WorkspaceRecord,
-    local_branch: &str,
-) -> (String, bool) {
-    let Some(remote_tracking_ref) = workspace_remote_tracking_ref(record) else {
-        return (local_branch.to_string(), false);
-    };
-    let head_branch = remote_tracking_branch_name(&remote_tracking_ref)
-        .unwrap_or(local_branch)
-        .to_string();
-    (head_branch, true)
-}
-
-fn remote_tracking_branch_name(remote_tracking_ref: &str) -> Option<&str> {
-    remote_tracking_ref
-        .split_once('/')
-        .map(|(_, branch)| branch)
-        .filter(|branch| !branch.is_empty())
-}
-
-fn workspace_remote_tracking_ref(record: &workspace_models::WorkspaceRecord) -> Option<String> {
-    let Ok(workspace_dir) =
-        crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)
-    else {
-        return None;
-    };
-    if !workspace_dir.exists() {
-        return None;
-    }
-    git_ops::resolve_remote_tracking_ref(&workspace_dir, record.remote.as_deref())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git_ops;
     use rusqlite::Connection;
 
     /// Insert a repo row with the given remote URL + optional forge_login
