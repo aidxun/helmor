@@ -2126,6 +2126,14 @@ export async function unpinWorkspace(workspaceId: string): Promise<void> {
 	return invoke<void>("unpin_workspace", { workspaceId });
 }
 
+export async function reorderWorkspaceWithinGroup(args: {
+	workspaceId: string;
+	beforeWorkspaceId?: string | null;
+	afterWorkspaceId?: string | null;
+}): Promise<void> {
+	return invoke<void>("reorder_workspace_within_group", args);
+}
+
 export async function setWorkspaceStatus(
 	workspaceId: string,
 	status: WorkspaceStatus,

@@ -122,6 +122,74 @@ export function shouldReconcilePendingCreation(
 	);
 }
 
+export function reorderWorkspaceRowsWithinGroup({
+	groups,
+	workspaceId,
+	beforeWorkspaceId,
+	afterWorkspaceId,
+}: {
+	groups: WorkspaceGroup[];
+	workspaceId: string;
+	beforeWorkspaceId?: string | null;
+	afterWorkspaceId?: string | null;
+}): WorkspaceGroup[] {
+	const sourceGroup = groups.find((group) =>
+		group.rows.some((row) => row.id === workspaceId),
+	);
+	if (!sourceGroup) {
+		return groups;
+	}
+
+	const beforeGroup = beforeWorkspaceId
+		? groups.find((group) =>
+				group.rows.some((row) => row.id === beforeWorkspaceId),
+			)
+		: null;
+	const afterGroup = afterWorkspaceId
+		? groups.find((group) =>
+				group.rows.some((row) => row.id === afterWorkspaceId),
+			)
+		: null;
+
+	if (
+		(beforeWorkspaceId && beforeGroup?.id !== sourceGroup.id) ||
+		(afterWorkspaceId && afterGroup?.id !== sourceGroup.id)
+	) {
+		return groups;
+	}
+
+	const movingRow = sourceGroup.rows.find((row) => row.id === workspaceId);
+	if (!movingRow) {
+		return groups;
+	}
+
+	const rowsWithoutMoving = sourceGroup.rows.filter(
+		(row) => row.id !== workspaceId,
+	);
+	const insertIndex = beforeWorkspaceId
+		? rowsWithoutMoving.findIndex((row) => row.id === beforeWorkspaceId)
+		: afterWorkspaceId
+			? rowsWithoutMoving.findIndex((row) => row.id === afterWorkspaceId) + 1
+			: rowsWithoutMoving.length;
+
+	if (insertIndex < 0) {
+		return groups;
+	}
+
+	const nextRows = [
+		...rowsWithoutMoving.slice(0, insertIndex),
+		movingRow,
+		...rowsWithoutMoving.slice(insertIndex),
+	];
+	if (nextRows.every((row, index) => row.id === sourceGroup.rows[index]?.id)) {
+		return groups;
+	}
+
+	return groups.map((group) =>
+		group.id === sourceGroup.id ? { ...group, rows: nextRows } : group,
+	);
+}
+
 function insertPendingCreationRow(
 	groups: WorkspaceGroup[],
 	row: WorkspaceRow,

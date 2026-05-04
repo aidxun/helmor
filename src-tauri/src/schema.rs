@@ -495,6 +495,13 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             .context("Failed to add pr_url column")?;
     }
 
+    if has_table(connection, "workspaces") && !has_column(connection, "workspaces", "sidebar_order")
+    {
+        connection
+            .execute_batch("ALTER TABLE workspaces ADD COLUMN sidebar_order INTEGER")
+            .context("Failed to add workspace sidebar_order column")?;
+    }
+
     let had_workspace_status =
         has_table(connection, "workspaces") && has_column(connection, "workspaces", "status");
     if has_table(connection, "workspaces") && !had_workspace_status {
@@ -630,6 +637,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
     archive_commit TEXT,
     linked_directory_paths TEXT,
     mode TEXT DEFAULT 'worktree',
+    sidebar_order INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

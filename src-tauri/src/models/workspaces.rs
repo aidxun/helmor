@@ -44,6 +44,7 @@ pub struct WorkspaceRecord {
     pub pr_sync_state: PrSyncState,
     pub pr_url: Option<String>,
     pub archive_commit: Option<String>,
+    pub sidebar_order: Option<i64>,
     pub session_count: i64,
     pub message_count: i64,
     pub remote: Option<String>,
@@ -153,6 +154,7 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
       COALESCE(w.pr_sync_state, 'none') AS pr_sync_state,
       w.pr_url,
       w.archive_commit,
+      w.sidebar_order,
       COALESCE(wss.session_count, 0) AS session_count,
       COALESCE(wss.message_count, 0) AS message_count,
       r.remote,
@@ -171,7 +173,15 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
 pub fn load_workspace_records() -> Result<Vec<WorkspaceRecord>> {
     let connection = db::read_conn()?;
     let sql = format!(
-        "{WORKSPACE_RECORD_SQL} ORDER BY datetime(w.created_at) DESC, datetime(w.updated_at) DESC, w.id DESC"
+        "{WORKSPACE_RECORD_SQL} ORDER BY
+            CASE WHEN w.sidebar_order IS NULL THEN 1 ELSE 0 END,
+            w.sidebar_order ASC,
+            CASE
+              WHEN w.pinned_at IS NOT NULL THEN datetime(w.pinned_at)
+              ELSE datetime(w.created_at)
+            END DESC,
+            datetime(w.updated_at) DESC,
+            w.id DESC"
     );
     let mut statement = connection.prepare(&sql)?;
 
@@ -537,13 +547,14 @@ fn workspace_record_from_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRecord>
         pr_sync_state: row.get(25)?,
         pr_url: row.get(26)?,
         archive_commit: row.get(27)?,
-        session_count: row.get(28)?,
-        message_count: row.get(29)?,
-        remote: row.get(30)?,
-        forge_provider: row.get(31)?,
-        forge_login: row.get(32)?,
-        created_at: row.get(33)?,
-        updated_at: row.get(34)?,
-        last_user_message_at: row.get(35)?,
+        sidebar_order: row.get(28)?,
+        session_count: row.get(29)?,
+        message_count: row.get(30)?,
+        remote: row.get(31)?,
+        forge_provider: row.get(32)?,
+        forge_login: row.get(33)?,
+        created_at: row.get(34)?,
+        updated_at: row.get(35)?,
+        last_user_message_at: row.get(36)?,
     })
 }

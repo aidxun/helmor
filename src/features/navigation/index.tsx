@@ -67,6 +67,25 @@ const ROW_HEIGHT = 32; // 30px (h-7.5) + 2px gap
 const GROUP_GAP = 8; // tighter gap between populated groups
 const EMPTY_GROUP_GAP = 8; // tighter spacing around empty groups
 const BOTTOM_PADDING = 8;
+const DRAG_START_DISTANCE_PX = 5;
+
+type WorkspaceDragState = {
+	activeWorkspaceId: string;
+	activeGroupId: string;
+	sourceIndex: number;
+	targetIndex: number;
+	currentOffsetY: number;
+};
+
+type WorkspaceDragSession = {
+	activeWorkspaceId: string;
+	activeGroupId: string;
+	groupRowIds: string[];
+	sourceIndex: number;
+	startX: number;
+	startY: number;
+	dragging: boolean;
+};
 
 function getGroupHeaderHeight(_hasRows: boolean) {
 	return HEADER_HEIGHT;
@@ -105,6 +124,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	onRestoreWorkspace,
 	onDeleteWorkspace,
 	onOpenInFinder,
+	onReorderWorkspaceWithinGroup,
 	onTogglePin,
 	onSetWorkspaceStatus,
 	archivingWorkspaceIds,
@@ -138,6 +158,11 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	onRestoreWorkspace?: (workspaceId: string) => void;
 	onDeleteWorkspace?: (workspaceId: string) => void;
 	onOpenInFinder?: (workspaceId: string) => void;
+	onReorderWorkspaceWithinGroup?: (args: {
+		workspaceId: string;
+		beforeWorkspaceId?: string | null;
+		afterWorkspaceId?: string | null;
+	}) => void;
 	onTogglePin?: (workspaceId: string, currentlyPinned: boolean) => void;
 	onSetWorkspaceStatus?: (workspaceId: string, status: WorkspaceStatus) => void;
 	archivingWorkspaceIds?: Set<string>;
@@ -146,6 +171,25 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 }) {
 	const [isAddRepositoryMenuOpen, setIsAddRepositoryMenuOpen] = useState(false);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
+	const dragSessionRef = useRef<WorkspaceDragSession | null>(null);
+	const dragCleanupRef = useRef<() => void>(() => {});
+	const dragStateRef = useRef<WorkspaceDragState | null>(null);
+	const suppressNextSelectRef = useRef<string | null>(null);
+	const [dragState, setDragState] = useState<WorkspaceDragState | null>(null);
+	const setWorkspaceDragState = useCallback(
+		(
+			next:
+				| WorkspaceDragState
+				| null
+				| ((current: WorkspaceDragState | null) => WorkspaceDragState | null),
+		) => {
+			const resolved =
+				typeof next === "function" ? next(dragStateRef.current) : next;
+			dragStateRef.current = resolved;
+			setDragState(resolved);
+		},
+		[],
+	);
 	const [sectionOpenState, setSectionOpenState] = useState(() => ({
 		...createInitialSectionOpenState(groups),
 		...readStoredSectionOpenState(),
@@ -289,6 +333,40 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 		return items;
 	}, [groups, archivedRows, sectionOpenState]);
 
+	const dragOffsetsByWorkspaceId = useMemo(() => {
+		const offsets = new Map<string, number>();
+		if (!dragState || dragState.targetIndex === dragState.sourceIndex) {
+			return offsets;
+		}
+
+		const group = groups.find((candidate) =>
+			candidate.rows.some((row) => row.id === dragState.activeWorkspaceId),
+		);
+		if (!group) {
+			return offsets;
+		}
+
+		const { sourceIndex, targetIndex } = dragState;
+		offsets.set(dragState.activeWorkspaceId, dragState.currentOffsetY);
+		if (targetIndex > sourceIndex) {
+			for (let index = sourceIndex + 1; index <= targetIndex; index += 1) {
+				const row = group.rows[index];
+				if (row) {
+					offsets.set(row.id, -ROW_HEIGHT);
+				}
+			}
+		} else {
+			for (let index = targetIndex; index < sourceIndex; index += 1) {
+				const row = group.rows[index];
+				if (row) {
+					offsets.set(row.id, ROW_HEIGHT);
+				}
+			}
+		}
+
+		return offsets;
+	}, [dragState, groups]);
+
 	// ── Virtualizer ───────────────────────────────────────────────────
 	const virtualizer = useVirtualizer({
 		count: flatItems.length,
@@ -382,6 +460,198 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 		}));
 	}, []);
 
+	const handleSelectWorkspaceFromRow = useCallback(
+		(workspaceId: string) => {
+			if (suppressNextSelectRef.current === workspaceId) {
+				suppressNextSelectRef.current = null;
+				return;
+			}
+			onSelectWorkspace?.(workspaceId);
+		},
+		[onSelectWorkspace],
+	);
+
+	const finishWorkspaceDrag = useCallback(() => {
+		const current = dragStateRef.current;
+		const session = dragSessionRef.current;
+		dragSessionRef.current = null;
+		document.body.style.userSelect = "";
+		setWorkspaceDragState(null);
+
+		if (
+			!current ||
+			!session?.dragging ||
+			current.targetIndex === current.sourceIndex
+		) {
+			return;
+		}
+
+		const rowIdsWithoutActive = session.groupRowIds.filter(
+			(id) => id !== current.activeWorkspaceId,
+		);
+		const beforeWorkspaceId = rowIdsWithoutActive[current.targetIndex] ?? null;
+		const afterWorkspaceId =
+			beforeWorkspaceId === null
+				? (rowIdsWithoutActive[current.targetIndex - 1] ?? null)
+				: null;
+
+		onReorderWorkspaceWithinGroup?.({
+			workspaceId: current.activeWorkspaceId,
+			beforeWorkspaceId,
+			afterWorkspaceId,
+		});
+	}, [onReorderWorkspaceWithinGroup, setWorkspaceDragState]);
+
+	const updateWorkspaceDragTarget = useCallback(
+		(clientY: number) => {
+			const session = dragSessionRef.current;
+			if (!session) {
+				return;
+			}
+
+			const minOffsetY = -session.sourceIndex * ROW_HEIGHT;
+			const maxOffsetY =
+				(session.groupRowIds.length - 1 - session.sourceIndex) * ROW_HEIGHT;
+			const currentOffsetY = Math.max(
+				minOffsetY,
+				Math.min(maxOffsetY, clientY - session.startY),
+			);
+			const targetIndex = Math.max(
+				0,
+				Math.min(
+					session.groupRowIds.length - 1,
+					session.sourceIndex + Math.round(currentOffsetY / ROW_HEIGHT),
+				),
+			);
+			setWorkspaceDragState((current) =>
+				current &&
+				current.targetIndex === targetIndex &&
+				current.currentOffsetY === currentOffsetY
+					? current
+					: {
+							activeWorkspaceId: session.activeWorkspaceId,
+							activeGroupId: session.activeGroupId,
+							sourceIndex: session.sourceIndex,
+							targetIndex,
+							currentOffsetY,
+						},
+			);
+		},
+		[setWorkspaceDragState],
+	);
+
+	const handleWorkspacePointerMove = useCallback(
+		(event: PointerEvent) => {
+			const session = dragSessionRef.current;
+			if (!session) {
+				return;
+			}
+
+			const distance = Math.hypot(
+				event.clientX - session.startX,
+				event.clientY - session.startY,
+			);
+			if (!session.dragging) {
+				if (distance < DRAG_START_DISTANCE_PX) {
+					return;
+				}
+				session.dragging = true;
+				suppressNextSelectRef.current = session.activeWorkspaceId;
+				document.body.style.userSelect = "none";
+				setWorkspaceDragState({
+					activeWorkspaceId: session.activeWorkspaceId,
+					activeGroupId: session.activeGroupId,
+					sourceIndex: session.sourceIndex,
+					targetIndex: session.sourceIndex,
+					currentOffsetY: 0,
+				});
+			}
+
+			event.preventDefault();
+			updateWorkspaceDragTarget(event.clientY);
+		},
+		[updateWorkspaceDragTarget, setWorkspaceDragState],
+	);
+
+	const handleWorkspaceReorderPointerDown = useCallback(
+		(
+			row: WorkspaceRow,
+			groupId: string,
+			event: React.PointerEvent<HTMLDivElement>,
+		) => {
+			if (
+				event.button !== 0 ||
+				groupId === ARCHIVED_SECTION_ID ||
+				row.state === "archived" ||
+				!onReorderWorkspaceWithinGroup
+			) {
+				return;
+			}
+
+			const target = event.target as HTMLElement;
+			if (
+				target.closest(
+					"button,a,input,textarea,select,[role='menuitem'],[data-no-row-drag]",
+				)
+			) {
+				return;
+			}
+
+			const group = groups.find((candidate) => candidate.id === groupId);
+			const groupRowIds = group?.rows.map((item) => item.id) ?? [];
+			const sourceIndex = groupRowIds.indexOf(row.id);
+			if (sourceIndex === -1) {
+				return;
+			}
+
+			dragSessionRef.current = {
+				activeWorkspaceId: row.id,
+				activeGroupId: groupId,
+				groupRowIds,
+				sourceIndex,
+				startX: event.clientX,
+				startY: event.clientY,
+				dragging: false,
+			};
+			dragCleanupRef.current();
+
+			const handlePointerMove = (nativeEvent: PointerEvent) => {
+				handleWorkspacePointerMove(nativeEvent);
+			};
+			const handlePointerUp = (nativeEvent: PointerEvent) => {
+				dragCleanupRef.current();
+				if (dragSessionRef.current?.dragging) {
+					nativeEvent.preventDefault();
+				}
+				finishWorkspaceDrag();
+			};
+			dragCleanupRef.current = () => {
+				window.removeEventListener("pointermove", handlePointerMove);
+				window.removeEventListener("pointerup", handlePointerUp);
+				dragCleanupRef.current = () => {};
+			};
+			window.addEventListener("pointermove", handlePointerMove, {
+				passive: false,
+			});
+			window.addEventListener("pointerup", handlePointerUp, {
+				passive: false,
+			});
+		},
+		[
+			finishWorkspaceDrag,
+			groups,
+			handleWorkspacePointerMove,
+			onReorderWorkspaceWithinGroup,
+		],
+	);
+
+	useEffect(() => {
+		return () => {
+			dragCleanupRef.current();
+			document.body.style.userSelect = "";
+		};
+	}, []);
+
 	// ── Render a single virtual item ──────────────────────────────────
 	const renderItem = useCallback(
 		(item: VirtualItem) => {
@@ -448,12 +718,19 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 					<WorkspaceRowItem
 						row={item.row}
 						selected={selectedWorkspaceId === item.row.id}
+						isDragging={dragState?.activeWorkspaceId === item.row.id}
+						isWorkspaceDragActive={dragState !== null}
+						dragOffsetY={dragOffsetsByWorkspaceId.get(item.row.id) ?? 0}
+						dropIndicator={null}
 						isSending={busyWorkspaceIds?.has(item.row.id)}
 						isInteractionRequired={interactionRequiredWorkspaceIds?.has(
 							item.row.id,
 						)}
-						onSelect={onSelectWorkspace}
+						onSelect={handleSelectWorkspaceFromRow}
 						onPrefetch={onPrefetchWorkspace}
+						onReorderPointerDown={(row, event) =>
+							handleWorkspaceReorderPointerDown(row, item.groupId, event)
+						}
 						onArchiveWorkspace={onArchiveWorkspace}
 						onMoveLocalToWorktree={onMoveLocalToWorktree}
 						onMarkWorkspaceUnread={onMarkWorkspaceUnread}
@@ -480,9 +757,13 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			sectionOpenState,
 			toggleSection,
 			selectedWorkspaceId,
+			dragState,
+			dragOffsetsByWorkspaceId,
 			busyWorkspaceIds,
 			interactionRequiredWorkspaceIds,
 			onSelectWorkspace,
+			handleSelectWorkspaceFromRow,
+			handleWorkspaceReorderPointerDown,
 			onPrefetchWorkspace,
 			onArchiveWorkspace,
 			onMoveLocalToWorktree,

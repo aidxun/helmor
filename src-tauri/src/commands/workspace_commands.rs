@@ -206,6 +206,22 @@ pub async fn unpin_workspace(workspace_id: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
+pub async fn reorder_workspace_within_group(
+    workspace_id: String,
+    before_workspace_id: Option<String>,
+    after_workspace_id: Option<String>,
+) -> CmdResult<()> {
+    run_blocking(move || {
+        workspaces::reorder_workspace_within_group(
+            &workspace_id,
+            before_workspace_id.as_deref(),
+            after_workspace_id.as_deref(),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn set_workspace_status(workspace_id: String, status: WorkspaceStatus) -> CmdResult<()> {
     run_blocking(move || workspaces::set_workspace_status(&workspace_id, status)).await
 }

@@ -67,11 +67,19 @@ const rowVariants = cva(
 export type WorkspaceRowItemProps = {
 	row: WorkspaceRow;
 	selected: boolean;
+	isDragging?: boolean;
+	isWorkspaceDragActive?: boolean;
+	dragOffsetY?: number;
+	dropIndicator?: "before" | "after" | null;
 	isSending?: boolean;
 	isInteractionRequired?: boolean;
 	rowRef?: (element: HTMLDivElement | null) => void;
 	onSelect?: (workspaceId: string) => void;
 	onPrefetch?: (workspaceId: string) => void;
+	onReorderPointerDown?: (
+		row: WorkspaceRow,
+		event: React.PointerEvent<HTMLDivElement>,
+	) => void;
 	onArchiveWorkspace?: (workspaceId: string) => void;
 	onMoveLocalToWorktree?: (workspaceId: string) => void;
 	onMarkWorkspaceUnread?: (workspaceId: string) => void;
@@ -110,11 +118,16 @@ export const WorkspaceRowItem = memo(
 	function WorkspaceRowItem({
 		row,
 		selected,
+		isDragging,
+		isWorkspaceDragActive,
+		dragOffsetY = 0,
+		dropIndicator,
 		isSending,
 		isInteractionRequired,
 		rowRef,
 		onSelect,
 		onPrefetch,
+		onReorderPointerDown,
 		onArchiveWorkspace,
 		onMoveLocalToWorktree,
 		onMarkWorkspaceUnread: _onMarkWorkspaceUnread,
@@ -150,12 +163,22 @@ export const WorkspaceRowItem = memo(
 		// instead of leaving a visible gap.
 		const hasTwoActions =
 			hasActionHandler && isRestoreAction && Boolean(onDeleteWorkspace);
-		const rowFadeStyle = hasTwoActions
-			? ({
-					"--row-fade-transparent": "2.6rem",
-					"--row-fade-solid": "3.4rem",
-				} as React.CSSProperties)
-			: undefined;
+		const rowFadeStyle = {
+			...(hasTwoActions
+				? {
+						"--row-fade-transparent": "2.6rem",
+						"--row-fade-solid": "3.4rem",
+					}
+				: {}),
+			transform:
+				dragOffsetY !== 0 ? `translate3d(0, ${dragOffsetY}px, 0)` : undefined,
+			transition: isDragging
+				? "opacity 120ms ease-out"
+				: isWorkspaceDragActive
+					? "transform 140ms cubic-bezier(0.2, 0, 0, 1), opacity 120ms ease-out"
+					: undefined,
+			zIndex: isDragging ? 1 : undefined,
+		} as React.CSSProperties;
 		const actionIcon = isBusy ? (
 			<LoaderCircle className="size-3.5 animate-spin" strokeWidth={2.1} />
 		) : isRestoreAction ? (
@@ -199,10 +222,15 @@ export const WorkspaceRowItem = memo(
 				data-busy={isBusy ? "true" : undefined}
 				style={rowFadeStyle}
 				onMouseEnter={() => {
+					if (isWorkspaceDragActive) return;
 					onPrefetch?.(row.id);
 				}}
 				onFocus={() => {
+					if (isWorkspaceDragActive) return;
 					onPrefetch?.(row.id);
+				}}
+				onPointerDown={(event) => {
+					onReorderPointerDown?.(row, event);
 				}}
 				onClick={() => {
 					onSelect?.(row.id);
@@ -217,8 +245,18 @@ export const WorkspaceRowItem = memo(
 					rowVariants({ active: selected }),
 					"w-full text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
 					!selected && row.state === "archived" && "opacity-50",
+					isDragging && "pointer-events-none opacity-35",
 				)}
 			>
+				{dropIndicator ? (
+					<span
+						aria-hidden="true"
+						className={cn(
+							"pointer-events-none absolute right-2 left-2 z-10 h-px bg-ring",
+							dropIndicator === "before" ? "top-0" : "bottom-0",
+						)}
+					/>
+				) : null}
 				<div className="flex min-w-0 flex-1 items-center gap-2">
 					<WorkspaceAvatar
 						repoIconSrc={row.repoIconSrc}
@@ -351,7 +389,11 @@ export const WorkspaceRowItem = memo(
 		return (
 			<>
 				<ContextMenu>
-					<WorkspaceHoverCard row={row} isSending={isSending}>
+					<WorkspaceHoverCard
+						row={row}
+						isSending={isSending}
+						disabled={isWorkspaceDragActive}
+					>
 						<ContextMenuTrigger className="block">{rowBody}</ContextMenuTrigger>
 					</WorkspaceHoverCard>
 					<ContextMenuContent className="min-w-48">
@@ -461,6 +503,10 @@ export const WorkspaceRowItem = memo(
 		return (
 			previous.row === next.row &&
 			previous.selected === next.selected &&
+			previous.isDragging === next.isDragging &&
+			previous.isWorkspaceDragActive === next.isWorkspaceDragActive &&
+			previous.dragOffsetY === next.dragOffsetY &&
+			previous.dropIndicator === next.dropIndicator &&
 			previous.isSending === next.isSending &&
 			previous.isInteractionRequired === next.isInteractionRequired &&
 			previous.archivingWorkspaceIds === next.archivingWorkspaceIds &&

@@ -485,10 +485,12 @@ const HOVER_CARD_DEFAULT_SIDE_OFFSET = 10;
 export function WorkspaceHoverCard({
 	row,
 	isSending,
+	disabled,
 	children,
 }: {
 	row: WorkspaceRow;
 	isSending?: boolean;
+	disabled?: boolean;
 	children: React.ReactNode;
 }) {
 	// Measured on open so the card's left edge snaps to the sidebar divider.
@@ -552,6 +554,10 @@ export function WorkspaceHoverCard({
 			: "Created";
 	const createdAt = relativeTime(row.createdAt);
 	const sessionCount = row.sessionCount ?? 0;
+
+	if (disabled) {
+		return children;
+	}
 
 	return (
 		<HoverCardRoot

@@ -4,6 +4,7 @@ import {
 	type PendingArchiveEntry,
 	type PendingCreationEntry,
 	projectSidebarLists,
+	reorderWorkspaceRowsWithinGroup,
 	shouldReconcilePendingArchive,
 	shouldReconcilePendingCreation,
 } from "./sidebar-projection";
@@ -219,5 +220,44 @@ describe("shouldReconcilePendingCreation", () => {
 				],
 			),
 		).toBe(true);
+	});
+});
+
+describe("reorderWorkspaceRowsWithinGroup", () => {
+	it("moves a workspace before a row in the same group", () => {
+		const projected = reorderWorkspaceRowsWithinGroup({
+			groups: liveGroups,
+			workspaceId: "ws-2",
+			beforeWorkspaceId: "ws-1",
+		});
+
+		expect(projected[0]?.rows.map((row) => row.id)).toEqual(["ws-2", "ws-1"]);
+	});
+
+	it("ignores cross-group reorder requests", () => {
+		const groups: WorkspaceGroup[] = [
+			liveGroups[0],
+			{
+				id: "done",
+				label: "Done",
+				tone: "done",
+				rows: [
+					{
+						id: "ws-done",
+						title: "Done",
+						state: "ready",
+						status: "done",
+					},
+				],
+			},
+		];
+
+		const projected = reorderWorkspaceRowsWithinGroup({
+			groups,
+			workspaceId: "ws-1",
+			beforeWorkspaceId: "ws-done",
+		});
+
+		expect(projected).toBe(groups);
 	});
 });

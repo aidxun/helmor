@@ -298,7 +298,7 @@ pub fn pin_workspace(workspace_id: &str) -> Result<()> {
     let connection = db::write_conn()?;
     connection
         .execute(
-            "UPDATE workspaces SET pinned_at = datetime('now'), updated_at = datetime('now') WHERE id = ?1",
+            "UPDATE workspaces SET pinned_at = datetime('now'), sidebar_order = NULL, updated_at = datetime('now') WHERE id = ?1",
             [workspace_id],
         )
         .context("Failed to pin workspace")?;
@@ -309,10 +309,78 @@ pub fn unpin_workspace(workspace_id: &str) -> Result<()> {
     let connection = db::write_conn()?;
     connection
         .execute(
-            "UPDATE workspaces SET pinned_at = NULL, updated_at = datetime('now') WHERE id = ?1",
+            "UPDATE workspaces SET pinned_at = NULL, sidebar_order = NULL, updated_at = datetime('now') WHERE id = ?1",
             [workspace_id],
         )
         .context("Failed to unpin workspace")?;
+    Ok(())
+}
+
+pub fn reorder_workspace_within_group(
+    workspace_id: &str,
+    before_workspace_id: Option<&str>,
+    after_workspace_id: Option<&str>,
+) -> Result<()> {
+    let records = workspace_models::load_workspace_records()?;
+    let moving = records
+        .iter()
+        .find(|record| record.id == workspace_id)
+        .ok_or_else(|| coded(ErrorCode::WorkspaceNotFound))
+        .with_context(|| format!("Workspace not found: {workspace_id}"))?;
+    let group_id = workspace_sidebar_group_id(moving)
+        .with_context(|| format!("Workspace cannot be reordered: {workspace_id}"))?;
+
+    let mut ordered_ids = records
+        .iter()
+        .filter(|record| workspace_sidebar_group_id(record).as_deref() == Some(group_id.as_str()))
+        .map(|record| record.id.clone())
+        .filter(|id| id != workspace_id)
+        .collect::<Vec<_>>();
+
+    let insert_index = if let Some(before_id) = before_workspace_id.filter(|id| *id != workspace_id)
+    {
+        let before = records
+            .iter()
+            .find(|record| record.id == before_id)
+            .with_context(|| format!("Before workspace not found: {before_id}"))?;
+        ensure_same_sidebar_group(moving, before)?;
+        ordered_ids
+            .iter()
+            .position(|id| id == before_id)
+            .unwrap_or(ordered_ids.len())
+    } else if let Some(after_id) = after_workspace_id.filter(|id| *id != workspace_id) {
+        let after = records
+            .iter()
+            .find(|record| record.id == after_id)
+            .with_context(|| format!("After workspace not found: {after_id}"))?;
+        ensure_same_sidebar_group(moving, after)?;
+        ordered_ids
+            .iter()
+            .position(|id| id == after_id)
+            .map(|index| index + 1)
+            .unwrap_or(ordered_ids.len())
+    } else {
+        ordered_ids.len()
+    };
+
+    ordered_ids.insert(insert_index, workspace_id.to_string());
+
+    let mut connection = db::write_conn()?;
+    let transaction = connection
+        .transaction()
+        .context("Failed to start workspace reorder transaction")?;
+    for (index, id) in ordered_ids.iter().enumerate() {
+        transaction
+            .execute(
+                "UPDATE workspaces SET sidebar_order = ?2 WHERE id = ?1",
+                rusqlite::params![id, ((index as i64) + 1) * 1000],
+            )
+            .with_context(|| format!("Failed to update sidebar order for workspace {id}"))?;
+    }
+    transaction
+        .commit()
+        .context("Failed to commit workspace reorder transaction")?;
+
     Ok(())
 }
 
@@ -320,10 +388,31 @@ pub fn set_workspace_status(workspace_id: &str, status: WorkspaceStatus) -> Resu
     let connection = db::write_conn()?;
     connection
         .execute(
-            "UPDATE workspaces SET status = ?2, updated_at = datetime('now') WHERE id = ?1",
+            "UPDATE workspaces SET status = ?2, sidebar_order = NULL, updated_at = datetime('now') WHERE id = ?1",
             rusqlite::params![workspace_id, status],
         )
         .context("Failed to set workspace status")?;
+    Ok(())
+}
+
+fn workspace_sidebar_group_id(record: &WorkspaceRecord) -> Option<String> {
+    if record.state == WorkspaceState::Archived {
+        return None;
+    }
+    if record.pinned_at.is_some() {
+        return Some("pinned".to_string());
+    }
+    Some(record.status.group_id().to_string())
+}
+
+fn ensure_same_sidebar_group(left: &WorkspaceRecord, right: &WorkspaceRecord) -> Result<()> {
+    let left_group = workspace_sidebar_group_id(left)
+        .with_context(|| format!("Workspace cannot be reordered: {}", left.id))?;
+    let right_group = workspace_sidebar_group_id(right)
+        .with_context(|| format!("Workspace cannot be used as a reorder target: {}", right.id))?;
+    if left_group != right_group {
+        bail!("Workspace reorder only supports rows in the same group");
+    }
     Ok(())
 }
 
@@ -1045,6 +1134,18 @@ mod tests {
             .ok()
     }
 
+    fn sidebar_group_rows(group_id: &str) -> Vec<String> {
+        list_workspace_groups()
+            .unwrap()
+            .into_iter()
+            .find(|group| group.id == group_id)
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|row| row.id)
+            .collect()
+    }
+
     fn count_session_messages(env: &TestEnv, workspace_id: &str) -> i64 {
         env.db_connection()
             .query_row(
@@ -1055,6 +1156,78 @@ mod tests {
                 |row| row.get::<_, i64>(0),
             )
             .unwrap()
+    }
+
+    #[test]
+    fn reorder_workspace_within_group_persists_manual_order() {
+        let env = TestEnv::new("reorder-within-group");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        for id in ["w1", "w2", "w3"] {
+            insert_workspace(
+                &conn,
+                &WorkspaceFixture {
+                    id,
+                    repo_id: "r1",
+                    directory_name: id,
+                    state: WorkspaceState::Ready.as_str(),
+                    branch: Some("feature/test"),
+                    intended_target_branch: None,
+                },
+            );
+        }
+        conn.execute(
+            "UPDATE workspaces SET sidebar_order = CASE id WHEN 'w1' THEN 1000 WHEN 'w2' THEN 2000 WHEN 'w3' THEN 3000 END",
+            [],
+        )
+        .unwrap();
+
+        reorder_workspace_within_group("w1", Some("w3"), None).unwrap();
+
+        assert_eq!(sidebar_group_rows("progress"), vec!["w2", "w1", "w3"]);
+    }
+
+    #[test]
+    fn reorder_workspace_within_group_rejects_cross_group_target() {
+        let env = TestEnv::new("reorder-cross-group");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-progress",
+                repo_id: "r1",
+                directory_name: "progress",
+                state: WorkspaceState::Ready.as_str(),
+                branch: Some("feature/progress"),
+                intended_target_branch: None,
+            },
+        );
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-done",
+                repo_id: "r1",
+                directory_name: "done",
+                state: WorkspaceState::Ready.as_str(),
+                branch: Some("feature/done"),
+                intended_target_branch: None,
+            },
+        );
+        conn.execute(
+            "UPDATE workspaces SET status = 'done' WHERE id = 'w-done'",
+            [],
+        )
+        .unwrap();
+
+        let error = reorder_workspace_within_group("w-progress", Some("w-done"), None).unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("Workspace reorder only supports rows in the same group"),
+            "{error:#}"
+        );
     }
 
     #[test]

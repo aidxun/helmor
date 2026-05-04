@@ -16,6 +16,7 @@ import {
 	prepareArchiveWorkspace,
 	prepareWorkspaceFromRepo,
 	type RepositoryCreateOption,
+	reorderWorkspaceWithinGroup,
 	restoreWorkspace,
 	setWorkspaceStatus,
 	startArchiveWorkspace,
@@ -60,6 +61,7 @@ import {
 	type PendingArchiveEntry,
 	type PendingCreationEntry,
 	projectSidebarLists,
+	reorderWorkspaceRowsWithinGroup,
 	shouldReconcilePendingArchive,
 	shouldReconcilePendingCreation,
 } from "../sidebar-projection";
@@ -683,6 +685,40 @@ export function useWorkspacesSidebarController({
 			}
 		},
 		[invalidateWorkspaceSummary, pushWorkspaceToast, queryClient],
+	);
+
+	const handleReorderWorkspaceWithinGroup = useCallback(
+		async (args: {
+			workspaceId: string;
+			beforeWorkspaceId?: string | null;
+			afterWorkspaceId?: string | null;
+		}) => {
+			const previousGroups = queryClient.getQueryData(
+				helmorQueryKeys.workspaceGroups,
+			);
+			queryClient.setQueryData(helmorQueryKeys.workspaceGroups, (current) =>
+				Array.isArray(current)
+					? reorderWorkspaceRowsWithinGroup({
+							groups: current as typeof groups,
+							...args,
+						})
+					: current,
+			);
+
+			try {
+				await reorderWorkspaceWithinGroup(args);
+				flushSidebarLists();
+			} catch (error) {
+				queryClient.setQueryData(
+					helmorQueryKeys.workspaceGroups,
+					previousGroups,
+				);
+				pushWorkspaceToast(
+					describeUnknownError(error, "Unable to reorder workspace."),
+				);
+			}
+		},
+		[flushSidebarLists, pushWorkspaceToast, queryClient],
 	);
 
 	const handleSetWorkspaceStatus = useCallback(
@@ -1551,6 +1587,7 @@ export function useWorkspacesSidebarController({
 		handleDeleteWorkspace,
 		handleMarkWorkspaceUnread,
 		handleOpenCloneDialog,
+		handleReorderWorkspaceWithinGroup,
 		handleRestoreWorkspace,
 		handleSelectWorkspace,
 		handleSetWorkspaceStatus,

@@ -323,6 +323,7 @@ pub fn run() {
             commands::workspace_commands::mark_workspace_unread,
             commands::workspace_commands::pin_workspace,
             commands::workspace_commands::unpin_workspace,
+            commands::workspace_commands::reorder_workspace_within_group,
             commands::editor_commands::list_editor_files,
             commands::editor_commands::list_editor_files_with_content,
             commands::editor_commands::list_workspace_files,

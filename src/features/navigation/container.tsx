@@ -53,6 +53,7 @@ export const WorkspacesSidebarContainer = memo(
 			handleDeleteWorkspace,
 			handleMarkWorkspaceUnread,
 			handleOpenCloneDialog,
+			handleReorderWorkspaceWithinGroup,
 			handleRestoreWorkspace,
 			handleSelectWorkspace,
 			handleSetWorkspaceStatus,
@@ -101,6 +102,9 @@ export const WorkspacesSidebarContainer = memo(
 						const { message } = extractError(error, "Failed to open Finder");
 						pushWorkspaceToast(message, "Failed to open Finder", "destructive");
 					});
+				}}
+				onReorderWorkspaceWithinGroup={(args) => {
+					void handleReorderWorkspaceWithinGroup(args);
 				}}
 				onTogglePin={(workspaceId, pinned) => {
 					void handleTogglePin(workspaceId, pinned);
