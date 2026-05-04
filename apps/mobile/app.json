@@ -1,0 +1,40 @@
+{
+	"expo": {
+		"name": "Helmor Mobile",
+		"slug": "helmor-mobile",
+		"version": "0.1.0",
+		"scheme": "helmor-mobile",
+		"orientation": "portrait",
+		"icon": "./assets/icon.png",
+		"userInterfaceStyle": "automatic",
+		"experiments": {
+			"reactCompiler": true
+		},
+		"splash": {
+			"image": "./assets/splash-icon.png",
+			"resizeMode": "contain",
+			"backgroundColor": "#0f1115"
+		},
+		"ios": {
+			"bundleIdentifier": "app.helmor.mobile",
+			"supportsTablet": true,
+			"infoPlist": {
+				"NSLocalNetworkUsageDescription": "Helmor Mobile connects to your Helmor desktop app on the local network.",
+				"NSAppTransportSecurity": {
+					"NSAllowsArbitraryLoads": true
+				}
+			}
+		},
+		"android": {
+			"package": "app.helmor.mobile",
+			"adaptiveIcon": {
+				"foregroundImage": "./assets/adaptive-icon.png",
+				"backgroundColor": "#0f1115"
+			},
+			"predictiveBackGestureEnabled": false
+		},
+		"web": {
+			"favicon": "./assets/favicon.png"
+		}
+	}
+}
