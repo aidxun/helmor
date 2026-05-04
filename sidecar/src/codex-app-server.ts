@@ -6,7 +6,11 @@
  * plumbing and notification/request callbacks.
  */
 
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import {
+	type ChildProcessWithoutNullStreams,
+	execFileSync,
+	spawn,
+} from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import readline from "node:readline";
@@ -100,7 +104,116 @@ function buildCodexEnv(binaryPath: string): NodeJS.ProcessEnv {
 		const sep = process.platform === "win32" ? ";" : ":";
 		env.PATH = `${pathDir}${sep}${env.PATH ?? ""}`;
 	}
+	applyMacSystemProxyEnv(env);
 	return env;
+}
+
+function applyMacSystemProxyEnv(env: NodeJS.ProcessEnv): void {
+	if (process.platform !== "darwin") return;
+
+	try {
+		applyMacSystemProxySettings(
+			env,
+			execFileSync("/usr/sbin/scutil", ["--proxy"], {
+				encoding: "utf8",
+				timeout: 1_000,
+				stdio: ["ignore", "pipe", "ignore"],
+			}),
+		);
+	} catch (err) {
+		logger.debug("failed to read macOS proxy settings for Codex", {
+			err: String(err),
+		});
+	}
+}
+
+export function applyMacSystemProxySettings(
+	env: NodeJS.ProcessEnv,
+	settings: string,
+): void {
+	const values = parseMacProxySettings(settings);
+	const httpProxy = buildProxyUrl(
+		"http",
+		values.HTTPEnable,
+		values.HTTPProxy,
+		values.HTTPPort,
+	);
+	const httpsProxy = buildProxyUrl(
+		"http",
+		values.HTTPSEnable,
+		values.HTTPSProxy,
+		values.HTTPSPort,
+	);
+	const socksProxy = buildProxyUrl(
+		"socks5",
+		values.SOCKSEnable,
+		values.SOCKSProxy,
+		values.SOCKSPort,
+	);
+	const noProxy = buildNoProxy(values.ExceptionsList);
+
+	if (httpProxy && !hasAnyEnv(env, ["HTTP_PROXY", "http_proxy"])) {
+		env.HTTP_PROXY = httpProxy;
+	}
+	if (httpsProxy && !hasAnyEnv(env, ["HTTPS_PROXY", "https_proxy"])) {
+		env.HTTPS_PROXY = httpsProxy;
+	}
+	if (socksProxy && !hasAnyEnv(env, ["ALL_PROXY", "all_proxy"])) {
+		env.ALL_PROXY = socksProxy;
+	}
+	if (noProxy && !hasAnyEnv(env, ["NO_PROXY", "no_proxy"])) {
+		env.NO_PROXY = noProxy;
+	}
+}
+
+function parseMacProxySettings(
+	settings: string,
+): Record<string, string | string[]> {
+	const values: Record<string, string | string[]> = {};
+	const exceptions: string[] = [];
+	for (const line of settings.split(/\r?\n/)) {
+		const exceptionMatch = line.match(/^\s*\d+\s*:\s*(.+?)\s*$/);
+		if (exceptionMatch?.[1]) {
+			exceptions.push(exceptionMatch[1]);
+			continue;
+		}
+
+		const match = line.match(
+			/^\s*([A-Za-z]+(?:Enable|Proxy|Port))\s*:\s*(.+?)\s*$/,
+		);
+		if (match?.[1] && match[2]) {
+			values[match[1]] = match[2];
+		}
+	}
+	if (exceptions.length > 0) values.ExceptionsList = exceptions;
+	return values;
+}
+
+function buildProxyUrl(
+	scheme: "http" | "socks5",
+	enabled: string | string[] | undefined,
+	host: string | string[] | undefined,
+	port: string | string[] | undefined,
+): string | undefined {
+	if (enabled !== "1" || typeof host !== "string" || typeof port !== "string") {
+		return undefined;
+	}
+	return `${scheme}://${host}:${port}`;
+}
+
+function buildNoProxy(
+	exceptions: string | string[] | undefined,
+): string | undefined {
+	if (!Array.isArray(exceptions)) return undefined;
+	const noProxy = exceptions
+		.map((entry) => entry.trim())
+		.filter(Boolean)
+		.map((entry) => (entry.startsWith("*.") ? entry.slice(1) : entry));
+	return noProxy.length > 0 ? noProxy.join(",") : undefined;
+}
+
+function hasAnyEnv(env: NodeJS.ProcessEnv, keys: string[]): boolean {
+	return keys.some((key) => Boolean(env[key]));
 }
 
 export class CodexAppServer {
