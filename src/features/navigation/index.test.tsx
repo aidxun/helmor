@@ -1,8 +1,10 @@
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -533,5 +535,96 @@ describe("WorkspacesSidebar", () => {
 
 		expect(actionOverlay).not.toBeNull();
 		expect(actionOverlay).not.toHaveClass("transition-opacity");
+	});
+
+	it("keeps the dragged row aligned when the list scrolls during drag", async () => {
+		const rafSpy = vi
+			.spyOn(window, "requestAnimationFrame")
+			.mockImplementation((callback: FrameRequestCallback) => {
+				return window.setTimeout(() => callback(performance.now()), 0);
+			});
+		const cancelRafSpy = vi
+			.spyOn(window, "cancelAnimationFrame")
+			.mockImplementation((handle: number) => {
+				window.clearTimeout(handle);
+			});
+		const rows: WorkspaceRow[] = Array.from({ length: 8 }, (_, index) => ({
+			...workspaceRow,
+			id: `workspace-${index + 1}`,
+			title: `Workspace ${index + 1}`,
+		}));
+
+		try {
+			const { container } = render(
+				<TooltipProvider delayDuration={0}>
+					<WorkspacesSidebar
+						groups={[
+							{
+								id: "progress",
+								label: "In Progress",
+								tone: "progress",
+								rows,
+							},
+						]}
+						archivedRows={[]}
+						onReorderWorkspaceWithinGroup={vi.fn()}
+					/>
+				</TooltipProvider>,
+			);
+
+			const scrollRegion = container.querySelector<HTMLDivElement>(
+				'[data-slot="workspace-groups-scroll"]',
+			);
+			if (!scrollRegion) {
+				throw new Error("Expected workspace groups scroll region");
+			}
+			scrollRegion.getBoundingClientRect = vi.fn(
+				() =>
+					({
+						top: 0,
+						bottom: 400,
+						left: 0,
+						right: 240,
+						width: 240,
+						height: 400,
+						x: 0,
+						y: 0,
+						toJSON: () => ({}),
+					}) as DOMRect,
+			);
+
+			const row = screen.getByRole("button", { name: "Workspace 3" });
+			fireEvent.pointerDown(row, { button: 0, clientX: 12, clientY: 100 });
+			await act(async () => {
+				fireEvent.pointerMove(window, { clientX: 12, clientY: 112 });
+			});
+			await waitFor(() => {
+				expect(screen.getByRole("button", { name: "Workspace 3" })).toHaveStyle(
+					{
+						transform: "translate3d(0, 12px, 0)",
+					},
+				);
+			});
+
+			Object.defineProperty(scrollRegion, "scrollTop", {
+				configurable: true,
+				value: 64,
+				writable: true,
+			});
+			await act(async () => {
+				fireEvent.pointerMove(window, { clientX: 12, clientY: 126 });
+			});
+
+			await waitFor(() => {
+				expect(screen.getByRole("button", { name: "Workspace 3" })).toHaveStyle(
+					{
+						transform: "translate3d(0, 90px, 0)",
+					},
+				);
+			});
+		} finally {
+			rafSpy.mockRestore();
+			cancelRafSpy.mockRestore();
+		}
 	});
 });

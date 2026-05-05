@@ -3,12 +3,14 @@ import {
 	type MouseEvent,
 	useCallback,
 	useEffect,
+	useRef,
 	useState,
 } from "react";
 import {
 	clampSidebarWidth,
 	getInitialSidebarWidth,
 	INSPECTOR_WIDTH_STORAGE_KEY,
+	SIDEBAR_RESIZE_HIT_AREA,
 	SIDEBAR_RESIZE_STEP,
 	SIDEBAR_WIDTH_STORAGE_KEY,
 } from "@/shell/layout";
@@ -17,9 +19,19 @@ type ResizeTarget = "sidebar" | "inspector";
 
 type ResizeState = {
 	pointerX: number;
-	sidebarWidth: number;
-	target: ResizeTarget;
+	width: number;
 };
+
+function persistPanelWidth(storageKey: string, width: number) {
+	try {
+		window.localStorage.setItem(storageKey, String(width));
+	} catch (error) {
+		console.error(
+			`[helmor] panel width save failed for "${storageKey}"`,
+			error,
+		);
+	}
+}
 
 export function useShellPanels() {
 	const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
@@ -28,33 +40,31 @@ export function useShellPanels() {
 		getInitialSidebarWidth(INSPECTOR_WIDTH_STORAGE_KEY),
 	);
 	const [resizeState, setResizeState] = useState<ResizeState | null>(null);
+	const activeResizeTargetRef = useRef<ResizeTarget | null>(null);
+	const resizeCleanupRef = useRef<(() => void) | null>(null);
+	const sidebarWidthRef = useRef(sidebarWidth);
+	const inspectorWidthRef = useRef(inspectorWidth);
 
 	useEffect(() => {
-		try {
-			window.localStorage.setItem(
-				SIDEBAR_WIDTH_STORAGE_KEY,
-				String(sidebarWidth),
-			);
-		} catch (error) {
-			console.error(
-				`[helmor] sidebar width save failed for "${SIDEBAR_WIDTH_STORAGE_KEY}"`,
-				error,
-			);
+		return () => {
+			resizeCleanupRef.current?.();
+		};
+	}, []);
+
+	useEffect(() => {
+		if (activeResizeTargetRef.current === "sidebar") {
+			return;
 		}
+		sidebarWidthRef.current = sidebarWidth;
+		persistPanelWidth(SIDEBAR_WIDTH_STORAGE_KEY, sidebarWidth);
 	}, [sidebarWidth]);
 
 	useEffect(() => {
-		try {
-			window.localStorage.setItem(
-				INSPECTOR_WIDTH_STORAGE_KEY,
-				String(inspectorWidth),
-			);
-		} catch (error) {
-			console.error(
-				`[helmor] inspector width save failed for "${INSPECTOR_WIDTH_STORAGE_KEY}"`,
-				error,
-			);
+		if (activeResizeTargetRef.current === "inspector") {
+			return;
 		}
+		inspectorWidthRef.current = inspectorWidth;
+		persistPanelWidth(INSPECTOR_WIDTH_STORAGE_KEY, inspectorWidth);
 	}, [inspectorWidth]);
 
 	useEffect(() => {
@@ -69,30 +79,27 @@ export function useShellPanels() {
 			if (pendingWidth === null) return;
 			const nextWidth = pendingWidth;
 			pendingWidth = null;
-			if (resizeState.target === "sidebar") {
-				setSidebarWidth(nextWidth);
-			} else {
-				setInspectorWidth(nextWidth);
-			}
+			inspectorWidthRef.current = nextWidth;
+			setInspectorWidth(nextWidth);
 		};
 
 		const handleMouseMove = (event: globalThis.MouseEvent) => {
 			const deltaX = event.clientX - resizeState.pointerX;
-			const rawWidth =
-				resizeState.target === "sidebar"
-					? resizeState.sidebarWidth + deltaX
-					: resizeState.sidebarWidth - deltaX;
+			const rawWidth = resizeState.width - deltaX;
 			pendingWidth = clampSidebarWidth(rawWidth);
 			if (rafId === null) {
 				rafId = window.requestAnimationFrame(flush);
 			}
 		};
 		const handleMouseUp = () => {
+			const finalWidth = pendingWidth ?? inspectorWidthRef.current;
 			if (rafId !== null) {
 				window.cancelAnimationFrame(rafId);
 				rafId = null;
 			}
 			flush();
+			persistPanelWidth(INSPECTOR_WIDTH_STORAGE_KEY, finalWidth);
+			activeResizeTargetRef.current = null;
 			setResizeState(null);
 		};
 		const previousCursor = document.body.style.cursor;
@@ -104,6 +111,7 @@ export function useShellPanels() {
 		window.addEventListener("mousemove", handleMouseMove);
 		window.addEventListener("mouseup", handleMouseUp);
 
+		activeResizeTargetRef.current = "inspector";
 		return () => {
 			if (rafId !== null) {
 				window.cancelAnimationFrame(rafId);
@@ -119,10 +127,86 @@ export function useShellPanels() {
 		(target: ResizeTarget) => (event: MouseEvent<HTMLDivElement>) => {
 			if (event.button !== 0) return;
 			event.preventDefault();
+
+			if (target === "sidebar") {
+				resizeCleanupRef.current?.();
+				const resizeHandle = event.currentTarget;
+				const shell = resizeHandle.parentElement;
+				const sidebar = shell?.querySelector<HTMLElement>(
+					"[data-helmor-sidebar-root]",
+				);
+
+				if (!sidebar) {
+					return;
+				}
+
+				const startPointerX = event.clientX;
+				const startWidth = sidebarWidthRef.current;
+				let pendingWidth: number | null = null;
+				let rafId: number | null = null;
+				let finalWidth = startWidth;
+				const previousCursor = document.body.style.cursor;
+				const previousUserSelect = document.body.style.userSelect;
+
+				const applyWidth = (width: number) => {
+					finalWidth = width;
+					sidebarWidthRef.current = width;
+					sidebar.style.width = `${width}px`;
+					resizeHandle.style.left = `${width - SIDEBAR_RESIZE_HIT_AREA / 2}px`;
+					resizeHandle.setAttribute("aria-valuenow", String(width));
+				};
+
+				const flush = () => {
+					rafId = null;
+					if (pendingWidth === null) return;
+					const nextWidth = pendingWidth;
+					pendingWidth = null;
+					applyWidth(nextWidth);
+				};
+
+				const cleanup = () => {
+					if (rafId !== null) {
+						window.cancelAnimationFrame(rafId);
+						rafId = null;
+					}
+					document.body.style.cursor = previousCursor;
+					document.body.style.userSelect = previousUserSelect;
+					window.removeEventListener("mousemove", handleMouseMove);
+					window.removeEventListener("mouseup", handleMouseUp);
+					activeResizeTargetRef.current = null;
+					resizeCleanupRef.current = null;
+				};
+
+				const handleMouseMove = (moveEvent: globalThis.MouseEvent) => {
+					pendingWidth = clampSidebarWidth(
+						startWidth + moveEvent.clientX - startPointerX,
+					);
+					if (rafId === null) {
+						rafId = window.requestAnimationFrame(flush);
+					}
+				};
+
+				const handleMouseUp = () => {
+					flush();
+					persistPanelWidth(SIDEBAR_WIDTH_STORAGE_KEY, finalWidth);
+					cleanup();
+					if (finalWidth !== sidebarWidth) {
+						setSidebarWidth(finalWidth);
+					}
+				};
+
+				activeResizeTargetRef.current = "sidebar";
+				resizeCleanupRef.current = cleanup;
+				document.body.style.cursor = "ew-resize";
+				document.body.style.userSelect = "none";
+				window.addEventListener("mousemove", handleMouseMove);
+				window.addEventListener("mouseup", handleMouseUp);
+				return;
+			}
+
 			setResizeState({
 				pointerX: event.clientX,
-				sidebarWidth: target === "sidebar" ? sidebarWidth : inspectorWidth,
-				target,
+				width: inspectorWidth,
 			});
 		},
 		[sidebarWidth, inspectorWidth],
@@ -165,8 +249,7 @@ export function useShellPanels() {
 		handleResizeKeyDown,
 		handleResizeStart,
 		inspectorWidth,
-		isInspectorResizing: resizeState?.target === "inspector",
-		isSidebarResizing: resizeState?.target === "sidebar",
+		isInspectorResizing: resizeState !== null,
 		sidebarCollapsed,
 		sidebarWidth,
 		setInspectorWidth,

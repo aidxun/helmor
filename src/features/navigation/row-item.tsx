@@ -68,7 +68,6 @@ export type WorkspaceRowItemProps = {
 	row: WorkspaceRow;
 	selected: boolean;
 	isDragging?: boolean;
-	isWorkspaceDragActive?: boolean;
 	dragOffsetY?: number;
 	dropIndicator?: "before" | "after" | null;
 	isSending?: boolean;
@@ -119,7 +118,6 @@ export const WorkspaceRowItem = memo(
 		row,
 		selected,
 		isDragging,
-		isWorkspaceDragActive,
 		dragOffsetY = 0,
 		dropIndicator,
 		isSending,
@@ -172,10 +170,9 @@ export const WorkspaceRowItem = memo(
 				: {}),
 			transform:
 				dragOffsetY !== 0 ? `translate3d(0, ${dragOffsetY}px, 0)` : undefined,
-			transition: isDragging
-				? "opacity 120ms ease-out"
-				: isWorkspaceDragActive
-					? "transform 140ms cubic-bezier(0.2, 0, 0, 1), opacity 120ms ease-out"
+			transition:
+				!isDragging && dragOffsetY !== 0
+					? "transform 140ms cubic-bezier(0.2, 0, 0, 1)"
 					: undefined,
 			zIndex: isDragging ? 1 : undefined,
 		} as React.CSSProperties;
@@ -222,11 +219,9 @@ export const WorkspaceRowItem = memo(
 				data-busy={isBusy ? "true" : undefined}
 				style={rowFadeStyle}
 				onMouseEnter={() => {
-					if (isWorkspaceDragActive) return;
 					onPrefetch?.(row.id);
 				}}
 				onFocus={() => {
-					if (isWorkspaceDragActive) return;
 					onPrefetch?.(row.id);
 				}}
 				onPointerDown={(event) => {
@@ -245,7 +240,7 @@ export const WorkspaceRowItem = memo(
 					rowVariants({ active: selected }),
 					"w-full text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
 					!selected && row.state === "archived" && "opacity-50",
-					isDragging && "pointer-events-none opacity-35",
+					isDragging && "pointer-events-none",
 				)}
 			>
 				{dropIndicator ? (
@@ -392,7 +387,7 @@ export const WorkspaceRowItem = memo(
 					<WorkspaceHoverCard
 						row={row}
 						isSending={isSending}
-						disabled={isWorkspaceDragActive}
+						disabled={isDragging}
 					>
 						<ContextMenuTrigger className="block">{rowBody}</ContextMenuTrigger>
 					</WorkspaceHoverCard>
@@ -504,7 +499,6 @@ export const WorkspaceRowItem = memo(
 			previous.row === next.row &&
 			previous.selected === next.selected &&
 			previous.isDragging === next.isDragging &&
-			previous.isWorkspaceDragActive === next.isWorkspaceDragActive &&
 			previous.dragOffsetY === next.dragOffsetY &&
 			previous.dropIndicator === next.dropIndicator &&
 			previous.isSending === next.isSending &&

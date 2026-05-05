@@ -68,6 +68,8 @@ const GROUP_GAP = 8; // tighter gap between populated groups
 const EMPTY_GROUP_GAP = 8; // tighter spacing around empty groups
 const BOTTOM_PADDING = 8;
 const DRAG_START_DISTANCE_PX = 5;
+const DRAG_AUTO_SCROLL_EDGE_PX = 44;
+const DRAG_AUTO_SCROLL_MAX_STEP_PX = 14;
 
 type WorkspaceDragState = {
 	activeWorkspaceId: string;
@@ -84,6 +86,8 @@ type WorkspaceDragSession = {
 	sourceIndex: number;
 	startX: number;
 	startY: number;
+	startScrollTop: number;
+	latestClientY: number;
 	dragging: boolean;
 };
 
@@ -174,6 +178,10 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	const dragSessionRef = useRef<WorkspaceDragSession | null>(null);
 	const dragCleanupRef = useRef<() => void>(() => {});
 	const dragStateRef = useRef<WorkspaceDragState | null>(null);
+	const dragUpdateFrameRef = useRef<number | null>(null);
+	const dragPendingClientYRef = useRef<number | null>(null);
+	const dragAutoScrollFrameRef = useRef<number | null>(null);
+	const dragAutoScrollStepRef = useRef(0);
 	const suppressNextSelectRef = useRef<string | null>(null);
 	const [dragState, setDragState] = useState<WorkspaceDragState | null>(null);
 	const setWorkspaceDragState = useCallback(
@@ -335,7 +343,12 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 
 	const dragOffsetsByWorkspaceId = useMemo(() => {
 		const offsets = new Map<string, number>();
-		if (!dragState || dragState.targetIndex === dragState.sourceIndex) {
+		if (!dragState) {
+			return offsets;
+		}
+
+		offsets.set(dragState.activeWorkspaceId, dragState.currentOffsetY);
+		if (dragState.targetIndex === dragState.sourceIndex) {
 			return offsets;
 		}
 
@@ -347,7 +360,6 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 		}
 
 		const { sourceIndex, targetIndex } = dragState;
-		offsets.set(dragState.activeWorkspaceId, dragState.currentOffsetY);
 		if (targetIndex > sourceIndex) {
 			for (let index = sourceIndex + 1; index <= targetIndex; index += 1) {
 				const row = group.rows[index];
@@ -471,11 +483,25 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 		[onSelectWorkspace],
 	);
 
+	const stopWorkspaceDragAutoScroll = useCallback(() => {
+		if (dragAutoScrollFrameRef.current !== null) {
+			window.cancelAnimationFrame(dragAutoScrollFrameRef.current);
+			dragAutoScrollFrameRef.current = null;
+		}
+		dragAutoScrollStepRef.current = 0;
+	}, []);
+
 	const finishWorkspaceDrag = useCallback(() => {
 		const current = dragStateRef.current;
 		const session = dragSessionRef.current;
 		dragSessionRef.current = null;
 		document.body.style.userSelect = "";
+		stopWorkspaceDragAutoScroll();
+		if (dragUpdateFrameRef.current !== null) {
+			window.cancelAnimationFrame(dragUpdateFrameRef.current);
+			dragUpdateFrameRef.current = null;
+		}
+		dragPendingClientYRef.current = null;
 		setWorkspaceDragState(null);
 
 		if (
@@ -500,7 +526,11 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			beforeWorkspaceId,
 			afterWorkspaceId,
 		});
-	}, [onReorderWorkspaceWithinGroup, setWorkspaceDragState]);
+	}, [
+		onReorderWorkspaceWithinGroup,
+		setWorkspaceDragState,
+		stopWorkspaceDragAutoScroll,
+	]);
 
 	const updateWorkspaceDragTarget = useCallback(
 		(clientY: number) => {
@@ -509,12 +539,15 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 				return;
 			}
 
+			session.latestClientY = clientY;
+			const scrollTop = scrollContainerRef.current?.scrollTop ?? 0;
+			const scrollDeltaY = scrollTop - session.startScrollTop;
 			const minOffsetY = -session.sourceIndex * ROW_HEIGHT;
 			const maxOffsetY =
 				(session.groupRowIds.length - 1 - session.sourceIndex) * ROW_HEIGHT;
 			const currentOffsetY = Math.max(
 				minOffsetY,
-				Math.min(maxOffsetY, clientY - session.startY),
+				Math.min(maxOffsetY, clientY - session.startY + scrollDeltaY),
 			);
 			const targetIndex = Math.max(
 				0,
@@ -538,6 +571,97 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			);
 		},
 		[setWorkspaceDragState],
+	);
+
+	const scheduleWorkspaceDragTargetUpdate = useCallback(
+		(clientY: number) => {
+			dragPendingClientYRef.current = clientY;
+			if (dragUpdateFrameRef.current !== null) {
+				return;
+			}
+
+			dragUpdateFrameRef.current = window.requestAnimationFrame(() => {
+				dragUpdateFrameRef.current = null;
+				const pendingClientY = dragPendingClientYRef.current;
+				dragPendingClientYRef.current = null;
+				if (pendingClientY !== null) {
+					updateWorkspaceDragTarget(pendingClientY);
+				}
+			});
+		},
+		[updateWorkspaceDragTarget],
+	);
+
+	const updateWorkspaceDragAutoScroll = useCallback(
+		(clientY: number) => {
+			const scrollElement = scrollContainerRef.current;
+			const session = dragSessionRef.current;
+			if (!scrollElement || !session?.dragging) {
+				stopWorkspaceDragAutoScroll();
+				return;
+			}
+
+			const rect = scrollElement.getBoundingClientRect();
+			const topDistance = clientY - rect.top;
+			const bottomDistance = rect.bottom - clientY;
+			let nextStep = 0;
+
+			if (topDistance < DRAG_AUTO_SCROLL_EDGE_PX) {
+				const ratio = Math.max(
+					0,
+					(DRAG_AUTO_SCROLL_EDGE_PX - topDistance) / DRAG_AUTO_SCROLL_EDGE_PX,
+				);
+				nextStep = -Math.ceil(ratio * DRAG_AUTO_SCROLL_MAX_STEP_PX);
+			} else if (bottomDistance < DRAG_AUTO_SCROLL_EDGE_PX) {
+				const ratio = Math.max(
+					0,
+					(DRAG_AUTO_SCROLL_EDGE_PX - bottomDistance) /
+						DRAG_AUTO_SCROLL_EDGE_PX,
+				);
+				nextStep = Math.ceil(ratio * DRAG_AUTO_SCROLL_MAX_STEP_PX);
+			}
+
+			dragAutoScrollStepRef.current = nextStep;
+			if (nextStep === 0) {
+				stopWorkspaceDragAutoScroll();
+				return;
+			}
+
+			if (dragAutoScrollFrameRef.current !== null) {
+				return;
+			}
+
+			const tick = () => {
+				const element = scrollContainerRef.current;
+				const activeSession = dragSessionRef.current;
+				const step = dragAutoScrollStepRef.current;
+				if (!element || !activeSession?.dragging || step === 0) {
+					dragAutoScrollFrameRef.current = null;
+					dragAutoScrollStepRef.current = 0;
+					return;
+				}
+
+				const before = element.scrollTop;
+				element.scrollTop = Math.max(
+					0,
+					Math.min(
+						element.scrollHeight - element.clientHeight,
+						element.scrollTop + step,
+					),
+				);
+
+				if (element.scrollTop !== before) {
+					updateWorkspaceDragTarget(activeSession.latestClientY);
+					dragAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+					return;
+				}
+
+				dragAutoScrollFrameRef.current = null;
+			};
+
+			dragAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+		},
+		[stopWorkspaceDragAutoScroll, updateWorkspaceDragTarget],
 	);
 
 	const handleWorkspacePointerMove = useCallback(
@@ -568,9 +692,15 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			}
 
 			event.preventDefault();
-			updateWorkspaceDragTarget(event.clientY);
+			session.latestClientY = event.clientY;
+			scheduleWorkspaceDragTargetUpdate(event.clientY);
+			updateWorkspaceDragAutoScroll(event.clientY);
 		},
-		[updateWorkspaceDragTarget, setWorkspaceDragState],
+		[
+			scheduleWorkspaceDragTargetUpdate,
+			setWorkspaceDragState,
+			updateWorkspaceDragAutoScroll,
+		],
 	);
 
 	const handleWorkspaceReorderPointerDown = useCallback(
@@ -611,6 +741,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 				sourceIndex,
 				startX: event.clientX,
 				startY: event.clientY,
+				startScrollTop: scrollContainerRef.current?.scrollTop ?? 0,
+				latestClientY: event.clientY,
 				dragging: false,
 			};
 			dragCleanupRef.current();
@@ -648,9 +780,13 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	useEffect(() => {
 		return () => {
 			dragCleanupRef.current();
+			stopWorkspaceDragAutoScroll();
+			if (dragUpdateFrameRef.current !== null) {
+				window.cancelAnimationFrame(dragUpdateFrameRef.current);
+			}
 			document.body.style.userSelect = "";
 		};
-	}, []);
+	}, [stopWorkspaceDragAutoScroll]);
 
 	// ── Render a single virtual item ──────────────────────────────────
 	const renderItem = useCallback(
@@ -719,7 +855,6 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 						row={item.row}
 						selected={selectedWorkspaceId === item.row.id}
 						isDragging={dragState?.activeWorkspaceId === item.row.id}
-						isWorkspaceDragActive={dragState !== null}
 						dragOffsetY={dragOffsetsByWorkspaceId.get(item.row.id) ?? 0}
 						dropIndicator={null}
 						isSending={busyWorkspaceIds?.has(item.row.id)}
