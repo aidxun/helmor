@@ -18,6 +18,7 @@ import { errorDetails, logger } from "./logger.js";
 import {
 	errorMessage,
 	optionalString,
+	parseAgentProxySettings,
 	parseElicitationResultContent,
 	parseGetContextUsageParams,
 	parseListSlashCommandsParams,
@@ -177,6 +178,7 @@ async function handleGenerateTitle(
 			params,
 			"claudeEnvironment",
 		);
+		const agentProxy = parseAgentProxySettings(params, "agentProxy");
 		// Default true so older clients without the field keep getting both
 		// title and branch. Pass `false` to skip the branch slug entirely.
 		const generateBranch =
@@ -197,7 +199,7 @@ async function handleGenerateTitle(
 				branchRenamePrompt,
 				emitter,
 				TITLE_GENERATION_TIMEOUT_MS,
-				{ model: claudeModel, claudeEnvironment, generateBranch },
+				{ model: claudeModel, claudeEnvironment, agentProxy, generateBranch },
 			);
 			logger.debug(`[${id}] generateTitle completed (claude)`);
 		} catch (claudeErr) {
@@ -212,7 +214,7 @@ async function handleGenerateTitle(
 						branchRenamePrompt,
 						emitter,
 						TITLE_GENERATION_TIMEOUT_MS,
-						{ generateBranch },
+						{ agentProxy, generateBranch },
 					);
 					logger.debug(`[${id}] generateTitle completed (official claude)`);
 					return;
@@ -232,7 +234,7 @@ async function handleGenerateTitle(
 				branchRenamePrompt,
 				emitter,
 				TITLE_GENERATION_FALLBACK_TIMEOUT_MS,
-				{ generateBranch },
+				{ agentProxy, generateBranch },
 			);
 			logger.debug(`[${id}] generateTitle completed (codex fallback)`);
 		}

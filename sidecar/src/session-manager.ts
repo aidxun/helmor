@@ -5,6 +5,7 @@
  * any SDK-specific details.
  */
 
+import type { AgentProxySettings } from "./agent-proxy.js";
 import type { SidecarEmitter } from "./emitter.js";
 
 export type Provider = "claude" | "codex";
@@ -19,6 +20,7 @@ export interface SendMessageParams {
 	readonly effortLevel: string | undefined;
 	readonly fastMode: boolean | undefined;
 	readonly claudeEnvironment?: Readonly<Record<string, string>>;
+	readonly agentProxy?: AgentProxySettings;
 	/**
 	 * Extra directories the user linked via `/add-dir`. Passed to Claude as
 	 * `additionalDirectories`; merged into Codex's per-turn `sandboxPolicy`
@@ -54,11 +56,13 @@ export interface GetContextUsageParams {
 	readonly providerSessionId: string | null;
 	readonly model: string;
 	readonly cwd: string | undefined;
+	readonly agentProxy?: AgentProxySettings;
 }
 
 export interface GenerateTitleOptions {
 	readonly model?: string;
 	readonly claudeEnvironment?: Readonly<Record<string, string>>;
+	readonly agentProxy?: AgentProxySettings;
 	/** When false, only the title is requested — branch generation is omitted
 	 * from the prompt entirely (saves tokens for local-mode workspaces and
 	 * any other case where the caller has no intent to rename a branch). */

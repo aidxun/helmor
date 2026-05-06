@@ -91,6 +91,42 @@ describe("settings", () => {
 		);
 	});
 
+	it("hydrates and saves agent proxy settings", async () => {
+		invokeMock.mockResolvedValue({
+			"app.agent_proxy": JSON.stringify({
+				mode: "custom",
+				customUrl: "http://127.0.0.1:7890",
+			}),
+		});
+
+		const settings = await loadSettings();
+
+		expect(settings.agentProxy).toEqual({
+			mode: "custom",
+			customUrl: "http://127.0.0.1:7890",
+		});
+
+		invokeMock.mockResolvedValue(undefined);
+		await saveSettings({
+			agentProxy: {
+				mode: "system",
+				customUrl: "",
+			},
+		});
+
+		expect(invokeMock).toHaveBeenLastCalledWith(
+			"update_app_settings",
+			expect.objectContaining({
+				settingsMap: expect.objectContaining({
+					"app.agent_proxy": JSON.stringify({
+						mode: "system",
+						customUrl: "",
+					}),
+				}),
+			}),
+		);
+	});
+
 	it("hydrates and saves the last app surface", async () => {
 		invokeMock.mockResolvedValue({
 			"app.last_surface": "workspace-start",

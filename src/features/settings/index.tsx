@@ -56,7 +56,10 @@ import { CliInstallPanel } from "./panels/cli-install";
 import { ConductorImportPanel } from "./panels/conductor-import";
 import { DevToolsPanel } from "./panels/dev-tools";
 import { InboxSettingsPanel } from "./panels/inbox";
-import { ClaudeCustomProvidersPanel } from "./panels/model-providers";
+import {
+	AgentProxyPanel,
+	ClaudeCustomProvidersPanel,
+} from "./panels/model-providers";
 import { RepositorySettingsPanel } from "./panels/repository-settings";
 
 const MIN_FONT_SIZE = 12;
@@ -809,6 +812,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 											</div>
 										</div>
 									</SettingsRow>
+									<AgentProxyPanel />
 									<ClaudeCustomProvidersPanel />
 								</SettingsGroup>
 							)}

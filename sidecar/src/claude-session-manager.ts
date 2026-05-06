@@ -17,6 +17,7 @@ import {
 	type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { isAbortError, isQueryClosedTransient } from "./abort.js";
+import { buildAgentProxyEnv } from "./agent-proxy.js";
 import { buildClaudeRichMeta, buildClaudeStoredMeta } from "./context-usage.js";
 import type { SidecarEmitter } from "./emitter.js";
 import { readImageWithResize } from "./image-resize.js";
@@ -378,6 +379,7 @@ export class ClaudeSessionManager implements SessionManager {
 			effortLevel,
 			fastMode,
 			claudeEnvironment,
+			agentProxy,
 			images,
 		} = params;
 		const abortController = new AbortController();
@@ -428,11 +430,11 @@ export class ClaudeSessionManager implements SessionManager {
 			additionalDirectories.length > 0
 				? { CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1" }
 				: undefined;
+		const proxyEnv = buildAgentProxyEnv(agentProxy);
 		const queryEnv =
-			claudeEnv || additionalDirectoryEnv
-				? { ...claudeEnv, ...additionalDirectoryEnv }
+			claudeEnv || additionalDirectoryEnv || proxyEnv
+				? { ...proxyEnv, ...claudeEnv, ...additionalDirectoryEnv }
 				: undefined;
-
 		const q = query({
 			prompt: isResumeOnly ? "" : promptSource,
 			options: {
@@ -730,14 +732,16 @@ export class ClaudeSessionManager implements SessionManager {
 			Object.keys(options.claudeEnvironment).length > 0
 				? options.claudeEnvironment
 				: undefined;
-
+		const proxyEnv = buildAgentProxyEnv(options?.agentProxy);
+		const queryEnv =
+			claudeEnv || proxyEnv ? { ...proxyEnv, ...claudeEnv } : undefined;
 		const generateBranch = options?.generateBranch ?? true;
 		const q = query({
 			prompt: buildTitlePrompt(userMessage, branchRenamePrompt, generateBranch),
 			options: {
 				abortController,
 				pathToClaudeCodeExecutable: CLAUDE_BIN_PATH,
-				...(claudeEnv ? { env: claudeEnv } : {}),
+				...(queryEnv ? { env: queryEnv } : {}),
 				model,
 				permissionMode: "plan",
 				allowDangerouslySkipPermissions: true,
@@ -985,6 +989,7 @@ export class ClaudeSessionManager implements SessionManager {
 				yield* [];
 			})();
 
+		const proxyEnv = buildAgentProxyEnv(params.agentProxy);
 		const q = query({
 			prompt: promptIter,
 			options: {
@@ -993,6 +998,7 @@ export class ClaudeSessionManager implements SessionManager {
 				cwd: cwd || undefined,
 				model: model || undefined,
 				...(providerSessionId ? { resume: providerSessionId } : {}),
+				...(proxyEnv ? { env: proxyEnv } : {}),
 				permissionMode: "bypassPermissions",
 				allowDangerouslySkipPermissions: true,
 				includePartialMessages: false,
