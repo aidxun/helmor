@@ -86,6 +86,11 @@ export type CursorProviderSettings = {
 	cachedModels: CursorCachedModel[] | null;
 };
 
+export type AgentProxySettings = {
+	mode: "none" | "system" | "custom";
+	customUrl: string;
+};
+
 /** Per-account toggles for which item kinds the inbox should pull from
  * a given forge login. Keyed externally by `<provider>:<login>` (e.g.
  * `github:octocat`). Missing keys default to all `true` — newly added
@@ -221,6 +226,7 @@ export type AppSettings = {
 	shortcuts: ShortcutOverrides;
 	claudeCustomProviders: ClaudeCustomProviderSettings;
 	cursorProvider: CursorProviderSettings;
+	agentProxy: AgentProxySettings;
 	inboxSourceConfig: InboxSourceConfig;
 	kanbanViewState: KanbanViewState;
 };
@@ -278,6 +284,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
 		enabledModelIds: null,
 		cachedModels: null,
 	},
+	agentProxy: {
+		mode: "none",
+		customUrl: "",
+	},
 	inboxSourceConfig: { accounts: {} },
 	kanbanViewState: DEFAULT_KANBAN_VIEW_STATE,
 };
@@ -322,6 +332,7 @@ const SETTINGS_KEY_MAP: Record<
 	shortcuts: "app.shortcuts",
 	claudeCustomProviders: "app.claude_custom_providers",
 	cursorProvider: "app.cursor_provider",
+	agentProxy: "app.agent_proxy",
 	inboxSourceConfig: "app.inbox_source_config",
 	kanbanViewState: "app.kanban_view_state",
 };
@@ -695,6 +706,23 @@ function parseClaudeCustomProviderSettings(
 	}
 }
 
+function parseAgentProxySettings(raw: string | undefined): AgentProxySettings {
+	if (!raw) return DEFAULT_SETTINGS.agentProxy;
+	try {
+		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		const mode =
+			parsed.mode === "system" || parsed.mode === "custom"
+				? parsed.mode
+				: DEFAULT_SETTINGS.agentProxy.mode;
+		return {
+			mode,
+			customUrl: typeof parsed.customUrl === "string" ? parsed.customUrl : "",
+		};
+	} catch {
+		return DEFAULT_SETTINGS.agentProxy;
+	}
+}
+
 export async function loadSettings(): Promise<AppSettings> {
 	try {
 		const raw = await invoke<Record<string, string>>("get_app_settings");
@@ -802,6 +830,7 @@ export async function loadSettings(): Promise<AppSettings> {
 			cursorProvider: parseCursorProviderSettings(
 				raw[SETTINGS_KEY_MAP.cursorProvider],
 			),
+			agentProxy: parseAgentProxySettings(raw[SETTINGS_KEY_MAP.agentProxy]),
 			inboxSourceConfig: parseInboxSourceConfig(
 				raw[SETTINGS_KEY_MAP.inboxSourceConfig],
 			),
@@ -845,6 +874,7 @@ export async function saveSettings(patch: Partial<AppSettings>): Promise<void> {
 				key === "shortcuts" ||
 				key === "claudeCustomProviders" ||
 				key === "cursorProvider" ||
+				key === "agentProxy" ||
 				key === "inboxSourceConfig" ||
 				key === "kanbanViewState"
 					? JSON.stringify(value)
