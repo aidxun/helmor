@@ -91,6 +91,36 @@ type WorkspaceDragSession = {
 	dragging: boolean;
 };
 
+function getWorkspaceDragStateForClientY(
+	session: WorkspaceDragSession,
+	clientY: number,
+	scrollTop: number,
+): WorkspaceDragState {
+	const scrollDeltaY = scrollTop - session.startScrollTop;
+	const minOffsetY = -session.sourceIndex * ROW_HEIGHT;
+	const maxOffsetY =
+		(session.groupRowIds.length - 1 - session.sourceIndex) * ROW_HEIGHT;
+	const currentOffsetY = Math.max(
+		minOffsetY,
+		Math.min(maxOffsetY, clientY - session.startY + scrollDeltaY),
+	);
+	const targetIndex = Math.max(
+		0,
+		Math.min(
+			session.groupRowIds.length - 1,
+			session.sourceIndex + Math.round(currentOffsetY / ROW_HEIGHT),
+		),
+	);
+
+	return {
+		activeWorkspaceId: session.activeWorkspaceId,
+		activeGroupId: session.activeGroupId,
+		sourceIndex: session.sourceIndex,
+		targetIndex,
+		currentOffsetY,
+	};
+}
+
 function getGroupHeaderHeight(_hasRows: boolean) {
 	return HEADER_HEIGHT;
 }
@@ -492,8 +522,14 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	}, []);
 
 	const finishWorkspaceDrag = useCallback(() => {
-		const current = dragStateRef.current;
 		const session = dragSessionRef.current;
+		const current = session?.dragging
+			? getWorkspaceDragStateForClientY(
+					session,
+					session.latestClientY,
+					scrollContainerRef.current?.scrollTop ?? 0,
+				)
+			: dragStateRef.current;
 		dragSessionRef.current = null;
 		document.body.style.userSelect = "";
 		stopWorkspaceDragAutoScroll();
@@ -540,34 +576,17 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			}
 
 			session.latestClientY = clientY;
-			const scrollTop = scrollContainerRef.current?.scrollTop ?? 0;
-			const scrollDeltaY = scrollTop - session.startScrollTop;
-			const minOffsetY = -session.sourceIndex * ROW_HEIGHT;
-			const maxOffsetY =
-				(session.groupRowIds.length - 1 - session.sourceIndex) * ROW_HEIGHT;
-			const currentOffsetY = Math.max(
-				minOffsetY,
-				Math.min(maxOffsetY, clientY - session.startY + scrollDeltaY),
-			);
-			const targetIndex = Math.max(
-				0,
-				Math.min(
-					session.groupRowIds.length - 1,
-					session.sourceIndex + Math.round(currentOffsetY / ROW_HEIGHT),
-				),
+			const nextState = getWorkspaceDragStateForClientY(
+				session,
+				clientY,
+				scrollContainerRef.current?.scrollTop ?? 0,
 			);
 			setWorkspaceDragState((current) =>
 				current &&
-				current.targetIndex === targetIndex &&
-				current.currentOffsetY === currentOffsetY
+				current.targetIndex === nextState.targetIndex &&
+				current.currentOffsetY === nextState.currentOffsetY
 					? current
-					: {
-							activeWorkspaceId: session.activeWorkspaceId,
-							activeGroupId: session.activeGroupId,
-							sourceIndex: session.sourceIndex,
-							targetIndex,
-							currentOffsetY,
-						},
+					: nextState,
 			);
 		},
 		[setWorkspaceDragState],

@@ -36,6 +36,7 @@ function persistPanelWidth(storageKey: string, width: number) {
 export function useShellPanels() {
 	const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+	const [sidebarResizeActive, setSidebarResizeActive] = useState(false);
 	const [inspectorWidth, setInspectorWidth] = useState(() =>
 		getInitialSidebarWidth(INSPECTOR_WIDTH_STORAGE_KEY),
 	);
@@ -175,6 +176,7 @@ export function useShellPanels() {
 					window.removeEventListener("mouseup", handleMouseUp);
 					activeResizeTargetRef.current = null;
 					resizeCleanupRef.current = null;
+					setSidebarResizeActive(false);
 				};
 
 				const handleMouseMove = (moveEvent: globalThis.MouseEvent) => {
@@ -197,6 +199,7 @@ export function useShellPanels() {
 
 				activeResizeTargetRef.current = "sidebar";
 				resizeCleanupRef.current = cleanup;
+				setSidebarResizeActive(true);
 				document.body.style.cursor = "ew-resize";
 				document.body.style.userSelect = "none";
 				window.addEventListener("mousemove", handleMouseMove);
@@ -250,6 +253,7 @@ export function useShellPanels() {
 		handleResizeStart,
 		inspectorWidth,
 		isInspectorResizing: resizeState !== null,
+		isSidebarResizing: sidebarResizeActive,
 		sidebarCollapsed,
 		sidebarWidth,
 		setInspectorWidth,

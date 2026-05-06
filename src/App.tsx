@@ -428,6 +428,7 @@ function AppShell({
 		handleResizeStart,
 		inspectorWidth,
 		isInspectorResizing,
+		isSidebarResizing,
 		sidebarCollapsed,
 		sidebarWidth,
 		setSidebarCollapsed,

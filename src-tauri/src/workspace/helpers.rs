@@ -811,6 +811,7 @@ mod tests {
             pr_sync_state: PrSyncState::None,
             pr_url: None,
             archive_commit: None,
+            sidebar_order: None,
             session_count: 0,
             message_count: 0,
             remote: Some("origin".to_string()),

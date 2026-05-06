@@ -50,16 +50,28 @@ import {
 import { WorkspaceHoverCard } from "./workspace-hover-card";
 
 const rowVariants = cva(
-	"group/row relative flex h-7.5 select-none items-center gap-2 rounded-md px-2.5 text-[13px] cursor-pointer",
+	"relative flex h-7.5 select-none items-center gap-2 rounded-md px-2.5 text-[13px] cursor-pointer",
 	{
 		variants: {
 			active: {
 				true: "workspace-row-selected text-foreground",
-				false: "text-foreground/80 hover:bg-accent/60",
+				false: "text-foreground/80",
+			},
+			dragging: {
+				true: "",
+				false: "group/row",
 			},
 		},
+		compoundVariants: [
+			{
+				active: false,
+				dragging: false,
+				className: "hover:bg-accent/60",
+			},
+		],
 		defaultVariants: {
 			active: false,
+			dragging: false,
 		},
 	},
 );
@@ -237,10 +249,10 @@ export const WorkspaceRowItem = memo(
 					}
 				}}
 				className={cn(
-					rowVariants({ active: selected }),
+					rowVariants({ active: selected, dragging: Boolean(isDragging) }),
 					"w-full text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
 					!selected && row.state === "archived" && "opacity-50",
-					isDragging && "pointer-events-none",
+					isDragging && "pointer-events-none opacity-60",
 				)}
 			>
 				{dropIndicator ? (

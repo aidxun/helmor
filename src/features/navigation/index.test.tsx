@@ -599,11 +599,13 @@ describe("WorkspacesSidebar", () => {
 				fireEvent.pointerMove(window, { clientX: 12, clientY: 112 });
 			});
 			await waitFor(() => {
-				expect(screen.getByRole("button", { name: "Workspace 3" })).toHaveStyle(
-					{
-						transform: "translate3d(0, 12px, 0)",
-					},
-				);
+				const draggedRow = screen.getByRole("button", { name: "Workspace 3" });
+				expect(draggedRow).toHaveStyle({
+					transform: "translate3d(0, 12px, 0)",
+				});
+				expect(draggedRow).toHaveClass("opacity-60");
+				expect(draggedRow).not.toHaveClass("hover:bg-accent/60");
+				expect(draggedRow).not.toHaveClass("group/row");
 			});
 
 			Object.defineProperty(scrollRegion, "scrollTop", {
@@ -621,6 +623,54 @@ describe("WorkspacesSidebar", () => {
 						transform: "translate3d(0, 90px, 0)",
 					},
 				);
+			});
+		} finally {
+			rafSpy.mockRestore();
+			cancelRafSpy.mockRestore();
+		}
+	});
+
+	it("uses the latest pointer position when releasing before the drag frame flushes", () => {
+		const rafSpy = vi
+			.spyOn(window, "requestAnimationFrame")
+			.mockImplementation(() => 1);
+		const cancelRafSpy = vi
+			.spyOn(window, "cancelAnimationFrame")
+			.mockImplementation(() => {});
+		const onReorderWorkspaceWithinGroup = vi.fn();
+		const rows: WorkspaceRow[] = Array.from({ length: 4 }, (_, index) => ({
+			...workspaceRow,
+			id: `workspace-${index + 1}`,
+			title: `Workspace ${index + 1}`,
+		}));
+
+		try {
+			render(
+				<TooltipProvider delayDuration={0}>
+					<WorkspacesSidebar
+						groups={[
+							{
+								id: "progress",
+								label: "In Progress",
+								tone: "progress",
+								rows,
+							},
+						]}
+						archivedRows={[]}
+						onReorderWorkspaceWithinGroup={onReorderWorkspaceWithinGroup}
+					/>
+				</TooltipProvider>,
+			);
+
+			const row = screen.getByRole("button", { name: "Workspace 2" });
+			fireEvent.pointerDown(row, { button: 0, clientX: 12, clientY: 100 });
+			fireEvent.pointerMove(window, { clientX: 12, clientY: 164 });
+			fireEvent.pointerUp(window, { clientX: 12, clientY: 164 });
+
+			expect(onReorderWorkspaceWithinGroup).toHaveBeenCalledWith({
+				workspaceId: "workspace-2",
+				beforeWorkspaceId: null,
+				afterWorkspaceId: "workspace-4",
 			});
 		} finally {
 			rafSpy.mockRestore();
