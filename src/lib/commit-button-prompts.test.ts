@@ -168,6 +168,14 @@ describe("buildCommitButtonPrompt", () => {
 		expect(githubPrompt).toContain("Commit and push all uncommitted work");
 	});
 
+	it("uses pure local-git instructions for commit without pushing", () => {
+		const prompt = buildCommitButtonPrompt("commit", null, null, GITHUB_FORGE);
+
+		expect(prompt).toContain("Commit all uncommitted work");
+		expect(prompt).toContain("Do not push");
+		expect(prompt).not.toContain("git push");
+	});
+
 	it("substitutes the workspace remote into the commit-and-push prompt", () => {
 		const prompt = buildCommitButtonPrompt(
 			"commit-and-push",

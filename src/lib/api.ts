@@ -50,6 +50,7 @@ export type PrSyncState = "none" | "open" | "closed" | "merged";
 export type ActionKind =
 	| "create-pr"
 	| "review"
+	| "commit"
 	| "commit-and-push"
 	| "push"
 	| "fix"

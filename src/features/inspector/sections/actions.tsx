@@ -68,6 +68,8 @@ interface GitStatusItem {
 
 function loadingActionLabel(label: string): string {
 	switch (label) {
+		case "Commit":
+			return "Committing";
 		case "Push":
 			return "Pushing";
 		case "Pull":
@@ -629,9 +631,9 @@ function buildGitRows(
 							: `${uncommittedCount} uncommitted changes`,
 					status: "pending",
 					action: {
-						label: "Commit and push",
+						label: "Commit",
 						kind: "commit",
-						mode: "commit-and-push",
+						mode: "commit",
 					},
 				},
 		gitStatus.pushStatus === "unpublished"

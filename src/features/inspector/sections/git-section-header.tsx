@@ -53,6 +53,8 @@ function getShortcutIdForCommitMode(
 	switch (mode) {
 		case "create-pr":
 			return "action.createPr";
+		case "commit":
+			return "action.commit";
 		case "commit-and-push":
 			return "action.commitAndPush";
 		case "fix":

@@ -186,10 +186,10 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		renderInspector({ onCommitAction });
 
 		await screen.findByText("2 uncommitted changes");
-		await user.click(screen.getByRole("button", { name: "Commit and push" }));
+		await user.click(screen.getByRole("button", { name: "Commit" }));
 		await user.click(screen.getByRole("button", { name: "Resolve" }));
 
-		expect(onCommitAction).toHaveBeenCalledWith("commit-and-push");
+		expect(onCommitAction).toHaveBeenCalledWith("commit");
 		expect(onCommitAction).toHaveBeenCalledWith("resolve-conflicts");
 	});
 
@@ -500,7 +500,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		renderInspector({ commitButtonState: "busy" });
 
 		expect(
-			await screen.findByRole("button", { name: "Commit and push" }),
+			await screen.findByRole("button", { name: "Commit" }),
 		).toBeDisabled();
 	});
 
@@ -533,7 +533,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		expect(pushButton).not.toHaveTextContent("Push");
 	});
 
-	it("shows a neutral loading spinner on commit-and-push while that lifecycle is busy", async () => {
+	it("shows a neutral loading spinner on commit while that lifecycle is busy", async () => {
 		apiMocks.loadWorkspaceGitActionStatus.mockResolvedValue({
 			uncommittedCount: 2,
 			conflictCount: 0,
@@ -544,7 +544,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		});
 
 		renderInspector({
-			commitButtonMode: "commit-and-push",
+			commitButtonMode: "commit",
 			commitButtonState: "busy",
 		});
 
@@ -557,7 +557,7 @@ describe("WorkspaceInspectorSidebar Actions section", () => {
 		expect(
 			commitButton.querySelector(".animate-spin.text-current"),
 		).toBeInTheDocument();
-		expect(commitButton).not.toHaveTextContent("Commit and push");
+		expect(commitButton).not.toHaveTextContent("Commit");
 	});
 
 	it("shows a neutral loading spinner on pull while sync is pending", async () => {

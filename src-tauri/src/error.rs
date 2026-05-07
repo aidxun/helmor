@@ -222,6 +222,13 @@ mod tests {
     }
 
     #[test]
+    fn marker_only_error_uses_fallback_message() {
+        let err = coded(ErrorCode::WorkspaceBroken);
+        assert_eq!(extract_code(&err), ErrorCode::WorkspaceBroken);
+        assert_eq!(outermost_message(&err), "Unknown error");
+    }
+
+    #[test]
     fn serializes_as_code_and_message() {
         let err: CommandError = coded(ErrorCode::WorkspaceNotFound)
             .context("Workspace not found: abc")

@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 pub enum ActionKind {
     CreatePr,
     Review,
+    Commit,
     CommitAndPush,
     Push,
     Fix,
@@ -35,6 +36,7 @@ impl ActionKind {
         match self {
             Self::CreatePr => "create-pr",
             Self::Review => "review",
+            Self::Commit => "commit",
             Self::CommitAndPush => "commit-and-push",
             Self::Push => "push",
             Self::Fix => "fix",
@@ -54,6 +56,7 @@ impl ActionKind {
         match self {
             Self::CreatePr => "Create PR",
             Self::Review => "Review",
+            Self::Commit => "Commit",
             Self::CommitAndPush => "Commit and Push",
             Self::Push => "Push",
             Self::Fix => "Fix CI",
@@ -101,6 +104,7 @@ impl FromStr for ActionKind {
         match s {
             "create-pr" => Ok(Self::CreatePr),
             "review" => Ok(Self::Review),
+            "commit" => Ok(Self::Commit),
             "commit-and-push" => Ok(Self::CommitAndPush),
             "push" => Ok(Self::Push),
             "fix" => Ok(Self::Fix),
@@ -138,6 +142,7 @@ mod tests {
     const ALL: &[ActionKind] = &[
         ActionKind::CreatePr,
         ActionKind::Review,
+        ActionKind::Commit,
         ActionKind::CommitAndPush,
         ActionKind::Push,
         ActionKind::Fix,

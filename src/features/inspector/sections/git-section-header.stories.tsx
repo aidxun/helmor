@@ -40,6 +40,7 @@ function changeRequestForMode(
 	switch (mode) {
 		case "create-pr":
 			return null;
+		case "commit":
 		case "commit-and-push":
 		case "push":
 		case "resolve-conflicts":
@@ -55,13 +56,19 @@ function changeRequestForMode(
 }
 
 function hasChangesForMode(mode: WorkspaceCommitButtonMode): boolean {
-	return mode === "create-pr" || mode === "commit-and-push" || mode === "push";
+	return (
+		mode === "create-pr" ||
+		mode === "commit" ||
+		mode === "commit-and-push" ||
+		mode === "push"
+	);
 }
 
 // ── Constants ─────────────────────────────────────────────────────────
 
 const ALL_MODES: WorkspaceCommitButtonMode[] = [
 	"create-pr",
+	"commit",
 	"commit-and-push",
 	"push",
 	"resolve-conflicts",
@@ -82,6 +89,7 @@ const ALL_STATES: CommitButtonState[] = [
 
 const MODE_LABELS: Record<WorkspaceCommitButtonMode, string> = {
 	"create-pr": "Create PR",
+	commit: "Commit",
 	"commit-and-push": "Commit & Push",
 	push: "Push",
 	"resolve-conflicts": "Resolve Conflicts",

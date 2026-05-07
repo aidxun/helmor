@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 export type CommitButtonState = "idle" | "busy" | "done" | "error" | "disabled";
 export type WorkspaceCommitButtonMode =
 	| "create-pr"
+	| "commit"
 	| "commit-and-push"
 	| "push"
 	| "fix"
@@ -49,6 +50,13 @@ const STATIC_STATE_LABELS: Record<
 	Exclude<WorkspaceCommitButtonMode, "create-pr" | "open-pr">,
 	Record<CommitButtonState, string>
 > = {
+	commit: {
+		idle: "Commit",
+		busy: "Committing...",
+		done: "Committed",
+		error: "Retry",
+		disabled: "Commit",
+	},
 	"commit-and-push": {
 		idle: "Commit and Push",
 		busy: "Committing...",
@@ -138,6 +146,15 @@ function getDefaultMenuItems(
 	mode: WorkspaceCommitButtonMode,
 	changeRequestName: string,
 ): WorkspaceCommitAction[] {
+	if (mode === "commit") {
+		return [
+			{
+				id: "commit-manually",
+				label: "Commit manually",
+			},
+		];
+	}
+
 	if (mode === "commit-and-push") {
 		return [
 			{
@@ -242,6 +259,8 @@ function getModeClassName(
 function getModeIcon(mode: WorkspaceCommitButtonMode) {
 	switch (mode) {
 		case "create-pr":
+			return null;
+		case "commit":
 			return null;
 		case "commit-and-push":
 		case "push":
@@ -348,23 +367,25 @@ export function WorkspaceCommitButton({
 		mainLabel ?? getCommitButtonLabel(mode, currentState, changeRequestName);
 	const mainIcon = getModeIcon(mode);
 	const optionsAriaLabel =
-		mode === "commit-and-push"
-			? "Commit and push options"
-			: mode === "push"
-				? "Push options"
-				: mode === "fix"
-					? "Fix CI options"
-					: mode === "resolve-conflicts"
-						? "Resolve conflicts options"
-						: mode === "merge"
-							? "Merge options"
-							: mode === "open-pr"
-								? `Open ${changeRequestName} options`
-								: mode === "merged"
-									? "Merged options"
-									: mode === "closed"
-										? "Closed options"
-										: `Create ${changeRequestName} options`;
+		mode === "commit"
+			? "Commit options"
+			: mode === "commit-and-push"
+				? "Commit and push options"
+				: mode === "push"
+					? "Push options"
+					: mode === "fix"
+						? "Fix CI options"
+						: mode === "resolve-conflicts"
+							? "Resolve conflicts options"
+							: mode === "merge"
+								? "Merge options"
+								: mode === "open-pr"
+									? `Open ${changeRequestName} options`
+									: mode === "merged"
+										? "Merged options"
+										: mode === "closed"
+											? "Closed options"
+											: `Create ${changeRequestName} options`;
 
 	const mainButton = (
 		<Button

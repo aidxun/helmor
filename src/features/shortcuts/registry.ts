@@ -111,6 +111,14 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 		editable: true,
 	},
 	{
+		id: "action.commit",
+		title: "Commit",
+		group: "Actions",
+		defaultHotkey: null,
+		scopes: ["app"],
+		editable: true,
+	},
+	{
 		id: "action.commitAndPush",
 		title: "Commit and push",
 		group: "Actions",

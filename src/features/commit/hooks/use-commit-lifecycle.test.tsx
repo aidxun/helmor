@@ -18,6 +18,7 @@ const apiMocks = vi.hoisted(() => ({
 	hideSession: vi.fn(),
 	loadRepoPreferences: vi.fn(),
 	loadAutoCloseActionKinds: vi.fn(),
+	loadWorkspaceGitActionStatus: vi.fn(),
 	refreshWorkspaceChangeRequest: vi.fn(),
 	mergeWorkspaceChangeRequest: vi.fn(),
 	pushWorkspaceToRemote: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 		hideSession: apiMocks.hideSession,
 		loadRepoPreferences: apiMocks.loadRepoPreferences,
 		loadAutoCloseActionKinds: apiMocks.loadAutoCloseActionKinds,
+		loadWorkspaceGitActionStatus: apiMocks.loadWorkspaceGitActionStatus,
 		refreshWorkspaceChangeRequest: apiMocks.refreshWorkspaceChangeRequest,
 		mergeWorkspaceChangeRequest: apiMocks.mergeWorkspaceChangeRequest,
 		pushWorkspaceToRemote: apiMocks.pushWorkspaceToRemote,
@@ -76,6 +78,7 @@ describe("useWorkspaceCommitLifecycle", () => {
 		apiMocks.hideSession.mockReset();
 		apiMocks.loadRepoPreferences.mockReset();
 		apiMocks.loadAutoCloseActionKinds.mockReset();
+		apiMocks.loadWorkspaceGitActionStatus.mockReset();
 		apiMocks.refreshWorkspaceChangeRequest.mockReset();
 		apiMocks.mergeWorkspaceChangeRequest.mockReset();
 		apiMocks.pushWorkspaceToRemote.mockReset();
@@ -83,6 +86,11 @@ describe("useWorkspaceCommitLifecycle", () => {
 		apiMocks.createSession.mockResolvedValue({ sessionId: "session-action" });
 		apiMocks.loadRepoPreferences.mockResolvedValue({});
 		apiMocks.loadAutoCloseActionKinds.mockResolvedValue(["create-pr"]);
+		apiMocks.loadWorkspaceGitActionStatus.mockResolvedValue({
+			...EMPTY_GIT_ACTION_STATUS,
+			pushStatus: "unpublished",
+			aheadOfRemoteCount: 1,
+		});
 		apiMocks.refreshWorkspaceChangeRequest.mockResolvedValue({
 			number: 53,
 			title: "Fix overflow",
@@ -403,6 +411,166 @@ describe("useWorkspaceCommitLifecycle", () => {
 			queryKey: helmorQueryKeys.workspaceChangeRequest("workspace-1"),
 		});
 		expect(pushToast).not.toHaveBeenCalled();
+	});
+
+	it("completes a commit action session without checking for a PR", async () => {
+		const queryClient = new QueryClient({
+			defaultOptions: {
+				queries: {
+					retry: false,
+				},
+			},
+		});
+		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
+		const onSelectSession = vi.fn();
+
+		const { result, rerender } = renderHook(
+			({
+				completedSessionIds,
+				busySessionIds,
+			}: {
+				completedSessionIds: Set<string>;
+				busySessionIds: Set<string>;
+			}) =>
+				useWorkspaceCommitLifecycle({
+					queryClient,
+					selectedWorkspaceId: "workspace-1",
+					selectedWorkspaceIdRef: { current: "workspace-1" },
+					selectedRepoId: "repo-1",
+					changeRequest: null,
+					forgeActionStatus: EMPTY_FORGE_ACTION_STATUS,
+					workspaceGitActionStatus: {
+						...EMPTY_GIT_ACTION_STATUS,
+						uncommittedCount: 2,
+					},
+					completedSessionIds,
+					interactionRequiredSessionIds: new Set<string>(),
+					busySessionIds,
+					onSelectSession,
+				}),
+			{
+				initialProps: {
+					completedSessionIds: new Set<string>(),
+					busySessionIds: new Set<string>(),
+				},
+				wrapper: createWrapper(queryClient),
+			},
+		);
+
+		await act(async () => {
+			await result.current.handleInspectorCommitAction("commit");
+		});
+
+		expect(apiMocks.createSession).toHaveBeenCalledWith("workspace-1", {
+			actionKind: "commit",
+		});
+		expect(result.current.pendingPromptForSession?.prompt ?? "").toContain(
+			"Do not push",
+		);
+		expect(onSelectSession).toHaveBeenCalledWith("session-action");
+
+		act(() => {
+			result.current.handlePendingPromptConsumed();
+		});
+
+		rerender({
+			completedSessionIds: new Set<string>(),
+			busySessionIds: new Set(["session-action"]),
+		});
+		rerender({
+			completedSessionIds: new Set(["session-action"]),
+			busySessionIds: new Set<string>(),
+		});
+
+		await waitFor(() => {
+			expect(result.current.commitButtonState).toBe("done");
+		});
+		expect(apiMocks.loadWorkspaceGitActionStatus).toHaveBeenCalledWith(
+			"workspace-1",
+		);
+		expect(apiMocks.refreshWorkspaceChangeRequest).not.toHaveBeenCalled();
+		await waitFor(() => {
+			expect(invalidateQueriesSpy).toHaveBeenCalledWith({
+				queryKey: helmorQueryKeys.workspaceGitActionStatus("workspace-1"),
+			});
+		});
+	});
+
+	it("shows an error when a commit session completes without producing a local commit", async () => {
+		const queryClient = new QueryClient({
+			defaultOptions: {
+				queries: {
+					retry: false,
+				},
+			},
+		});
+		const pushToast = vi.fn();
+		apiMocks.loadWorkspaceGitActionStatus.mockResolvedValue({
+			...EMPTY_GIT_ACTION_STATUS,
+			uncommittedCount: 2,
+			pushStatus: "unknown",
+			aheadOfRemoteCount: 0,
+		});
+
+		const { result, rerender } = renderHook(
+			({
+				completedSessionIds,
+				busySessionIds,
+			}: {
+				completedSessionIds: Set<string>;
+				busySessionIds: Set<string>;
+			}) =>
+				useWorkspaceCommitLifecycle({
+					queryClient,
+					selectedWorkspaceId: "workspace-1",
+					selectedWorkspaceIdRef: { current: "workspace-1" },
+					selectedRepoId: "repo-1",
+					changeRequest: null,
+					forgeActionStatus: EMPTY_FORGE_ACTION_STATUS,
+					workspaceGitActionStatus: {
+						...EMPTY_GIT_ACTION_STATUS,
+						uncommittedCount: 2,
+					},
+					completedSessionIds,
+					interactionRequiredSessionIds: new Set<string>(),
+					busySessionIds,
+					onSelectSession: vi.fn(),
+					pushToast,
+				}),
+			{
+				initialProps: {
+					completedSessionIds: new Set<string>(),
+					busySessionIds: new Set<string>(),
+				},
+				wrapper: createWrapper(queryClient),
+			},
+		);
+
+		await act(async () => {
+			await result.current.handleInspectorCommitAction("commit");
+		});
+
+		act(() => {
+			result.current.handlePendingPromptConsumed();
+		});
+
+		rerender({
+			completedSessionIds: new Set<string>(),
+			busySessionIds: new Set(["session-action"]),
+		});
+		rerender({
+			completedSessionIds: new Set(["session-action"]),
+			busySessionIds: new Set<string>(),
+		});
+
+		await waitFor(() => {
+			expect(result.current.commitButtonState).toBe("error");
+		});
+		expect(pushToast).toHaveBeenCalledWith(
+			"Commit session finished, but Git status does not show a new local commit.",
+			"Commit failed",
+			"destructive",
+		);
 	});
 
 	it("shows a destructive workspace toast when push fails", async () => {

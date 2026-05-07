@@ -21,6 +21,7 @@ export type ShortcutId =
 	| "zoom.reset"
 	| "global.hotkey"
 	| "action.createPr"
+	| "action.commit"
 	| "action.commitAndPush"
 	| "action.pullLatest"
 	| "action.mergePr"

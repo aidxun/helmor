@@ -16,6 +16,7 @@ import {
 	hideSession,
 	loadAutoCloseActionKinds,
 	loadRepoPreferences,
+	loadWorkspaceGitActionStatus,
 	mergeWorkspaceChangeRequest,
 	pushWorkspaceToRemote,
 	refreshWorkspaceChangeRequest,
@@ -98,6 +99,8 @@ function getActionFailureTitle(
 	switch (mode) {
 		case "create-pr":
 			return `Create ${changeRequestName} failed`;
+		case "commit":
+			return "Commit failed";
 		case "commit-and-push":
 			return "Commit and push failed";
 		case "push":
@@ -599,6 +602,30 @@ export function useWorkspaceCommitLifecycle({
 		const workspaceId = current.workspaceId;
 		void (async () => {
 			try {
+				if (current.mode === "commit") {
+					const latestGitStatus =
+						await loadWorkspaceGitActionStatus(workspaceId);
+					queryClient.setQueryData(
+						helmorQueryKeys.workspaceGitActionStatus(workspaceId),
+						latestGitStatus,
+					);
+					const commitVerified =
+						latestGitStatus.uncommittedCount === 0 &&
+						(latestGitStatus.pushStatus === "unpublished" ||
+							(latestGitStatus.aheadOfRemoteCount ?? 0) > 0);
+					if (!commitVerified) {
+						throw new Error(
+							"Commit session finished, but Git status does not show a new local commit.",
+						);
+					}
+					setCommitLifecycle((prev) => {
+						if (!prev || prev.workspaceId !== workspaceId) return prev;
+						return { ...prev, phase: "done" };
+					});
+					refreshWorkspaceRemoteStatus(workspaceId);
+					return;
+				}
+
 				console.log(
 					"[commitButton] calling refreshWorkspaceChangeRequest",
 					workspaceId,

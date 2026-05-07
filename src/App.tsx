@@ -1995,6 +1995,10 @@ function AppShell({
 				callback: () => void handleCommitAction("create-pr"),
 			},
 			{
+				id: "action.commit" as const,
+				callback: () => void handleInspectorCommitAction("commit"),
+			},
+			{
 				id: "action.commitAndPush" as const,
 				callback: () => void handleInspectorCommitAction("commit-and-push"),
 			},

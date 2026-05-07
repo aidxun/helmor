@@ -13,7 +13,7 @@ type ButtonActionMode = Exclude<
 type ActionSessionMode = ButtonActionMode | "review";
 
 // Modes that delegate to a `RepoPreferenceKey`. The other action modes
-// (`commit-and-push`, `open-pr`) have no user-facing preference slot — they're
+// (`commit`, `commit-and-push`, `open-pr`) have no user-facing preference slot — they're
 // rendered inline below.
 type PreferenceBackedMode =
 	| "create-pr"
@@ -41,6 +41,18 @@ export function buildCommitButtonPrompt(
 	const remoteName =
 		remote && remote.trim().length > 0 ? remote.trim() : "origin";
 	switch (mode) {
+		case "commit":
+			// Pure local git — no push and no forge involved.
+			return `Commit all uncommitted work in this workspace without pushing.
+
+	Do the following, in order:
+	1. Run \`git status\` and \`git diff\` to survey what's changed.
+	2. Stage everything that should ship with \`git add -A\`.
+	3. Commit with a concise, Conventional-Commits-style message (\`feat:\`, \`fix:\`, \`refactor:\`, etc.) summarizing the change.
+	4. Report the resulting commit SHA.
+
+Don't stop to ask for confirmation — execute each step automatically. Do not push. If a pre-commit hook fails, report the failure and stop.`;
+
 		case "commit-and-push":
 			// Pure git — no forge involved.
 			return `Commit and push all uncommitted work in this workspace.
@@ -80,6 +92,7 @@ export function isActionSessionMode(
 ): mode is ButtonActionMode {
 	return (
 		mode === "create-pr" ||
+		mode === "commit" ||
 		mode === "commit-and-push" ||
 		mode === "fix" ||
 		mode === "resolve-conflicts" ||
@@ -107,6 +120,8 @@ export function describeActionKind(actionKind: string): string {
 			return "Create PR";
 		case "review":
 			return "Review";
+		case "commit":
+			return "Commit";
 		case "commit-and-push":
 			return "Commit and Push";
 		case "fix":
