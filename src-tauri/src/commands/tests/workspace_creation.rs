@@ -236,6 +236,59 @@ fn list_branches_for_local_picker_merges_local_and_remote_deduped() {
 }
 
 #[test]
+fn move_workspace_in_sidebar_updates_status_and_group_order() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = CreateTestHarness::new();
+    harness.insert_workspace_name("alpha");
+    harness.insert_workspace_name("bravo");
+    harness.insert_workspace_name("charlie");
+
+    workspaces::move_workspace_in_sidebar(
+        "workspace-charlie",
+        crate::workspace_status::WorkspaceStatus::Review,
+        None,
+    )
+    .unwrap();
+    workspaces::move_workspace_in_sidebar(
+        "workspace-alpha",
+        crate::workspace_status::WorkspaceStatus::Review,
+        Some("workspace-charlie"),
+    )
+    .unwrap();
+
+    let groups = workspaces::list_workspace_groups().unwrap();
+    let review = groups.iter().find(|group| group.id == "review").unwrap();
+    let review_ids = review
+        .rows
+        .iter()
+        .map(|row| row.id.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(review_ids, vec!["workspace-alpha", "workspace-charlie"]);
+
+    let connection = Connection::open(harness.db_path()).unwrap();
+    let (alpha_status, alpha_order): (String, i64) = connection
+        .query_row(
+            "SELECT status, display_order FROM workspaces WHERE id = 'workspace-alpha'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let charlie_order: i64 = connection
+        .query_row(
+            "SELECT display_order FROM workspaces WHERE id = 'workspace-charlie'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    assert_eq!(alpha_status, "review");
+    assert!(alpha_order < charlie_order);
+}
+
+#[test]
 fn prepare_local_workspace_rejects_dirty_tracked_changes() {
     let _guard = TEST_LOCK
         .lock()

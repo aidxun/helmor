@@ -577,6 +577,13 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             .context("Failed to add workspaces.setup_completed_at column")?;
     }
 
+    if has_table(connection, "workspaces") && !has_column(connection, "workspaces", "display_order")
+    {
+        connection
+            .execute_batch("ALTER TABLE workspaces ADD COLUMN display_order INTEGER DEFAULT 0")
+            .context("Failed to add workspaces.display_order column")?;
+    }
+
     Ok(())
 }
 
@@ -645,6 +652,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
     linked_directory_paths TEXT,
     mode TEXT DEFAULT 'worktree',
     setup_completed_at TEXT,
+    display_order INTEGER DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

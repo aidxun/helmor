@@ -164,6 +164,25 @@ export function workspaceGroupIdFromStatus(
 	}
 }
 
+export function workspaceStatusFromGroupId(
+	groupId: string,
+): WorkspaceStatus | null {
+	switch (groupId) {
+		case "done":
+			return "done";
+		case "review":
+			return "review";
+		case "progress":
+			return "in-progress";
+		case "backlog":
+			return "backlog";
+		case "canceled":
+			return "canceled";
+		default:
+			return null;
+	}
+}
+
 /**
  * Insert `row` into `rows` preserving `createdAt DESC` order (matching the
  * backend's `ORDER BY datetime(created_at) DESC` for non-archived groups).
@@ -222,6 +241,54 @@ export function moveWorkspaceToGroup(
 			? { ...group, rows: insertRowByCreatedAtDesc(group.rows, updatedRow) }
 			: group,
 	);
+}
+
+export function reorderWorkspaceInGroups(
+	groups: WorkspaceGroup[] | undefined,
+	workspaceId: string,
+	targetGroupId: string,
+	beforeWorkspaceId: string | null,
+): WorkspaceGroup[] | undefined {
+	if (!groups) return groups;
+
+	const targetStatus = workspaceStatusFromGroupId(targetGroupId);
+	if (!targetStatus) return groups;
+
+	let row: WorkspaceRow | null = null;
+	const stripped = groups.map((group) => {
+		const index = group.rows.findIndex((item) => item.id === workspaceId);
+		if (index === -1) return group;
+		row = group.rows[index]!;
+		return {
+			...group,
+			rows: group.rows.filter((_, itemIndex) => itemIndex !== index),
+		};
+	});
+	if (!row) return groups;
+
+	const sourceRow: WorkspaceRow = row;
+	const updatedRow: WorkspaceRow = {
+		...sourceRow,
+		status: targetStatus,
+		pinnedAt: null,
+	};
+
+	return stripped.map((group) => {
+		if (group.id !== targetGroupId) return group;
+		const beforeIndex =
+			beforeWorkspaceId === null
+				? -1
+				: group.rows.findIndex((item) => item.id === beforeWorkspaceId);
+		const insertIndex = beforeIndex === -1 ? group.rows.length : beforeIndex;
+		return {
+			...group,
+			rows: [
+				...group.rows.slice(0, insertIndex),
+				updatedRow,
+				...group.rows.slice(insertIndex),
+			],
+		};
+	});
 }
 
 export type WorkspaceBranchTone =

@@ -55,6 +55,7 @@ export const WorkspacesSidebarContainer = memo(
 			handleCloneFromUrl,
 			handleDeleteWorkspace,
 			handleMarkWorkspaceUnread,
+			handleMoveWorkspaceInSidebar,
 			handleOpenCloneDialog,
 			handleRestoreWorkspace,
 			handleSelectWorkspace,
@@ -110,6 +111,17 @@ export const WorkspacesSidebarContainer = memo(
 				}}
 				onTogglePin={(workspaceId, pinned) => {
 					void handleTogglePin(workspaceId, pinned);
+				}}
+				onMoveWorkspaceInSidebar={(
+					workspaceId,
+					targetGroupId,
+					beforeWorkspaceId,
+				) => {
+					void handleMoveWorkspaceInSidebar(
+						workspaceId,
+						targetGroupId,
+						beforeWorkspaceId,
+					);
 				}}
 				onSetWorkspaceStatus={(workspaceId, status) => {
 					void handleSetWorkspaceStatus(workspaceId, status);

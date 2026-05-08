@@ -11,6 +11,7 @@ import {
 	listenArchiveExecutionSucceeded,
 	loadAddRepositoryDefaults,
 	markWorkspaceUnread,
+	moveWorkspaceInSidebar,
 	permanentlyDeleteWorkspace,
 	pinWorkspace,
 	prepareArchiveWorkspace,
@@ -21,6 +22,7 @@ import {
 	unpinWorkspace,
 	validateRestoreWorkspace,
 	type WorkspaceDetail,
+	type WorkspaceGroup,
 	type WorkspaceRow,
 	type WorkspaceSessionSummary,
 	type WorkspaceStatus,
@@ -49,9 +51,11 @@ import {
 	findReplacementWorkspaceIdAfterRemoval,
 	hasWorkspaceId,
 	insertRowByCreatedAtDesc,
+	reorderWorkspaceInGroups,
 	rowToWorkspaceSummary,
 	summaryToArchivedRow,
 	workspaceGroupIdFromStatus,
+	workspaceStatusFromGroupId,
 } from "@/lib/workspace-helpers";
 import {
 	type PendingArchiveEntry,
@@ -731,6 +735,51 @@ export function useWorkspacesSidebarController({
 			}
 		},
 		[pushWorkspaceToast, queryClient],
+	);
+
+	const handleMoveWorkspaceInSidebar = useCallback(
+		async (
+			workspaceId: string,
+			targetGroupId: string,
+			beforeWorkspaceId: string | null,
+		) => {
+			const targetStatus = workspaceStatusFromGroupId(targetGroupId);
+			if (!targetStatus) return;
+
+			queryClient.setQueryData(
+				helmorQueryKeys.workspaceGroups,
+				(current: WorkspaceGroup[] | undefined) =>
+					reorderWorkspaceInGroups(
+						current,
+						workspaceId,
+						targetGroupId,
+						beforeWorkspaceId,
+					),
+			);
+
+			try {
+				await moveWorkspaceInSidebar(
+					workspaceId,
+					targetStatus,
+					beforeWorkspaceId,
+				);
+				await invalidateWorkspaceSummary(workspaceId);
+				flushSidebarLists();
+			} catch (error) {
+				void queryClient.invalidateQueries({
+					queryKey: helmorQueryKeys.workspaceGroups,
+				});
+				pushWorkspaceToast(
+					describeUnknownError(error, "Unable to move workspace."),
+				);
+			}
+		},
+		[
+			flushSidebarLists,
+			invalidateWorkspaceSummary,
+			pushWorkspaceToast,
+			queryClient,
+		],
 	);
 
 	const handleCreateWorkspaceFromRepo = useCallback(
@@ -1641,6 +1690,7 @@ export function useWorkspacesSidebarController({
 		handleOpenCloneDialog,
 		handleRestoreWorkspace,
 		handleSelectWorkspace,
+		handleMoveWorkspaceInSidebar,
 		handleSetWorkspaceStatus,
 		handleTogglePin,
 		isCloneDialogOpen,

@@ -12,7 +12,14 @@ import {
 	Split,
 	Trash2,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import {
+	memo,
+	type PointerEvent as ReactPointerEvent,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { HelmorThinkingIndicator } from "@/components/helmor-thinking-indicator";
 import { Button } from "@/components/ui/button";
 import {
@@ -89,6 +96,12 @@ export type WorkspaceRowItemProps = {
 	onDeleteWorkspace?: (workspaceId: string) => void;
 	onTogglePin?: (workspaceId: string, currentlyPinned: boolean) => void;
 	onSetWorkspaceStatus?: (workspaceId: string, status: WorkspaceStatus) => void;
+	onDragPointerDown?: (
+		event: ReactPointerEvent<HTMLElement>,
+		title: string,
+	) => void;
+	disableHoverCard?: boolean;
+	dragPreview?: boolean;
 	archivingWorkspaceIds?: Set<string>;
 	markingUnreadWorkspaceId?: string | null;
 	restoringWorkspaceId?: string | null;
@@ -133,6 +146,9 @@ export const WorkspaceRowItem = memo(
 		onDeleteWorkspace,
 		onTogglePin,
 		onSetWorkspaceStatus,
+		onDragPointerDown,
+		disableHoverCard,
+		dragPreview,
 		archivingWorkspaceIds,
 		markingUnreadWorkspaceId,
 		restoringWorkspaceId,
@@ -155,13 +171,22 @@ export const WorkspaceRowItem = memo(
 			}
 		}, []);
 		const handlePointerEnter = useCallback(() => {
+			if (disableHoverCard || dragPreview) {
+				return;
+			}
 			cancelPendingPrefetch();
 			const id = row.id;
 			prefetchTimerRef.current = window.setTimeout(() => {
 				prefetchTimerRef.current = null;
 				onPrefetch?.(id);
 			}, 120);
-		}, [cancelPendingPrefetch, onPrefetch, row.id]);
+		}, [
+			cancelPendingPrefetch,
+			disableHoverCard,
+			dragPreview,
+			onPrefetch,
+			row.id,
+		]);
 		useEffect(() => cancelPendingPrefetch, [cancelPendingPrefetch]);
 		const [moveDialogOpen, setMoveDialogOpen] = useState(false);
 		const actionLabel =
@@ -231,6 +256,10 @@ export const WorkspaceRowItem = memo(
 				style={rowFadeStyle}
 				onPointerEnter={handlePointerEnter}
 				onPointerLeave={cancelPendingPrefetch}
+				onPointerDown={(event) => {
+					cancelPendingPrefetch();
+					onDragPointerDown?.(event, displayTitle);
+				}}
 				onFocus={() => {
 					onPrefetch?.(row.id);
 				}}
@@ -246,6 +275,7 @@ export const WorkspaceRowItem = memo(
 				className={cn(
 					rowVariants({ active: selected }),
 					"w-full text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
+					dragPreview && "bg-accent/70 opacity-80 hover:bg-accent/70",
 					!selected && row.state === "archived" && "opacity-50",
 				)}
 			>
@@ -431,12 +461,24 @@ export const WorkspaceRowItem = memo(
 			</div>
 		);
 
+		if (dragPreview) {
+			return rowBody;
+		}
+
+		const contextTrigger = (
+			<ContextMenuTrigger className="block">{rowBody}</ContextMenuTrigger>
+		);
+
 		return (
 			<>
 				<ContextMenu>
-					<WorkspaceHoverCard row={row} isSending={isSending}>
-						<ContextMenuTrigger className="block">{rowBody}</ContextMenuTrigger>
-					</WorkspaceHoverCard>
+					{disableHoverCard ? (
+						contextTrigger
+					) : (
+						<WorkspaceHoverCard row={row} isSending={isSending}>
+							{contextTrigger}
+						</WorkspaceHoverCard>
+					)}
 					<ContextMenuContent className="min-w-48">
 						<ContextMenuItem onClick={() => onTogglePin?.(row.id, isPinned)}>
 							{isPinned ? (
@@ -550,7 +592,9 @@ export const WorkspaceRowItem = memo(
 			previous.archivingWorkspaceIds === next.archivingWorkspaceIds &&
 			previous.markingUnreadWorkspaceId === next.markingUnreadWorkspaceId &&
 			previous.restoringWorkspaceId === next.restoringWorkspaceId &&
-			previous.workspaceActionsDisabled === next.workspaceActionsDisabled
+			previous.workspaceActionsDisabled === next.workspaceActionsDisabled &&
+			previous.disableHoverCard === next.disableHoverCard &&
+			previous.dragPreview === next.dragPreview
 		);
 	},
 );

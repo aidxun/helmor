@@ -65,6 +65,7 @@ pub struct WorkspaceSidebarRow {
     pub pr_sync_state: PrSyncState,
     pub pr_url: Option<String>,
     pub pinned_at: Option<String>,
+    pub display_order: i64,
     pub session_count: i64,
     pub message_count: i64,
     pub created_at: String,
@@ -109,6 +110,7 @@ pub struct WorkspaceSummary {
     pub pr_sync_state: PrSyncState,
     pub pr_url: Option<String>,
     pub pinned_at: Option<String>,
+    pub display_order: i64,
     pub session_count: i64,
     pub message_count: i64,
     pub created_at: String,
@@ -144,6 +146,7 @@ pub struct WorkspaceDetail {
     pub intended_target_branch: Option<String>,
     pub mode: WorkspaceMode,
     pub pinned_at: Option<String>,
+    pub display_order: i64,
     pub pr_title: Option<String>,
     pub pr_sync_state: PrSyncState,
     pub pr_url: Option<String>,
@@ -331,6 +334,77 @@ pub fn set_workspace_status(workspace_id: &str, status: WorkspaceStatus) -> Resu
             rusqlite::params![workspace_id, status],
         )
         .context("Failed to set workspace status")?;
+    Ok(())
+}
+
+pub fn move_workspace_in_sidebar(
+    workspace_id: &str,
+    target_status: WorkspaceStatus,
+    before_workspace_id: Option<&str>,
+) -> Result<()> {
+    let mut connection = db::write_conn()?;
+    let transaction = connection
+        .transaction()
+        .context("Failed to start workspace reorder transaction")?;
+
+    let updated_rows = transaction
+        .execute(
+            r#"
+            UPDATE workspaces
+            SET status = ?2,
+                pinned_at = NULL,
+                updated_at = datetime('now')
+            WHERE id = ?1
+              AND state <> ?3
+            "#,
+            rusqlite::params![workspace_id, target_status, WorkspaceState::Archived],
+        )
+        .context("Failed to move workspace status")?;
+    if updated_rows != 1 {
+        bail!("Workspace move affected {updated_rows} rows for workspace {workspace_id}");
+    }
+
+    let mut statement = transaction
+        .prepare(
+            r#"
+            SELECT id
+            FROM workspaces
+            WHERE state <> ?1
+              AND pinned_at IS NULL
+              AND COALESCE(status, 'in-progress') = ?2
+            ORDER BY COALESCE(display_order, 0) ASC,
+                     datetime(created_at) DESC,
+                     datetime(updated_at) DESC,
+                     id DESC
+            "#,
+        )
+        .context("Failed to prepare target workspace order query")?;
+    let ordered = statement.query_map(
+        rusqlite::params![WorkspaceState::Archived, target_status],
+        |row| row.get::<_, String>(0),
+    )?;
+    let mut ids = ordered.collect::<std::result::Result<Vec<_>, _>>()?;
+    ids.retain(|id| id != workspace_id);
+
+    let insert_index = before_workspace_id
+        .and_then(|before_id| ids.iter().position(|id| id == before_id))
+        .unwrap_or(ids.len());
+    ids.insert(insert_index, workspace_id.to_string());
+    drop(statement);
+
+    for (index, id) in ids.iter().enumerate() {
+        let display_order = ((index as i64) + 1) * 1000;
+        transaction
+            .execute(
+                "UPDATE workspaces SET display_order = ?2 WHERE id = ?1",
+                rusqlite::params![id, display_order],
+            )
+            .with_context(|| format!("Failed to update display order for workspace {id}"))?;
+    }
+
+    transaction
+        .commit()
+        .context("Failed to commit workspace reorder transaction")?;
     Ok(())
 }
 
@@ -754,6 +828,7 @@ pub fn record_to_sidebar_row(record: WorkspaceRecord) -> WorkspaceSidebarRow {
         pr_sync_state: record.pr_sync_state,
         pr_url: record.pr_url,
         pinned_at: record.pinned_at,
+        display_order: record.display_order,
         session_count: record.session_count,
         message_count: record.message_count,
         created_at: record.created_at,
@@ -794,6 +869,7 @@ pub fn record_to_summary(record: WorkspaceRecord) -> WorkspaceSummary {
         pr_sync_state: record.pr_sync_state,
         pr_url: record.pr_url,
         pinned_at: record.pinned_at,
+        display_order: record.display_order,
         session_count: record.session_count,
         message_count: record.message_count,
         created_at: record.created_at,
@@ -848,6 +924,7 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
         initialization_parent_branch: record.initialization_parent_branch,
         intended_target_branch: record.intended_target_branch,
         pinned_at: record.pinned_at,
+        display_order: record.display_order,
         pr_title: record.pr_title,
         pr_sync_state: record.pr_sync_state,
         pr_url: record.pr_url,

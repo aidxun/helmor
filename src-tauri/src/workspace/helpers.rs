@@ -816,6 +816,7 @@ mod tests {
             remote: Some("origin".to_string()),
             forge_provider: None,
             forge_login: None,
+            display_order: 0,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
             last_user_message_at: None,

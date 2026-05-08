@@ -49,6 +49,7 @@ import {
 	GroupIcon,
 } from "./shared";
 import { repoIdFromGroupId } from "./sidebar-projection";
+import { useWorkspaceDnd } from "./use-workspace-dnd";
 
 // ---------------------------------------------------------------------------
 // Virtual list item types
@@ -62,6 +63,11 @@ type VirtualItem =
 			canCollapse: boolean;
 	  }
 	| { kind: "row"; groupId: string; row: WorkspaceRow; isArchived: boolean }
+	| {
+			kind: "drop-placeholder";
+			groupId: string;
+			beforeWorkspaceId: string | null;
+	  }
 	| { kind: "group-gap"; size: number }
 	| { kind: "bottom-padding" };
 
@@ -111,6 +117,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	onDeleteWorkspace,
 	onOpenInFinder,
 	onTogglePin,
+	onMoveWorkspaceInSidebar,
 	onSetWorkspaceStatus,
 	archivingWorkspaceIds,
 	markingUnreadWorkspaceId,
@@ -148,6 +155,11 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 	onDeleteWorkspace?: (workspaceId: string) => void;
 	onOpenInFinder?: (workspaceId: string) => void;
 	onTogglePin?: (workspaceId: string, currentlyPinned: boolean) => void;
+	onMoveWorkspaceInSidebar?: (
+		workspaceId: string,
+		targetGroupId: string,
+		beforeWorkspaceId: string | null,
+	) => void;
 	onSetWorkspaceStatus?: (workspaceId: string, status: WorkspaceStatus) => void;
 	archivingWorkspaceIds?: Set<string>;
 	markingUnreadWorkspaceId?: string | null;
@@ -155,6 +167,20 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 }) {
 	const [isAddRepositoryMenuOpen, setIsAddRepositoryMenuOpen] = useState(false);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
+	const { dragState, dropTarget, startLongPress } = useWorkspaceDnd({
+		onMoveWorkspace: onMoveWorkspaceInSidebar,
+	});
+	const activeDragWorkspaceId = dragState?.workspaceId ?? null;
+	const dropTargetGroupId = dropTarget?.groupId ?? null;
+	const dropTargetBeforeWorkspaceId = dropTarget?.beforeWorkspaceId ?? null;
+	const activeDragRow = useMemo(() => {
+		if (!activeDragWorkspaceId) return null;
+		for (const group of groups) {
+			const row = group.rows.find((item) => item.id === activeDragWorkspaceId);
+			if (row) return row;
+		}
+		return archivedRows.find((row) => row.id === activeDragWorkspaceId) ?? null;
+	}, [activeDragWorkspaceId, archivedRows, groups]);
 	const [sectionOpenState, setSectionOpenState] = useState(() => ({
 		...createInitialSectionOpenState(groups),
 		...readStoredSectionOpenState(sidebarGrouping),
@@ -272,6 +298,19 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 
 			if (sectionOpenState[group.id] !== false && group.rows.length > 0) {
 				for (const row of group.rows) {
+					if (
+						dropTargetGroupId === group.id &&
+						dropTargetBeforeWorkspaceId === row.id
+					) {
+						items.push({
+							kind: "drop-placeholder",
+							groupId: group.id,
+							beforeWorkspaceId: row.id,
+						});
+					}
+					if (activeDragWorkspaceId === row.id) {
+						continue;
+					}
 					items.push({
 						kind: "row",
 						groupId: group.id,
@@ -279,6 +318,17 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 						isArchived: false,
 					});
 				}
+			}
+			if (
+				sectionOpenState[group.id] !== false &&
+				dropTargetGroupId === group.id &&
+				dropTargetBeforeWorkspaceId === null
+			) {
+				items.push({
+					kind: "drop-placeholder",
+					groupId: group.id,
+					beforeWorkspaceId: null,
+				});
 			}
 		}
 
@@ -316,7 +366,14 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 
 		items.push({ kind: "bottom-padding" });
 		return items;
-	}, [groups, archivedRows, sectionOpenState]);
+	}, [
+		groups,
+		archivedRows,
+		sectionOpenState,
+		activeDragWorkspaceId,
+		dropTargetGroupId,
+		dropTargetBeforeWorkspaceId,
+	]);
 
 	// ── Virtualizer ───────────────────────────────────────────────────
 	const virtualizer = useVirtualizer({
@@ -328,6 +385,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 				case "group-header":
 					return getGroupHeaderHeight(item.group.rows.length > 0);
 				case "row":
+					return ROW_HEIGHT;
+				case "drop-placeholder":
 					return ROW_HEIGHT;
 				case "group-gap":
 					return item.size;
@@ -342,6 +401,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 					return `header-${item.groupId}`;
 				case "row":
 					return `row-${item.groupId}-${item.row.id}`;
+				case "drop-placeholder":
+					return `drop-${item.groupId}-${item.beforeWorkspaceId ?? "__end__"}`;
 				case "group-gap":
 					return `gap-${index}`;
 				case "bottom-padding":
@@ -416,6 +477,16 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 		(item: VirtualItem) => {
 			if (item.kind === "group-gap" || item.kind === "bottom-padding") {
 				return null;
+			}
+
+			if (item.kind === "drop-placeholder") {
+				return (
+					<div className="pl-2" data-workspace-drop-group-id={item.groupId}>
+						<div className="flex h-7.5 items-center px-2.5">
+							<div className="h-px w-full bg-border" />
+						</div>
+					</div>
+				);
 			}
 
 			if (item.kind === "group-header") {
@@ -526,6 +597,7 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 							item.canCollapse ? "cursor-pointer" : "cursor-default",
 						)}
 						data-empty-group={isEmptyGroup ? "true" : "false"}
+						data-workspace-drop-group-id={item.groupId}
 						disabled={!item.canCollapse}
 						onClick={() => toggleSection(item.groupId)}
 					>
@@ -554,7 +626,13 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 
 			// kind === "row"
 			return (
-				<div className="pl-2">
+				<div
+					className="pl-2"
+					data-workspace-drop-group-id={item.groupId}
+					data-workspace-dnd-row="true"
+					data-workspace-dnd-row-id={item.row.id}
+					data-workspace-dnd-group-id={item.groupId}
+				>
 					<WorkspaceRowItem
 						row={item.row}
 						selected={selectedWorkspaceId === item.row.id}
@@ -578,6 +656,15 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 						onOpenInFinder={onOpenInFinder}
 						onTogglePin={onTogglePin}
 						onSetWorkspaceStatus={onSetWorkspaceStatus}
+						onDragPointerDown={(event, title) =>
+							startLongPress({
+								event,
+								row: item.row,
+								groupId: item.groupId,
+								title,
+							})
+						}
+						disableHoverCard={Boolean(dragState)}
 						archivingWorkspaceIds={archivingWorkspaceIds}
 						markingUnreadWorkspaceId={markingUnreadWorkspaceId}
 						restoringWorkspaceId={restoringWorkspaceId}
@@ -610,7 +697,9 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 			onRestoreWorkspace,
 			onDeleteWorkspace,
 			onTogglePin,
+			onMoveWorkspaceInSidebar,
 			onSetWorkspaceStatus,
+			startLongPress,
 			archivingWorkspaceIds,
 			markingUnreadWorkspaceId,
 			restoringWorkspaceId,
@@ -773,6 +862,10 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 					{virtualizer.getVirtualItems().map((vItem) => (
 						<div
 							key={vItem.key}
+							className={cn(
+								dragState &&
+									"will-change-transform transition-transform duration-150 ease-[cubic-bezier(0.16,1,0.3,1)]",
+							)}
 							style={{
 								position: "absolute",
 								top: 0,
@@ -787,6 +880,28 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 					))}
 				</div>
 			</div>
+			{dragState && activeDragRow ? (
+				<div
+					className="pointer-events-none fixed z-50"
+					style={{
+						left: dragState.left,
+						right: "auto",
+						top: dragState.clientY - dragState.offsetY,
+						width: dragState.width,
+					}}
+				>
+					<WorkspaceRowItem
+						row={activeDragRow}
+						selected={selectedWorkspaceId === activeDragRow.id}
+						isSending={busyWorkspaceIds?.has(activeDragRow.id)}
+						isInteractionRequired={interactionRequiredWorkspaceIds?.has(
+							activeDragRow.id,
+						)}
+						dragPreview
+						workspaceActionsDisabled
+					/>
+				</div>
+			) : null}
 		</div>
 	);
 });
