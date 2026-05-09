@@ -199,6 +199,7 @@ export type BranchPrefixType = "username" | "custom" | "none";
 export type RepositoryCreateOption = {
 	id: string;
 	name: string;
+	rootPath?: string | null;
 	remote?: string | null;
 	remoteUrl?: string | null;
 	defaultBranch?: string | null;
