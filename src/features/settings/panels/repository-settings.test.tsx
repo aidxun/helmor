@@ -85,6 +85,7 @@ describe("RepositorySettingsPanel branch prefix", () => {
 			runFromProject: false,
 			archiveFromProject: false,
 			autoRunSetup: true,
+			runScriptMode: "concurrent",
 		});
 		apiMocks.prefetchRemoteRefs.mockResolvedValue({ fetched: false });
 		apiMocks.updateRepositoryBranchPrefix.mockResolvedValue(undefined);

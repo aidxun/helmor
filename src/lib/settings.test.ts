@@ -91,6 +91,39 @@ describe("settings", () => {
 		);
 	});
 
+	it("hydrates and saves start workspace mode by repository", async () => {
+		invokeMock.mockResolvedValue({
+			"app.start_workspace_mode_by_repo_id": JSON.stringify({
+				"repo-1": "local",
+				"repo-2": "worktree",
+				"repo-3": "invalid",
+			}),
+		});
+
+		const settings = await loadSettings();
+
+		expect(settings.startWorkspaceModeByRepoId).toEqual({
+			"repo-1": "local",
+			"repo-2": "worktree",
+		});
+
+		invokeMock.mockResolvedValue(undefined);
+		await saveSettings({
+			startWorkspaceModeByRepoId: { "repo-1": "worktree" },
+		});
+
+		expect(invokeMock).toHaveBeenLastCalledWith(
+			"update_app_settings",
+			expect.objectContaining({
+				settingsMap: expect.objectContaining({
+					"app.start_workspace_mode_by_repo_id": JSON.stringify({
+						"repo-1": "worktree",
+					}),
+				}),
+			}),
+		);
+	});
+
 	it("hydrates and saves the last app surface", async () => {
 		invokeMock.mockResolvedValue({
 			"app.last_surface": "workspace-start",

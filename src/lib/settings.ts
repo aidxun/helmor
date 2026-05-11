@@ -19,6 +19,8 @@ export type FollowUpBehavior = "steer" | "queue";
 export type ClaudeThinkingDisplay = "summarized" | "omitted";
 export type AppSurface = "workspace" | "workspace-start";
 export type WorkspaceRightSidebarMode = "inspector" | "context";
+export type StartWorkspaceMode = "worktree" | "local";
+export type StartWorkspaceModeByRepoId = Record<string, StartWorkspaceMode>;
 
 export type ShortcutOverrides = Record<string, string | null>;
 
@@ -191,6 +193,7 @@ export type AppSettings = {
 	lastWorkspaceId: string | null;
 	lastSessionId: string | null;
 	lastSurface: AppSurface;
+	startWorkspaceModeByRepoId: StartWorkspaceModeByRepoId;
 	startContextPanelOpen: boolean;
 	workspaceRightSidebarMode: WorkspaceRightSidebarMode;
 	defaultModelId: string | null;
@@ -259,6 +262,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	lastWorkspaceId: null,
 	lastSessionId: null,
 	lastSurface: "workspace",
+	startWorkspaceModeByRepoId: {},
 	startContextPanelOpen: false,
 	workspaceRightSidebarMode: "inspector",
 	defaultModelId: null,
@@ -313,6 +317,7 @@ const SETTINGS_KEY_MAP: Record<
 	lastWorkspaceId: "app.last_workspace_id",
 	lastSessionId: "app.last_session_id",
 	lastSurface: "app.last_surface",
+	startWorkspaceModeByRepoId: "app.start_workspace_mode_by_repo_id",
 	startContextPanelOpen: "app.start_context_panel_open",
 	workspaceRightSidebarMode: "app.workspace_right_sidebar_mode",
 	defaultModelId: "app.default_model_id",
@@ -351,6 +356,25 @@ function parseShortcutOverrides(raw: string | undefined): ShortcutOverrides {
 		) as ShortcutOverrides;
 	} catch {
 		return DEFAULT_SETTINGS.shortcuts;
+	}
+}
+
+function parseStartWorkspaceModeByRepoId(
+	raw: string | undefined,
+): StartWorkspaceModeByRepoId {
+	if (!raw) return DEFAULT_SETTINGS.startWorkspaceModeByRepoId;
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return DEFAULT_SETTINGS.startWorkspaceModeByRepoId;
+		}
+		return Object.fromEntries(
+			Object.entries(parsed).filter(
+				([, value]) => value === "worktree" || value === "local",
+			),
+		) as StartWorkspaceModeByRepoId;
+	} catch {
+		return DEFAULT_SETTINGS.startWorkspaceModeByRepoId;
 	}
 }
 
@@ -739,6 +763,9 @@ export async function loadSettings(): Promise<AppSettings> {
 				raw[SETTINGS_KEY_MAP.lastSurface] === "workspace-start"
 					? "workspace-start"
 					: DEFAULT_SETTINGS.lastSurface,
+			startWorkspaceModeByRepoId: parseStartWorkspaceModeByRepoId(
+				raw[SETTINGS_KEY_MAP.startWorkspaceModeByRepoId],
+			),
 			startContextPanelOpen:
 				raw[SETTINGS_KEY_MAP.startContextPanelOpen] !== undefined
 					? raw[SETTINGS_KEY_MAP.startContextPanelOpen] === "true"
@@ -863,7 +890,8 @@ export async function saveSettings(patch: Partial<AppSettings>): Promise<void> {
 				key === "claudeCustomProviders" ||
 				key === "cursorProvider" ||
 				key === "inboxSourceConfig" ||
-				key === "kanbanViewState"
+				key === "kanbanViewState" ||
+				key === "startWorkspaceModeByRepoId"
 					? JSON.stringify(value)
 					: value === null
 						? ""

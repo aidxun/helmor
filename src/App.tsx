@@ -2356,13 +2356,22 @@ function AppShell({
 	// repo switch — the picks were intent-bound to a specific repo.
 	const [startPendingLinkedDirectories, setStartPendingLinkedDirectories] =
 		useState<readonly string[]>(EMPTY_STRING_LIST);
-	const [startMode, setStartMode] = useState<WorkspaceMode>("worktree");
+	const rememberedStartMode =
+		startRepository?.id &&
+		appSettings.startWorkspaceModeByRepoId[startRepository.id]
+			? appSettings.startWorkspaceModeByRepoId[startRepository.id]
+			: "worktree";
+	const [startMode, setStartMode] =
+		useState<WorkspaceMode>(rememberedStartMode);
 	useEffect(() => {
 		setStartSourceBranchOverride(null);
 		setStartPendingNewBranch(null);
 		setStartPendingLinkedDirectories(EMPTY_STRING_LIST);
-		setStartMode("worktree");
 	}, [startRepositoryId]);
+	useEffect(() => {
+		if (!areSettingsLoaded) return;
+		setStartMode(rememberedStartMode);
+	}, [areSettingsLoaded, rememberedStartMode]);
 	// In local mode the picker should default to whatever branch the
 	// repo's HEAD currently points at — that's the branch the user
 	// will actually be working on. Worktree mode keeps the stored
@@ -2407,6 +2416,7 @@ function AppShell({
 			setWorkspacePreviewActive(false);
 			setStartSourceBranchOverride(null);
 			setStartPendingNewBranch(null);
+			setStartMode(rememberedStartMode);
 			setRightSidebarMode(
 				appSettings.startContextPanelOpen ? "context" : "inspector",
 			);
@@ -2418,7 +2428,7 @@ function AppShell({
 				void updateSettings({ lastSurface: "workspace-start" });
 			}
 		},
-		[appSettings.startContextPanelOpen, updateSettings],
+		[appSettings.startContextPanelOpen, rememberedStartMode, updateSettings],
 	);
 	useEffect(() => {
 		if (!areSettingsLoaded || appSettings.lastSurface !== "workspace-start") {
@@ -2943,6 +2953,14 @@ function AppShell({
 													mode={startMode}
 													onModeChange={(next) => {
 														setStartMode(next);
+														if (startRepository?.id) {
+															void updateSettings({
+																startWorkspaceModeByRepoId: {
+																	...appSettings.startWorkspaceModeByRepoId,
+																	[startRepository.id]: next,
+																},
+															});
+														}
 														setStartSourceBranchOverride(null);
 														setStartPendingNewBranch(null);
 													}}

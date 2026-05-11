@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import {
 	cleanup,
 	fireEvent,
@@ -20,6 +21,8 @@ const apiMocks = vi.hoisted(() => ({
 	createWorkspaceFromRepo: vi.fn(),
 	prepareWorkspaceFromRepo: vi.fn(),
 	finalizeWorkspaceFromRepo: vi.fn(),
+	getRepoCurrentBranch: vi.fn(),
+	listBranchesForLocalPicker: vi.fn(),
 	listSessionDrafts: vi.fn(),
 }));
 
@@ -80,6 +83,8 @@ vi.mock("./lib/api", async (importOriginal) => {
 		createWorkspaceFromRepo: apiMocks.createWorkspaceFromRepo,
 		prepareWorkspaceFromRepo: apiMocks.prepareWorkspaceFromRepo,
 		finalizeWorkspaceFromRepo: apiMocks.finalizeWorkspaceFromRepo,
+		getRepoCurrentBranch: apiMocks.getRepoCurrentBranch,
+		listBranchesForLocalPicker: apiMocks.listBranchesForLocalPicker,
 		listSessionDrafts: apiMocks.listSessionDrafts,
 	};
 });
@@ -290,6 +295,10 @@ describe("App create workspace flow", () => {
 		apiMocks.loadSessionThreadMessages.mockResolvedValue([]);
 		apiMocks.prepareWorkspaceFromRepo.mockReset();
 		apiMocks.finalizeWorkspaceFromRepo.mockReset();
+		apiMocks.getRepoCurrentBranch.mockReset();
+		apiMocks.getRepoCurrentBranch.mockResolvedValue("main");
+		apiMocks.listBranchesForLocalPicker.mockReset();
+		apiMocks.listBranchesForLocalPicker.mockResolvedValue(["main"]);
 		apiMocks.prepareWorkspaceFromRepo.mockImplementation(async () => {
 			// Backend generates the ids now. Mirror by generating once per
 			// call and stashing for subsequent finalize + detail mocks.
@@ -482,5 +491,64 @@ describe("App create workspace flow", () => {
 			).not.toBeInTheDocument();
 		});
 		expect(streamingMocks.handleComposerSubmit).toHaveBeenCalled();
+	});
+
+	it("initializes the start composer from the repository's remembered workspace mode", async () => {
+		const user = userEvent.setup({ pointerEventsCheck: 0 });
+		const invokeMock = vi.mocked(invoke);
+		const baseInvokeImpl = invokeMock.getMockImplementation();
+		invokeMock.mockImplementation(
+			async (command: string, args?: Parameters<typeof invoke>[1]) => {
+				if (command === "get_app_settings") {
+					return {
+						"app.onboarding_completed": "true",
+						"app.start_workspace_mode_by_repo_id": JSON.stringify({
+							"repo-1": "local",
+						}),
+					};
+				}
+				return baseInvokeImpl?.(command, args);
+			},
+		);
+		apiMocks.loadAgentModelSections.mockResolvedValue([
+			{
+				id: "claude",
+				label: "Claude",
+				options: [
+					{
+						id: "opus-1m",
+						provider: "claude",
+						label: "Opus 4.7 1M",
+						cliModel: "opus-1m",
+						effortLevels: ["low", "medium", "high"],
+					},
+				],
+			},
+		]);
+
+		try {
+			render(<App />);
+			await screen.findByRole("main", { name: "Application shell" });
+
+			await user.click(screen.getByRole("button", { name: "New workspace" }));
+			const createButton = await screen.findByRole("button", {
+				name: "New Workspace",
+			});
+			await waitFor(() => {
+				expect(createButton).toBeEnabled();
+			});
+
+			await user.click(createButton);
+
+			await waitFor(() => {
+				expect(apiMocks.prepareWorkspaceFromRepo).toHaveBeenCalledWith(
+					"repo-1",
+					"main",
+					"local",
+				);
+			});
+		} finally {
+			invokeMock.mockImplementation(baseInvokeImpl ?? (async () => undefined));
+		}
 	});
 });
