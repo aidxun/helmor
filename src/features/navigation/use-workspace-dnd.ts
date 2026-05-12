@@ -285,7 +285,8 @@ export function useWorkspaceDnd({
 					moved = true;
 				}
 				if (moved) {
-					window.requestAnimationFrame(() => setDragState(null));
+					dragStateRef.current = null;
+					setDragState(null);
 				} else {
 					setDragState(null);
 				}

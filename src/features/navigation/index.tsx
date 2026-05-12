@@ -316,7 +316,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 				canCollapse,
 			});
 
-			if (sectionOpenState[group.id] !== false && group.rows.length > 0) {
+			const isGroupOpen = sectionOpenState[group.id] !== false;
+			if (isGroupOpen && group.rows.length > 0) {
 				for (const row of group.rows) {
 					if (
 						dropTargetGroupId === group.id &&
@@ -340,7 +341,6 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 				}
 			}
 			if (
-				sectionOpenState[group.id] !== false &&
 				dropTargetGroupId === group.id &&
 				dropTargetBeforeWorkspaceId === null
 			) {
@@ -879,25 +879,29 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 						position: "relative",
 					}}
 				>
-					{virtualizer.getVirtualItems().map((vItem) => (
-						<div
-							key={vItem.key}
-							className={cn(
-								dragState &&
-									"will-change-transform transition-transform duration-150 ease-[cubic-bezier(0.16,1,0.3,1)]",
-							)}
-							style={{
-								position: "absolute",
-								top: 0,
-								left: 0,
-								width: "100%",
-								height: `${vItem.size}px`,
-								transform: `translateY(${vItem.start}px)`,
-							}}
-						>
-							{renderItem(flatItems[vItem.index])}
-						</div>
-					))}
+					{virtualizer.getVirtualItems().map((vItem) => {
+						const item = flatItems[vItem.index];
+						return (
+							<div
+								key={vItem.key}
+								className={cn(
+									dragState &&
+										item.kind !== "drop-placeholder" &&
+										"will-change-transform transition-transform duration-150 ease-[cubic-bezier(0.16,1,0.3,1)]",
+								)}
+								style={{
+									position: "absolute",
+									top: 0,
+									left: 0,
+									width: "100%",
+									height: `${vItem.size}px`,
+									transform: `translateY(${vItem.start}px)`,
+								}}
+							>
+								{renderItem(item)}
+							</div>
+						);
+					})}
 				</div>
 			</div>
 			{dragState && activeDragRow ? (
