@@ -764,7 +764,6 @@ export function useWorkspacesSidebarController({
 					beforeWorkspaceId,
 				);
 				await invalidateWorkspaceSummary(workspaceId);
-				flushSidebarLists();
 			} catch (error) {
 				void queryClient.invalidateQueries({
 					queryKey: helmorQueryKeys.workspaceGroups,
@@ -774,12 +773,7 @@ export function useWorkspacesSidebarController({
 				);
 			}
 		},
-		[
-			flushSidebarLists,
-			invalidateWorkspaceSummary,
-			pushWorkspaceToast,
-			queryClient,
-		],
+		[invalidateWorkspaceSummary, pushWorkspaceToast, queryClient],
 	);
 
 	const handleCreateWorkspaceFromRepo = useCallback(
