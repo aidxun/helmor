@@ -96,10 +96,14 @@ export type WorkspaceRowItemProps = {
 	onDeleteWorkspace?: (workspaceId: string) => void;
 	onTogglePin?: (workspaceId: string, currentlyPinned: boolean) => void;
 	onSetWorkspaceStatus?: (workspaceId: string, status: WorkspaceStatus) => void;
-	onDragPointerDown?: (
-		event: ReactPointerEvent<HTMLElement>,
-		title: string,
-	) => void;
+	/** Live group id — flows through props so no stale closure on grouping flip. */
+	groupId?: string;
+	onDragPointerDown?: (args: {
+		event: ReactPointerEvent<HTMLElement>;
+		row: WorkspaceRow;
+		groupId: string;
+		title: string;
+	}) => void;
 	disableHoverCard?: boolean;
 	dragPreview?: boolean;
 	archivingWorkspaceIds?: Set<string>;
@@ -146,6 +150,7 @@ export const WorkspaceRowItem = memo(
 		onDeleteWorkspace,
 		onTogglePin,
 		onSetWorkspaceStatus,
+		groupId,
 		onDragPointerDown,
 		disableHoverCard,
 		dragPreview,
@@ -259,7 +264,9 @@ export const WorkspaceRowItem = memo(
 				onPointerLeave={cancelPendingPrefetch}
 				onPointerDown={(event) => {
 					cancelPendingPrefetch();
-					onDragPointerDown?.(event, displayTitle);
+					if (onDragPointerDown && groupId) {
+						onDragPointerDown({ event, row, groupId, title: displayTitle });
+					}
 				}}
 				onFocus={() => {
 					onPrefetch?.(row.id);
@@ -596,7 +603,11 @@ export const WorkspaceRowItem = memo(
 			previous.restoringWorkspaceId === next.restoringWorkspaceId &&
 			previous.workspaceActionsDisabled === next.workspaceActionsDisabled &&
 			previous.disableHoverCard === next.disableHoverCard &&
-			previous.dragPreview === next.dragPreview
+			previous.dragPreview === next.dragPreview &&
+			// pinned/backlog rows keep their key across grouping flips —
+			// without these two compares they'd hold a stale policy closure.
+			previous.groupId === next.groupId &&
+			previous.onDragPointerDown === next.onDragPointerDown
 		);
 	},
 );

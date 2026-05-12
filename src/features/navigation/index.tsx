@@ -854,14 +854,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 						onOpenInFinder={onOpenInFinder}
 						onTogglePin={onTogglePin}
 						onSetWorkspaceStatus={onSetWorkspaceStatus}
-						onDragPointerDown={(event, title) =>
-							startDragGesture({
-								event,
-								row: item.row,
-								groupId: item.groupId,
-								title,
-							})
-						}
+						groupId={item.groupId}
+						onDragPointerDown={startDragGesture}
 						disableHoverCard={isAnyDragging}
 						archivingWorkspaceIds={archivingWorkspaceIds}
 						markingUnreadWorkspaceId={markingUnreadWorkspaceId}

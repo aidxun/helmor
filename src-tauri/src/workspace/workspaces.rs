@@ -349,13 +349,30 @@ pub fn set_workspace_status(workspace_id: &str, status: WorkspaceStatus) -> Resu
     let transaction = connection
         .transaction()
         .context("Failed to start set-status transaction")?;
-    let next_order = next_order_for_target(&transaction, &MoveTarget::Status(status))?;
-    transaction
-        .execute(
-            "UPDATE workspaces SET status = ?2, display_order = ?3, updated_at = datetime('now') WHERE id = ?1",
-            rusqlite::params![workspace_id, status, next_order],
+    // Pinned rows stay pinned — keep their display_order, only flip status.
+    let is_pinned: bool = transaction
+        .query_row(
+            "SELECT pinned_at IS NOT NULL FROM workspaces WHERE id = ?1",
+            [workspace_id],
+            |row| row.get(0),
         )
-        .context("Failed to set workspace status")?;
+        .with_context(|| format!("Workspace not found: {workspace_id}"))?;
+    if is_pinned {
+        transaction
+            .execute(
+                "UPDATE workspaces SET status = ?2, updated_at = datetime('now') WHERE id = ?1",
+                rusqlite::params![workspace_id, status],
+            )
+            .context("Failed to set workspace status")?;
+    } else {
+        let next_order = next_order_for_target(&transaction, &MoveTarget::Status(status))?;
+        transaction
+            .execute(
+                "UPDATE workspaces SET status = ?2, display_order = ?3, updated_at = datetime('now') WHERE id = ?1",
+                rusqlite::params![workspace_id, status, next_order],
+            )
+            .context("Failed to set workspace status")?;
+    }
     transaction
         .commit()
         .context("Failed to commit set-status transaction")
@@ -713,29 +730,48 @@ pub fn sync_workspace_pr_state(
         let transaction = connection
             .transaction()
             .context("Failed to start PR-sync workspace transaction")?;
-        let next_display_order = next_order_for_target(&transaction, &MoveTarget::Status(status))?;
-        transaction
-            .execute(
-                r#"
-                UPDATE workspaces
-                SET pr_sync_state = ?2,
-                    pr_title = ?3,
-                    pr_url = ?4,
-                    status = ?5,
-                    display_order = ?6,
-                    updated_at = datetime('now')
-                WHERE id = ?1
-                "#,
-                rusqlite::params![
-                    workspace_id,
-                    next_state,
-                    next_title,
-                    next_url,
-                    status,
-                    next_display_order
-                ],
-            )
-            .context("Failed to sync workspace PR state")?;
+        // Pinned rows stay pinned — keep display_order.
+        if record.pinned_at.is_some() {
+            transaction
+                .execute(
+                    r#"
+                    UPDATE workspaces
+                    SET pr_sync_state = ?2,
+                        pr_title = ?3,
+                        pr_url = ?4,
+                        status = ?5,
+                        updated_at = datetime('now')
+                    WHERE id = ?1
+                    "#,
+                    rusqlite::params![workspace_id, next_state, next_title, next_url, status,],
+                )
+                .context("Failed to sync workspace PR state")?;
+        } else {
+            let next_display_order =
+                next_order_for_target(&transaction, &MoveTarget::Status(status))?;
+            transaction
+                .execute(
+                    r#"
+                    UPDATE workspaces
+                    SET pr_sync_state = ?2,
+                        pr_title = ?3,
+                        pr_url = ?4,
+                        status = ?5,
+                        display_order = ?6,
+                        updated_at = datetime('now')
+                    WHERE id = ?1
+                    "#,
+                    rusqlite::params![
+                        workspace_id,
+                        next_state,
+                        next_title,
+                        next_url,
+                        status,
+                        next_display_order
+                    ],
+                )
+                .context("Failed to sync workspace PR state")?;
+        }
         transaction
             .commit()
             .context("Failed to commit PR-sync workspace transaction")?;
@@ -1751,6 +1787,117 @@ mod tests {
 
         assert!(sync_workspace_pr_state("w-pr", None).unwrap());
         assert_eq!(workspace_pr_metadata(&env, "w-pr"), (None, None));
+    }
+
+    #[test]
+    fn set_workspace_status_preserves_pinned_display_order() {
+        let env = TestEnv::new("set-status-keeps-pinned-order");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-pin",
+                repo_id: "r1",
+                directory_name: "alpha",
+                state: WorkspaceState::Ready.as_str(),
+                branch: Some("feature/alpha"),
+                intended_target_branch: None,
+            },
+        );
+        conn.execute(
+            "UPDATE workspaces SET pinned_at = datetime('now'), display_order = 4096 WHERE id = 'w-pin'",
+            [],
+        )
+        .unwrap();
+        // Done-lane decoy — buggy path would land w-pin near 99999.
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-done",
+                repo_id: "r1",
+                directory_name: "beta",
+                state: WorkspaceState::Ready.as_str(),
+                branch: Some("feature/beta"),
+                intended_target_branch: None,
+            },
+        );
+        conn.execute(
+            "UPDATE workspaces SET status = 'done', display_order = 99999 WHERE id = 'w-done'",
+            [],
+        )
+        .unwrap();
+
+        set_workspace_status("w-pin", WorkspaceStatus::Done).unwrap();
+
+        let (status, pinned_at, display_order) = pinned_status_and_order(&env, "w-pin");
+        assert_eq!(status, "done");
+        assert!(pinned_at.is_some());
+        assert_eq!(display_order, 4096);
+    }
+
+    #[test]
+    fn pr_sync_preserves_pinned_display_order() {
+        let env = TestEnv::new("pr-sync-keeps-pinned-order");
+        let conn = env.db_connection();
+        insert_repo(&conn, "r1", "demo", None);
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-pin",
+                repo_id: "r1",
+                directory_name: "alpha",
+                state: WorkspaceState::Ready.as_str(),
+                branch: Some("feature/alpha"),
+                intended_target_branch: None,
+            },
+        );
+        conn.execute(
+            "UPDATE workspaces SET pinned_at = datetime('now'), display_order = 4096 WHERE id = 'w-pin'",
+            [],
+        )
+        .unwrap();
+        // Done-lane decoy — buggy path would land w-pin near 99999.
+        insert_workspace(
+            &conn,
+            &WorkspaceFixture {
+                id: "w-done",
+                repo_id: "r1",
+                directory_name: "beta",
+                state: WorkspaceState::Ready.as_str(),
+                branch: Some("feature/beta"),
+                intended_target_branch: None,
+            },
+        );
+        conn.execute(
+            "UPDATE workspaces SET status = 'done', display_order = 99999 WHERE id = 'w-done'",
+            [],
+        )
+        .unwrap();
+
+        let merged = ChangeRequestInfo {
+            url: "https://example.test/pr/1".to_string(),
+            number: 1,
+            state: "MERGED".to_string(),
+            title: "PR".to_string(),
+            is_merged: true,
+        };
+        assert!(sync_workspace_pr_state("w-pin", Some(&merged)).unwrap());
+
+        let (status, pinned_at, display_order) = pinned_status_and_order(&env, "w-pin");
+        assert_eq!(status, "done");
+        assert!(pinned_at.is_some());
+        assert_eq!(display_order, 4096);
+    }
+
+    fn pinned_status_and_order(env: &TestEnv, id: &str) -> (String, Option<String>, i64) {
+        env.db_connection()
+            .query_row(
+                "SELECT status, pinned_at, display_order FROM workspaces WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap()
     }
 
     fn workspace_statuses(env: &TestEnv, id: &str) -> (String, String) {
