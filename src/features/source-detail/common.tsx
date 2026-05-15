@@ -115,7 +115,7 @@ function SourceDetailActions({
 						size="icon-xs"
 						aria-label="Open externally"
 						onClick={() => void openUrl(card.externalUrl)}
-						className="size-7 cursor-pointer rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+						className="size-7 cursor-interactive rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
 					>
 						<ExternalLink className="size-[13px]" strokeWidth={1.8} />
 					</Button>
@@ -132,7 +132,7 @@ function SourceDetailActions({
 								buildCardContextPayload(card, appendContextTarget)
 							}
 							errorTitle="Couldn't insert context card"
-							className="size-7 cursor-pointer rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground [&_svg]:size-[13px]"
+							className="size-7 cursor-interactive rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground [&_svg]:size-[13px]"
 						/>
 					</span>
 				</TooltipTrigger>
@@ -147,7 +147,7 @@ function SourceDetailActions({
 						aria-label="Copy markdown"
 						disabled={copyDisabled}
 						onClick={handleCopy}
-						className="size-7 cursor-pointer rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+						className="size-7 cursor-interactive rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
 					>
 						{copied ? (
 							<Check className="size-[13px]" strokeWidth={1.8} />
@@ -218,7 +218,11 @@ export function StatePill({
 }
 
 export function parseExternalReference(externalId: string) {
-	const idx = externalId.lastIndexOf("#");
+	// GitHub uses `repo#NN`. GitLab uses `project#NN` (issues) or
+	// `project!NN` (MRs). Accept either.
+	const hashIdx = externalId.lastIndexOf("#");
+	const bangIdx = externalId.lastIndexOf("!");
+	const idx = Math.max(hashIdx, bangIdx);
 	const number = idx === -1 ? "" : externalId.slice(idx + 1);
 	const repo = idx === -1 ? externalId : externalId.slice(0, idx);
 	return { repo, number };

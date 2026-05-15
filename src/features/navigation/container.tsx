@@ -49,11 +49,14 @@ export const WorkspacesSidebarContainer = memo(
 			creatingWorkspaceRepoId,
 			cloneDefaultDirectory,
 			groups,
+			sidebarGrouping,
 			handleAddRepository,
 			handleArchiveWorkspace,
 			handleCloneFromUrl,
 			handleDeleteWorkspace,
 			handleMarkWorkspaceUnread,
+			handleMoveRepositoryInSidebar,
+			handleMoveWorkspaceInSidebar,
 			handleOpenCloneDialog,
 			handleRestoreWorkspace,
 			handleSelectWorkspace,
@@ -75,6 +78,7 @@ export const WorkspacesSidebarContainer = memo(
 			<WorkspacesSidebar
 				groups={groups}
 				archivedRows={archivedRows}
+				sidebarGrouping={sidebarGrouping}
 				addingRepository={addingRepository}
 				archivingWorkspaceIds={archivingWorkspaceIds}
 				selectedWorkspaceId={selectedWorkspaceId}
@@ -94,6 +98,7 @@ export const WorkspacesSidebarContainer = memo(
 				onSelectWorkspace={handleSelectWorkspace}
 				onPrefetchWorkspace={prefetchWorkspace}
 				onOpenNewWorkspace={onOpenNewWorkspace}
+				onCreateWorkspaceForRepo={onAddRepositoryNeedsStart}
 				onArchiveWorkspace={handleArchiveWorkspace}
 				onMoveLocalToWorktree={onMoveLocalToWorktree}
 				onMarkWorkspaceUnread={handleMarkWorkspaceUnread}
@@ -107,6 +112,20 @@ export const WorkspacesSidebarContainer = memo(
 				}}
 				onTogglePin={(workspaceId, pinned) => {
 					void handleTogglePin(workspaceId, pinned);
+				}}
+				onMoveWorkspaceInSidebar={(
+					workspaceId,
+					targetGroupId,
+					beforeWorkspaceId,
+				) => {
+					void handleMoveWorkspaceInSidebar(
+						workspaceId,
+						targetGroupId,
+						beforeWorkspaceId,
+					);
+				}}
+				onMoveRepositoryInSidebar={(repoId, beforeRepoId) => {
+					void handleMoveRepositoryInSidebar(repoId, beforeRepoId);
 				}}
 				onSetWorkspaceStatus={(workspaceId, status) => {
 					void handleSetWorkspaceStatus(workspaceId, status);

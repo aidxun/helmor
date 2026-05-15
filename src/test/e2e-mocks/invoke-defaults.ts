@@ -25,7 +25,7 @@ export const defaultInvokeHandlers: Record<string, InvokeHandler> = {
 		claude: false,
 		codex: false,
 		command:
-			"npx --yes skills add dohooo/helmor/.codex/skills/helmor-cli -g -s helmor-cli -y --copy -a claude-code -a codex",
+			"npx --yes skills add dohooo/helmor/.agents/skills/helmor-cli -g -s helmor-cli -y --copy -a claude-code -a codex",
 	}),
 	get_app_settings: () => ({}),
 	load_auto_close_action_kinds: () => [],
@@ -34,7 +34,8 @@ export const defaultInvokeHandlers: Record<string, InvokeHandler> = {
 	list_workspace_files: () => [],
 	list_workspace_changes_with_content: () => ({ items: [], prefetched: [] }),
 	list_slash_commands: () => [],
-	list_github_labels: () => [],
+	list_forge_labels: () => [],
+	list_inbox_kind_labels: () => [],
 	refresh_workspace_change_request: () => null,
 	get_workspace_forge: () => ({
 		provider: "unknown",

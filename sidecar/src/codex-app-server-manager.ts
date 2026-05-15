@@ -40,7 +40,7 @@ import type {
 } from "./session-manager.js";
 import {
 	buildTitlePrompt,
-	parseTitleAndBranch,
+	parseTitleAndBranchWithDiagnostics,
 	TITLE_GENERATION_TIMEOUT_MS,
 } from "./title.js";
 
@@ -550,6 +550,10 @@ export class CodexAppServerManager implements SessionManager {
 		let effectiveResume = resume;
 		if (goalCommand) {
 			effectiveResume = await this.ensureCodexGoalsReady(
+				sessionId,
+				effectiveResume,
+			);
+			effectiveResume = this.recycleIdleContextForGoal(
 				sessionId,
 				effectiveResume,
 			);
@@ -1063,6 +1067,7 @@ export class CodexAppServerManager implements SessionManager {
 			if (!threadId) throw new Error("thread/start did not return thread id");
 
 			let raw = "";
+			let failure: string | null = null;
 			const done = new Promise<void>((resolve) => {
 				server.setHandlers(
 					(n) => {
@@ -1070,7 +1075,26 @@ export class CodexAppServerManager implements SessionManager {
 							const delta = deepGet(n.params, "delta");
 							if (typeof delta === "string") raw += delta;
 						}
-						if (n.method === "turn/completed") resolve();
+						if (n.method === "error") {
+							const message = deepGet(n.params, "error", "message");
+							const asText =
+								typeof message === "string"
+									? message
+									: "Codex app-server error during title generation";
+							failure = asText;
+							return;
+						}
+						if (n.method === "turn/completed") {
+							const status = deepGet(n.params, "turn", "status");
+							if (status === "failed") {
+								const message = deepGet(n.params, "turn", "error", "message");
+								failure =
+									typeof message === "string"
+										? message
+										: "Codex turn failed during title generation";
+							}
+							resolve();
+						}
 					},
 					(req) => {
 						if (APPROVAL_METHODS.has(req.method)) {
@@ -1094,14 +1118,29 @@ export class CodexAppServerManager implements SessionManager {
 					},
 				],
 				model,
-				effort: "minimal",
+				effort: "low",
 				approvalPolicy: BYPASS_GRANULAR_POLICY,
 			};
 			if (fastMode) turnStartParams.serviceTier = "fast";
 			await server.sendRequest("turn/start", turnStartParams);
 
 			await done;
-			const { title, branchName } = parseTitleAndBranch(raw);
+			if (failure) {
+				logger.error(`[${requestId}] title generation failed`, {
+					model,
+					generateBranch,
+					message: failure,
+				});
+			}
+			const { title, branchName } = parseTitleAndBranchWithDiagnostics(
+				requestId,
+				raw,
+				{
+					model,
+					generateBranch,
+					logError: (message, meta) => logger.error(message, meta),
+				},
+			);
 			emitter.titleGenerated(requestId, title, branchName);
 		} finally {
 			clearTimeout(timeout);
@@ -1115,6 +1154,7 @@ export class CodexAppServerManager implements SessionManager {
 		params: ListSlashCommandsParams,
 	): Promise<readonly SlashCommandInfo[]> {
 		const cwd = params.cwd ?? process.cwd();
+		const cwds = collectSkillCwds(cwd, params.additionalDirectories);
 		const server = new CodexAppServer({
 			binaryPath: CODEX_BIN_PATH,
 			cwd,
@@ -1132,11 +1172,11 @@ export class CodexAppServerManager implements SessionManager {
 			// providers fail the same way when their CLI is missing/slow.
 			const result = await server.sendRequest<Record<string, unknown>>(
 				"skills/list",
-				{ cwds: [cwd] },
+				{ cwds },
 				20_000,
 			);
 
-			return parseSkillsResponse(result, cwd);
+			return parseSkillsResponse(result, cwds);
 		} finally {
 			server.kill();
 		}
@@ -1454,6 +1494,41 @@ export class CodexAppServerManager implements SessionManager {
 		this.pendingUserInputs.clear();
 	}
 
+	private clearPendingSessionState(sessionId: string): void {
+		for (const [id, p] of this.pendingApprovals) {
+			if (p.sessionId === sessionId) this.pendingApprovals.delete(id);
+		}
+		for (const [id, p] of this.pendingUserInputs) {
+			if (p.sessionId === sessionId) this.pendingUserInputs.delete(id);
+		}
+	}
+
+	private recycleIdleContextForGoal(
+		sessionId: string,
+		callerResume: string | undefined,
+	): string | undefined {
+		const stale = this.sessions.get(sessionId);
+		if (!stale || stale.server.killed) return callerResume;
+		if (stale.turnResolve || stale.turnReject || stale.activeTurnId) {
+			logger.info("Skipping /goal context recycle while turn is active", {
+				sessionId,
+				providerThreadId: stale.providerThreadId ?? "(none)",
+				activeTurnId: stale.activeTurnId ?? "(none)",
+			});
+			return callerResume;
+		}
+
+		const reuseThread = stale.providerThreadId ?? undefined;
+		logger.info("Recycling idle Codex context before /goal", {
+			sessionId,
+			providerThreadId: reuseThread ?? "(none)",
+		});
+		stale.server.kill();
+		this.sessions.delete(sessionId);
+		this.clearPendingSessionState(sessionId);
+		return callerResume ?? reuseThread;
+	}
+
 	// ── Private ──────────────────────────────────────────────────────────
 
 	private settleUnexpectedExit(
@@ -1558,9 +1633,21 @@ export class CodexAppServerManager implements SessionManager {
 		if (resume) {
 			try {
 				logger.info(`Attempting thread/resume`, { threadId: resume });
+				const resumeParams: Record<string, unknown> = {
+					threadId: resume,
+					cwd,
+					approvalPolicy:
+						toCodexApprovalPolicy(permissionMode) ?? BYPASS_GRANULAR_POLICY,
+					sandbox:
+						permissionMode === "plan"
+							? "workspace-write"
+							: "danger-full-access",
+				};
+				if (model) resumeParams.model = model;
+				if (fastMode) resumeParams.serviceTier = "fast";
 				const response = await server.sendRequest<Record<string, unknown>>(
 					"thread/resume",
-					{ threadId: resume },
+					resumeParams,
 				);
 				threadId = (deepGet(response, "thread", "id") as string) ?? resume;
 				logger.info(`Resumed Codex thread`, { threadId });
@@ -1772,27 +1859,36 @@ function deepGet(obj: unknown, ...keys: string[]): unknown {
 	return current;
 }
 
-function parseSkillsResponse(result: unknown, cwd: string): SlashCommandInfo[] {
+function collectSkillCwds(
+	cwd: string,
+	additionalDirectories: readonly string[] | undefined,
+): string[] {
+	const cwds = [cwd, ...(additionalDirectories ?? [])].map((dir) => dir.trim());
+	return Array.from(new Set(cwds.filter(Boolean)));
+}
+
+function parseSkillsResponse(
+	result: unknown,
+	cwds: readonly string[],
+): SlashCommandInfo[] {
 	if (!result || typeof result !== "object") return [];
 	const r = result as Record<string, unknown>;
 
-	let skills: unknown[] = [];
+	const skills: unknown[] = [];
 	const dataBuckets = Array.isArray(r.data) ? r.data : [];
-	const bucket = dataBuckets.find(
-		(b: unknown) =>
-			typeof b === "object" &&
-			b !== null &&
-			(b as Record<string, unknown>).cwd === cwd,
-	);
-	if (bucket && typeof bucket === "object") {
-		const s = (bucket as Record<string, unknown>).skills;
-		if (Array.isArray(s)) skills = s;
+	const wantedCwds = new Set(cwds);
+	for (const bucket of dataBuckets) {
+		if (!bucket || typeof bucket !== "object") continue;
+		const record = bucket as Record<string, unknown>;
+		if (!wantedCwds.has(String(record.cwd ?? ""))) continue;
+		const bucketSkills = record.skills;
+		if (Array.isArray(bucketSkills)) skills.push(...bucketSkills);
 	}
 	if (skills.length === 0 && Array.isArray(r.skills)) {
-		skills = r.skills;
+		skills.push(...r.skills);
 	}
 
-	return skills.flatMap((s) => {
+	const commands = skills.flatMap((s) => {
 		if (!s || typeof s !== "object") return [];
 		const skill = s as Record<string, unknown>;
 		const name = typeof skill.name === "string" ? skill.name : null;
@@ -1814,6 +1910,11 @@ function parseSkillsResponse(result: unknown, cwd: string): SlashCommandInfo[] {
 			},
 		];
 	});
+	const byName = new Map<string, SlashCommandInfo>();
+	for (const command of commands) {
+		if (!byName.has(command.name)) byName.set(command.name, command);
+	}
+	return Array.from(byName.values());
 }
 
 /**

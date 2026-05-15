@@ -36,7 +36,7 @@ import type {
 } from "./session-manager.js";
 import {
 	buildTitlePrompt,
-	parseTitleAndBranch,
+	parseTitleAndBranchWithDiagnostics,
 	TITLE_GENERATION_TIMEOUT_MS,
 } from "./title.js";
 
@@ -358,6 +358,7 @@ export class ClaudeSessionManager implements SessionManager {
 			permissionMode,
 			effortLevel,
 			fastMode,
+			claudeThinkingDisplay,
 			claudeEnvironment,
 			images,
 			sourceRepoPath,
@@ -417,7 +418,10 @@ export class ClaudeSessionManager implements SessionManager {
 				permissionMode: parsePermissionMode(permissionMode),
 				allowDangerouslySkipPermissions: true,
 				effort: parseEffort(effortLevel),
-				thinking: { type: "adaptive", display: "summarized" },
+				thinking: {
+					type: "adaptive",
+					display: claudeThinkingDisplay ?? "summarized",
+				},
 				...(effectiveFastMode ? { settings: { fastMode: true } } : {}),
 				...(projectMcpServers ? { mcpServers: projectMcpServers } : {}),
 				onElicitation: async (request, options) => {
@@ -811,12 +815,14 @@ export class ClaudeSessionManager implements SessionManager {
 				}
 			}
 
-			const { title, branchName } = parseTitleAndBranch(raw);
-			logger.info(`[${requestId}] titleGenerated`, {
-				title,
-				branchName: branchName ?? "(empty)",
-				rawPreview: raw.slice(0, 200),
-			});
+			const { title, branchName } = parseTitleAndBranchWithDiagnostics(
+				requestId,
+				raw,
+				{
+					generateBranch,
+					logError: (message, meta) => logger.error(message, meta),
+				},
+			);
 			emitter.titleGenerated(requestId, title, branchName);
 		} finally {
 			clearTimeout(timeout);

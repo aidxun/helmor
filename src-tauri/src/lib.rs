@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod cli;
+pub(crate) mod codex_config;
 pub(crate) mod commands;
 pub mod data_dir;
 pub mod error;
@@ -266,7 +267,8 @@ pub fn run() {
             commands::forge_commands::get_workspace_forge,
             commands::forge_commands::list_forge_accounts,
             commands::forge_commands::list_inbox_items,
-            commands::forge_commands::list_github_labels,
+            commands::forge_commands::list_inbox_kind_labels,
+            commands::forge_commands::list_forge_labels,
             commands::forge_commands::get_inbox_item_detail,
             commands::forge_commands::get_workspace_account_profile,
             commands::forge_commands::cache_forge_avatar,
@@ -298,6 +300,7 @@ pub fn run() {
             commands::repository_commands::update_repo_run_script_mode,
             commands::repository_commands::update_repo_preferences,
             commands::repository_commands::delete_repository,
+            commands::repository_commands::move_repository_in_sidebar,
             commands::repository_commands::retry_repo_forge_binding,
             commands::script_commands::execute_repo_script,
             commands::script_commands::stop_repo_script,
@@ -352,6 +355,7 @@ pub fn run() {
             commands::editor_commands::read_editor_file,
             commands::editor_commands::read_file_at_ref,
             commands::workspace_commands::set_workspace_status,
+            commands::workspace_commands::move_workspace_in_sidebar,
             commands::workspace_commands::list_workspace_linked_directories,
             commands::workspace_commands::set_workspace_linked_directories,
             commands::workspace_commands::list_workspace_candidate_directories,
