@@ -581,6 +581,8 @@ describe("WorkspacesSidebar", () => {
 				(element) => element.getAttribute("data-slot") === "tooltip-content",
 			);
 			expect(tooltip).toBeDefined();
+			expect(tooltip).toHaveAttribute("data-side", "top");
+			expect(tooltip).toHaveAttribute("data-align", "start");
 			expect(tooltip).toHaveClass("max-w-64");
 			expect(tooltip).toHaveClass("whitespace-normal");
 			expect(tooltip).toHaveClass("break-all");

@@ -726,8 +726,8 @@ export const WorkspacesSidebar = memo(function WorkspacesSidebar({
 						<Tooltip>
 							<TooltipTrigger asChild>{headerLabel}</TooltipTrigger>
 							<TooltipContent
-								side="right"
-								align="center"
+								side="top"
+								align="start"
 								sideOffset={8}
 								className="max-w-64 whitespace-normal break-all font-mono text-[11px] leading-snug"
 							>
