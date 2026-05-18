@@ -46,6 +46,7 @@ import {
 // for the review/PR rows (MR vs PR wording). Forge onboarding lives in
 // `GitSectionHeader` — see the top-right of the Changes section.
 import { resolveRepoPreferencePrompt } from "@/lib/repo-preferences-prompts";
+import { requestSidebarReconcile } from "@/lib/sidebar-mutation-gate";
 import { cn } from "@/lib/utils";
 import {
 	INSPECTOR_SECTION_HEADER_CLASS,
@@ -267,6 +268,7 @@ export function ActionsSection({
 					: "Unable to pull target updates.";
 			toast.error(message);
 		} finally {
+			requestSidebarReconcile(queryClient);
 			await Promise.all([
 				queryClient.invalidateQueries({
 					queryKey: helmorQueryKeys.workspaceGitActionStatus(workspaceId),
@@ -279,9 +281,6 @@ export function ActionsSection({
 				}),
 				queryClient.invalidateQueries({
 					queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceGroups,
 				}),
 				queryClient.invalidateQueries({ queryKey: ["workspaceChanges"] }),
 			]);
@@ -390,7 +389,7 @@ export function ActionsSection({
 											disabled={reviewPending || workspaceId === null}
 											aria-busy={reviewPending ? true : undefined}
 											aria-label={reviewPending ? "Reviewing" : undefined}
-											className="ml-auto shrink-0 cursor-pointer text-[10.5px] text-primary transition-colors hover:text-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
+											className="ml-auto shrink-0 cursor-interactive text-[10.5px] text-primary transition-colors hover:text-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
 										>
 											<span className="inline-flex items-center gap-1">
 												{reviewPending ? (
@@ -444,7 +443,7 @@ export function ActionsSection({
 												}
 												void onCommitAction?.(action.mode!);
 											}}
-											className="ml-auto shrink-0 cursor-pointer text-[10.5px] text-primary transition-colors hover:text-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
+											className="ml-auto shrink-0 cursor-interactive text-[10.5px] text-primary transition-colors hover:text-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
 											disabled={
 												action.kind === "commit" ? actionDisabled : syncPending
 											}

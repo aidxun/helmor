@@ -3,8 +3,9 @@ use rusqlite::Row;
 
 use crate::{
     repos,
+    workspace::sidebar_order,
     workspace_pr_sync::PrSyncState,
-    workspace_state::{WorkspaceMode, WorkspaceState},
+    workspace_state::{WorkspaceBranchIntent, WorkspaceMode, WorkspaceState},
     workspace_status::WorkspaceStatus,
 };
 
@@ -28,6 +29,9 @@ pub struct WorkspaceRecord {
     pub initialization_parent_branch: Option<String>,
     pub intended_target_branch: Option<String>,
     pub mode: WorkspaceMode,
+    /// `FromBranch`: workspace owns the branch (safe to delete on archive).
+    /// `UseBranch`: branch is reused, must not be deleted.
+    pub branch_intent: WorkspaceBranchIntent,
     pub pinned_at: Option<String>,
     pub active_session_id: Option<String>,
     pub active_session_title: Option<String>,
@@ -52,11 +56,19 @@ pub struct WorkspaceRecord {
     /// auto-detect found no logged-in account with access (or the row
     /// predates the binding feature).
     pub forge_login: Option<String>,
+    pub display_order: i64,
+    /// `repos.display_order` for the parent repo — drives bucket ordering
+    /// in the sidebar's repo grouping mode.
+    pub repo_sidebar_order: i64,
     pub created_at: String,
     pub updated_at: String,
     /// Most recent `last_user_message_at` across all sessions in the
     /// workspace. `None` for workspaces with no user messages yet.
     pub last_user_message_at: Option<String>,
+    /// Timestamp of the last successful setup-script run for this
+    /// workspace. `None` means setup was never run (or was skipped
+    /// because the repo has no setup script).
+    pub setup_completed_at: Option<String>,
 }
 
 pub const WORKSPACE_RECORD_SQL: &str = r#"
@@ -141,6 +153,7 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
       w.initialization_parent_branch,
       w.intended_target_branch,
       COALESCE(w.mode, 'worktree') AS mode,
+      COALESCE(w.branch_intent, 'from_branch') AS branch_intent,
       w.pinned_at,
       w.active_session_id,
       s.title AS active_session_title,
@@ -158,9 +171,12 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
       r.remote,
       r.forge_provider,
       r.forge_login,
+      w.display_order AS display_order,
+      COALESCE(r.display_order, 0) AS repo_sidebar_order,
       w.created_at,
       w.updated_at,
-      wss.last_user_message_at
+      wss.last_user_message_at,
+      w.setup_completed_at
     FROM workspaces w
     JOIN repos r ON r.id = w.repository_id
     LEFT JOIN sessions s ON s.id = w.active_session_id
@@ -171,7 +187,7 @@ pub const WORKSPACE_RECORD_SQL: &str = r#"
 pub fn load_workspace_records() -> Result<Vec<WorkspaceRecord>> {
     let connection = db::read_conn()?;
     let sql = format!(
-        "{WORKSPACE_RECORD_SQL} ORDER BY datetime(w.created_at) DESC, datetime(w.updated_at) DESC, w.id DESC"
+        "{WORKSPACE_RECORD_SQL} ORDER BY w.display_order ASC, datetime(w.created_at) DESC, datetime(w.updated_at) DESC, w.id DESC"
     );
     let mut statement = connection.prepare(&sql)?;
 
@@ -211,6 +227,7 @@ pub fn load_archived_workspace_records() -> Result<Vec<WorkspaceRecord>> {
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn insert_initializing_workspace_and_session(
     repository: &repos::RepositoryRecord,
     workspace_id: &str,
@@ -218,6 +235,8 @@ pub(crate) fn insert_initializing_workspace_and_session(
     directory_name: &str,
     branch: &str,
     default_branch: &str,
+    branch_intent: WorkspaceBranchIntent,
+    status: WorkspaceStatus,
     timestamp: &str,
 ) -> Result<()> {
     insert_initializing_workspace_and_session_with_mode(
@@ -228,6 +247,8 @@ pub(crate) fn insert_initializing_workspace_and_session(
         branch,
         default_branch,
         WorkspaceMode::Worktree,
+        branch_intent,
+        status,
         timestamp,
     )
 }
@@ -241,12 +262,27 @@ pub(crate) fn insert_initializing_workspace_and_session_with_mode(
     branch: &str,
     default_branch: &str,
     mode: WorkspaceMode,
+    branch_intent: WorkspaceBranchIntent,
+    status: WorkspaceStatus,
     timestamp: &str,
 ) -> Result<()> {
     let mut connection = db::write_conn()?;
     let transaction = connection
         .transaction()
         .context("Failed to start create-workspace transaction")?;
+    let next_order = transaction
+        .query_row(
+            r#"
+                SELECT COALESCE(MAX(display_order), 0) + ?2
+                FROM workspaces
+                WHERE state <> ?1
+                  AND pinned_at IS NULL
+                  AND COALESCE(status, 'in-progress') = ?3
+                "#,
+            rusqlite::params![WorkspaceState::Archived, sidebar_order::ORDER_STEP, status],
+            |row| row.get::<_, i64>(0),
+        )
+        .context("Failed to compute next workspace display order")?;
 
     transaction
         .execute(
@@ -261,11 +297,13 @@ pub(crate) fn insert_initializing_workspace_and_session_with_mode(
               initialization_parent_branch,
               intended_target_branch,
               mode,
+              branch_intent,
+              display_order,
               status,
               unread,
               created_at,
               updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'in-progress', 0, ?10, ?10)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, ?13, ?13)
             "#,
             (
                 workspace_id,
@@ -277,6 +315,9 @@ pub(crate) fn insert_initializing_workspace_and_session_with_mode(
                 default_branch,
                 default_branch,
                 mode,
+                branch_intent,
+                next_order,
+                status,
                 timestamp,
             ),
         )
@@ -366,6 +407,27 @@ pub(crate) fn update_workspace_state(
 
     if updated_rows != 1 {
         bail!("Workspace state update affected {updated_rows} rows for {workspace_id}");
+    }
+
+    Ok(())
+}
+
+/// Stamp the workspace as having successfully run its setup script and
+/// flip it to `ready`. Distinct from `update_workspace_state` so the
+/// "skipped setup (no script)" path can stay timestamp-less — that's
+/// what lets the inspector tell apart "ran in another session" vs
+/// "never ran" after a restart.
+pub(crate) fn mark_setup_completed(workspace_id: &str, timestamp: &str) -> Result<()> {
+    let connection = db::write_conn()?;
+    let updated_rows = connection
+        .execute(
+            "UPDATE workspaces SET state = ?2, setup_completed_at = ?3, updated_at = ?3 WHERE id = ?1",
+            (workspace_id, WorkspaceState::Ready, timestamp),
+        )
+        .context("Failed to mark workspace setup completed")?;
+
+    if updated_rows != 1 {
+        bail!("Setup-completion update affected {updated_rows} rows for {workspace_id}");
     }
 
     Ok(())
@@ -525,25 +587,29 @@ fn workspace_record_from_row(row: &Row<'_>) -> rusqlite::Result<WorkspaceRecord>
         initialization_parent_branch: row.get(13)?,
         intended_target_branch: row.get(14)?,
         mode: row.get(15)?,
-        pinned_at: row.get(16)?,
-        active_session_id: row.get(17)?,
-        active_session_title: row.get(18)?,
-        active_session_agent_type: row.get(19)?,
-        active_session_status: row.get(20)?,
-        primary_session_id: row.get(21)?,
-        primary_session_title: row.get(22)?,
-        primary_session_agent_type: row.get(23)?,
-        pr_title: row.get(24)?,
-        pr_sync_state: row.get(25)?,
-        pr_url: row.get(26)?,
-        archive_commit: row.get(27)?,
-        session_count: row.get(28)?,
-        message_count: row.get(29)?,
-        remote: row.get(30)?,
-        forge_provider: row.get(31)?,
-        forge_login: row.get(32)?,
-        created_at: row.get(33)?,
-        updated_at: row.get(34)?,
-        last_user_message_at: row.get(35)?,
+        branch_intent: row.get(16)?,
+        pinned_at: row.get(17)?,
+        active_session_id: row.get(18)?,
+        active_session_title: row.get(19)?,
+        active_session_agent_type: row.get(20)?,
+        active_session_status: row.get(21)?,
+        primary_session_id: row.get(22)?,
+        primary_session_title: row.get(23)?,
+        primary_session_agent_type: row.get(24)?,
+        pr_title: row.get(25)?,
+        pr_sync_state: row.get(26)?,
+        pr_url: row.get(27)?,
+        archive_commit: row.get(28)?,
+        session_count: row.get(29)?,
+        message_count: row.get(30)?,
+        remote: row.get(31)?,
+        forge_provider: row.get(32)?,
+        forge_login: row.get(33)?,
+        display_order: row.get(34)?,
+        repo_sidebar_order: row.get(35)?,
+        created_at: row.get(36)?,
+        updated_at: row.get(37)?,
+        last_user_message_at: row.get(38)?,
+        setup_completed_at: row.get(39)?,
     })
 }

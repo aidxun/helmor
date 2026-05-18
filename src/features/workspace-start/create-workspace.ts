@@ -7,8 +7,8 @@ import {
 	finalizeWorkspaceFromRepo,
 	prepareWorkspaceFromRepo,
 	setWorkspaceLinkedDirectories,
-	setWorkspaceStatus,
 	updateSessionSettings,
+	type WorkspaceBranchIntent,
 	type WorkspaceMode,
 } from "@/lib/api";
 import { getComposerContextKey } from "@/lib/workspace-helpers";
@@ -29,6 +29,7 @@ export async function createWorkspaceFromStartComposer({
 	repoId,
 	sourceBranch,
 	mode,
+	branchIntent,
 	submitMode,
 	editorStateSnapshot,
 	composerConfig,
@@ -37,6 +38,8 @@ export async function createWorkspaceFromStartComposer({
 	repoId: string;
 	sourceBranch: string;
 	mode: WorkspaceMode;
+	/** Defaults to `from_branch` when omitted. */
+	branchIntent?: WorkspaceBranchIntent;
 	submitMode: StartSubmitMode;
 	editorStateSnapshot?: SerializedEditorState;
 	/** StartPage composer picks. Only persisted to the session row on
@@ -52,7 +55,18 @@ export async function createWorkspaceFromStartComposer({
 	 *  reads the workspace-scoped query) sees them on first mount. */
 	linkedDirectories?: readonly string[];
 }): Promise<WorkspaceStartCreateResult> {
-	const prepared = await prepareWorkspaceFromRepo(repoId, sourceBranch, mode);
+	// "Save for later" creates the workspace directly in `backlog` status
+	// — passing it through to Phase 1 means the DB row is born in the
+	// right group and the sidebar never flashes through "In progress"
+	// while finalize runs. Other submit modes default to in-progress.
+	const initialStatus = submitMode === "saveForLater" ? "backlog" : null;
+	const prepared = await prepareWorkspaceFromRepo(
+		repoId,
+		sourceBranch,
+		mode,
+		branchIntent ?? null,
+		initialStatus,
+	);
 
 	// Persist pending /add-dir picks before kicking off finalize. The DB
 	// write is fast and the column is just a property of the existing
@@ -78,7 +92,6 @@ export async function createWorkspaceFromStartComposer({
 					})
 				: Promise.resolve(),
 		]);
-		await setWorkspaceStatus(prepared.workspaceId, "backlog");
 		return {
 			outcome: { shouldStream: false },
 			workspaceId: prepared.workspaceId,

@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod cli;
+pub(crate) mod codex_config;
 pub(crate) mod commands;
 pub mod data_dir;
 pub mod error;
@@ -100,6 +101,19 @@ pub fn run() {
                 data = %db_path.display(),
                 "Helmor started"
             );
+
+            // Sweep `.trash-*` dirs left over from a prior run (worker killed
+            // mid-cleanup, OS crash). Hands them to the global serial queue so
+            // the slow recursive deletes happen one at a time in the
+            // background. Spawned so a slow `read_dir` can't stall startup.
+            if let Ok(workspaces_root) = data_dir::workspaces_dir() {
+                std::thread::Builder::new()
+                    .name("helmor-trash-sweep".into())
+                    .spawn(move || {
+                        git::trash::sweep_workspaces_root(&workspaces_root);
+                    })
+                    .ok();
+            }
 
             // Reconcile workspaces whose directory was deleted outside the
             // app: degrade them to `archived` so chat history is preserved
@@ -221,6 +235,7 @@ pub fn run() {
             agents::generate_session_title,
             agents::list_slash_commands,
             agents::prewarm_slash_commands_for_workspace,
+            agents::prewarm_slash_commands_for_repo,
             commands::workspace_commands::prepare_archive_workspace,
             commands::workspace_commands::start_archive_workspace,
             commands::workspace_commands::validate_archive_workspace,
@@ -252,7 +267,8 @@ pub fn run() {
             commands::forge_commands::get_workspace_forge,
             commands::forge_commands::list_forge_accounts,
             commands::forge_commands::list_inbox_items,
-            commands::forge_commands::list_github_labels,
+            commands::forge_commands::list_inbox_kind_labels,
+            commands::forge_commands::list_forge_labels,
             commands::forge_commands::get_inbox_item_detail,
             commands::forge_commands::get_workspace_account_profile,
             commands::forge_commands::cache_forge_avatar,
@@ -284,6 +300,7 @@ pub fn run() {
             commands::repository_commands::update_repo_run_script_mode,
             commands::repository_commands::update_repo_preferences,
             commands::repository_commands::delete_repository,
+            commands::repository_commands::move_repository_in_sidebar,
             commands::repository_commands::retry_repo_forge_binding,
             commands::script_commands::execute_repo_script,
             commands::script_commands::stop_repo_script,
@@ -303,6 +320,7 @@ pub fn run() {
             commands::session_commands::delete_session,
             commands::session_commands::list_hidden_sessions,
             commands::session_commands::get_session_context_usage,
+            commands::session_commands::set_session_context_usage,
             commands::session_commands::get_session_codex_goal,
             commands::session_commands::mutate_codex_goal,
             commands::session_commands::list_session_drafts,
@@ -312,6 +330,7 @@ pub fn run() {
             commands::session_commands::mark_session_unread,
             commands::workspace_commands::list_remote_branches,
             commands::workspace_commands::list_branches_for_local_picker,
+            commands::workspace_commands::list_branches_for_workspace_picker,
             commands::workspace_commands::get_repo_current_branch,
             commands::workspace_commands::create_and_checkout_branch,
             commands::workspace_commands::move_local_workspace_to_worktree,
@@ -337,11 +356,13 @@ pub fn run() {
             commands::editor_commands::read_editor_file,
             commands::editor_commands::read_file_at_ref,
             commands::workspace_commands::set_workspace_status,
+            commands::workspace_commands::move_workspace_in_sidebar,
             commands::workspace_commands::list_workspace_linked_directories,
             commands::workspace_commands::set_workspace_linked_directories,
             commands::workspace_commands::list_workspace_candidate_directories,
             commands::workspace_commands::trigger_workspace_fetch,
             commands::editors::detect_installed_editors,
+            commands::editors::open_file_in_editor,
             commands::editors::open_workspace_in_editor,
             commands::editors::open_workspace_in_finder,
             commands::workspace_commands::permanently_delete_workspace,

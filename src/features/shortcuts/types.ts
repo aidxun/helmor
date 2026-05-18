@@ -1,8 +1,11 @@
 export type ShortcutId =
 	| "workspace.previous"
 	| "workspace.next"
+	| "workspace.quickSwitchNext"
+	| "workspace.quickSwitchPrevious"
 	| "workspace.new"
 	| "workspace.addRepository"
+	| "workspace.filterSidebar"
 	| "workspace.copyPath"
 	| "workspace.openInEditor"
 	| "session.previous"
@@ -31,6 +34,9 @@ export type ShortcutId =
 	| "composer.toggleContextPanel"
 	| "composer.openModelPicker"
 	| "composer.toggleFollowUpBehavior"
+	| "editor.edit"
+	| "editor.new"
+	| "editor.close"
 	| "terminal.new"
 	| "terminal.close"
 	| "terminal.next"
@@ -45,6 +51,7 @@ export type ShortcutGroup =
 	| "Actions"
 	| "System"
 	| "Composer"
+	| "Editor"
 	| "Terminal";
 
 // Scopes a shortcut can live in. "app" = always active regardless of focus.

@@ -8,6 +8,7 @@ import {
 	ChevronRightIcon,
 	CloudIcon,
 	CopyIcon,
+	ExternalLinkIcon,
 	FolderOpenIcon,
 	LaptopIcon,
 	LinkIcon,
@@ -33,21 +34,29 @@ import {
 } from "@/components/ui/context-menu";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type {
 	CommitButtonState,
 	WorkspaceCommitButtonMode,
 } from "@/features/commit/button";
 import {
 	type ChangeRequestInfo,
-	continueWorkspaceFromTargetBranch,
-	discardWorkspaceFile,
+	type DetectedEditor,
 	type ForgeDetection,
+	openFileInEditor,
 	revealPathInFinder,
-	stageWorkspaceFile,
-	unstageWorkspaceFile,
 } from "@/lib/api";
-import type { DiffOpenOptions, InspectorFileItem } from "@/lib/editor-session";
-import { extractError, isRecoverableByPurge } from "@/lib/errors";
+import {
+	type ActiveEditorTarget,
+	type DiffOpenOptions,
+	INDEX_REF,
+	type InspectorFileItem,
+	isActiveEditorTarget,
+} from "@/lib/editor-session";
 import {
 	helmorQueryKeys,
 	workspaceForgeActionStatusQueryOptions,
@@ -55,9 +64,10 @@ import {
 } from "@/lib/query-client";
 import { buildRemoteFileUrl } from "@/lib/remote-file-url";
 import { cn } from "@/lib/utils";
-import { showWorkspaceBrokenToast } from "@/lib/workspace-broken-toast";
 import { useWorkspaceToast } from "@/lib/workspace-toast-context";
 import { INSPECTOR_SECTION_HEADER_HEIGHT } from "../layout";
+import { useChangesState } from "./changes/use-changes-state";
+import { useGitMutations } from "./changes/use-git-mutations";
 import { GitSectionHeader } from "./git-section-header";
 
 const STATUS_COLORS: Record<InspectorFileItem["status"], string> = {
@@ -82,7 +92,8 @@ type ChangesSectionProps = {
 	workspaceTargetBranch: string | null;
 	changes: InspectorFileItem[];
 	editorMode: boolean;
-	activeEditorPath?: string | null;
+	activeEditor?: ActiveEditorTarget | null;
+	preferredEditor?: DetectedEditor | null;
 	onOpenEditorFile: (path: string, options?: DiffOpenOptions) => void;
 	flashingPaths: Set<string>;
 	onCommitAction?: (mode: WorkspaceCommitButtonMode) => Promise<void>;
@@ -103,7 +114,8 @@ export function ChangesSection({
 	workspaceTargetBranch,
 	changes,
 	editorMode,
-	activeEditorPath,
+	activeEditor,
+	preferredEditor = null,
 	onOpenEditorFile,
 	flashingPaths,
 	onCommitAction,
@@ -114,12 +126,18 @@ export function ChangesSection({
 	bodyHeight,
 }: ChangesSectionProps) {
 	const queryClient = useQueryClient();
-	const [changesTreeView, setChangesTreeView] = useState(true);
-	const [branchDiffTreeView, setBranchDiffTreeView] = useState(true);
-	const [changesOpen, setChangesOpen] = useState(true);
-	const [stagedOpen, setStagedOpen] = useState(true);
-	const [branchDiffOpen, setBranchDiffOpen] = useState(true);
-	const [isContinuingWorkspace, setIsContinuingWorkspace] = useState(false);
+	const {
+		changesOpen,
+		stagedOpen,
+		branchDiffOpen,
+		changesTreeView,
+		branchDiffTreeView,
+		toggleChangesOpen,
+		toggleStagedOpen,
+		toggleBranchDiffOpen,
+		toggleChangesTreeView,
+		toggleBranchDiffTreeView,
+	} = useChangesState();
 	const forgeQuery = useQuery({
 		...workspaceForgeQueryOptions(workspaceId ?? "__none__"),
 		enabled: workspaceId !== null,
@@ -207,123 +225,24 @@ export function ChangesSection({
 	const hasUncommittedChanges =
 		stagedChanges.length > 0 || unstagedChanges.length > 0;
 	const hasChanges = hasUncommittedChanges || committedChanges.length > 0;
-	const invalidateChanges = useCallback(() => {
-		if (!workspaceRootPath) {
-			return;
-		}
-		queryClient.invalidateQueries({
-			queryKey: helmorQueryKeys.workspaceChanges(workspaceRootPath),
-		});
-		if (workspaceId) {
-			queryClient.invalidateQueries({
-				queryKey: helmorQueryKeys.workspaceGitActionStatus(workspaceId),
-			});
-		}
-	}, [queryClient, workspaceId, workspaceRootPath]);
 
 	const pushToast = useWorkspaceToast();
-	// Surface backend mutation failures (which used to be silently
-	// swallowed). If the workspace is broken, show a persistent toast
-	// with "Permanently Delete" — never auto-deletes. Dismiss preserves
-	// the chat history (the startup reconcile has archived the row so
-	// the user can still find it).
-	const surfaceChangeError = useCallback(
-		(action: string, error: unknown) => {
-			const { code, message } = extractError(error, `Failed to ${action}.`);
-			if (isRecoverableByPurge(code) && workspaceId) {
-				showWorkspaceBrokenToast({
-					workspaceId,
-					pushToast,
-					queryClient,
-				});
-				return;
-			}
-			pushToast(message, `Unable to ${action}`, "destructive");
-		},
-		[pushToast, queryClient, workspaceId],
-	);
-
-	const stageFile = useCallback(
-		async (relativePath: string) => {
-			if (!workspaceRootPath) {
-				return;
-			}
-			try {
-				await stageWorkspaceFile(workspaceRootPath, relativePath);
-			} catch (error) {
-				surfaceChangeError("stage file", error);
-			} finally {
-				invalidateChanges();
-			}
-		},
-		[invalidateChanges, surfaceChangeError, workspaceRootPath],
-	);
-	const unstageFile = useCallback(
-		async (relativePath: string) => {
-			if (!workspaceRootPath) {
-				return;
-			}
-			try {
-				await unstageWorkspaceFile(workspaceRootPath, relativePath);
-			} catch (error) {
-				surfaceChangeError("unstage file", error);
-			} finally {
-				invalidateChanges();
-			}
-		},
-		[invalidateChanges, surfaceChangeError, workspaceRootPath],
-	);
-	const stageAll = useCallback(async () => {
-		if (!workspaceRootPath) {
-			return;
-		}
-		const paths = unstagedChanges.map((change) => change.path);
-		try {
-			for (const path of paths) {
-				await stageWorkspaceFile(workspaceRootPath, path);
-			}
-		} catch (error) {
-			surfaceChangeError("stage files", error);
-		} finally {
-			invalidateChanges();
-		}
-	}, [
-		invalidateChanges,
-		surfaceChangeError,
-		unstagedChanges,
+	const {
+		isContinuingWorkspace,
+		stageFile,
+		unstageFile,
+		stageAll,
+		unstageAll,
+		discardFile,
+		continueWorkspace: handleContinueWorkspace,
+	} = useGitMutations({
+		workspaceId,
 		workspaceRootPath,
-	]);
-	const unstageAll = useCallback(async () => {
-		if (!workspaceRootPath) {
-			return;
-		}
-		const paths = stagedChanges.map((change) => change.path);
-		try {
-			for (const path of paths) {
-				await unstageWorkspaceFile(workspaceRootPath, path);
-			}
-		} catch (error) {
-			surfaceChangeError("unstage files", error);
-		} finally {
-			invalidateChanges();
-		}
-	}, [invalidateChanges, stagedChanges, surfaceChangeError, workspaceRootPath]);
-
-	const discardFile = useCallback(
-		async (relativePath: string) => {
-			if (!workspaceRootPath) {
-				return;
-			}
-			try {
-				await discardWorkspaceFile(workspaceRootPath, relativePath);
-			} catch (error) {
-				surfaceChangeError("discard changes", error);
-			} finally {
-				invalidateChanges();
-			}
-		},
-		[invalidateChanges, surfaceChangeError, workspaceRootPath],
-	);
+		stagedChanges,
+		unstagedChanges,
+		queryClient,
+		pushToast,
+	});
 
 	const handleCommitButtonClick = useCallback(async () => {
 		if (!onCommitAction) {
@@ -332,43 +251,21 @@ export function ChangesSection({
 		await onCommitAction(commitButtonMode);
 	}, [commitButtonMode, onCommitAction]);
 
-	const handleContinueWorkspace = useCallback(async () => {
-		if (!workspaceId || isContinuingWorkspace) return;
-		setIsContinuingWorkspace(true);
-		try {
-			const result = await continueWorkspaceFromTargetBranch(workspaceId);
-			pushToast(`Workspace moved to ${result.branch}.`, "Continued", "default");
-			await Promise.all([
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceGroups,
-				}),
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceDetail(workspaceId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceGitActionStatus(workspaceId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceChangeRequest(workspaceId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: helmorQueryKeys.workspaceForgeActionStatus(workspaceId),
-				}),
-			]);
-			invalidateChanges();
-		} catch (error) {
-			surfaceChangeError("continue workspace", error);
-		} finally {
-			setIsContinuingWorkspace(false);
-		}
-	}, [
-		invalidateChanges,
-		isContinuingWorkspace,
-		pushToast,
-		queryClient,
-		surfaceChangeError,
-		workspaceId,
-	]);
+	const handleOpenExternalEditor = useCallback(
+		(path: string) => {
+			if (!preferredEditor) {
+				pushToast("Select a default editor before opening files.", "No editor");
+				return;
+			}
+			void openFileInEditor(path, preferredEditor.id).catch((error) => {
+				pushToast(
+					error instanceof Error ? error.message : String(error),
+					`Failed to open ${preferredEditor.name}`,
+				);
+			});
+		},
+		[preferredEditor, pushToast],
+	);
 
 	// Header shimmer is owned by App: it knows when the change-request and
 	// forge-action-status queries are on their *first* cold fetch (vs. just a
@@ -412,19 +309,22 @@ export function ChangesSection({
 								label="Staged Changes"
 								count={stagedChanges.length}
 								open={stagedOpen}
-								onToggle={() => setStagedOpen((current) => !current)}
+								onToggle={() => toggleStagedOpen()}
 								changes={stagedChanges}
 								treeView={changesTreeView}
-								onToggleTreeView={() => setChangesTreeView((v) => !v)}
+								onToggleTreeView={() => toggleChangesTreeView()}
 								action="unstage"
 								onStageAction={unstageFile}
 								onBatchAction={unstageAll}
 								editorMode={editorMode}
-								activeEditorPath={activeEditorPath}
+								activeEditor={activeEditor}
 								onOpenEditorFile={onOpenEditorFile}
+								onOpenExternalEditor={handleOpenExternalEditor}
 								flashingPaths={flashingPaths}
 								workspaceBranch={workspaceBranch}
 								workspaceRemoteUrl={workspaceRemoteUrl}
+								originalRef="HEAD"
+								modifiedRef={INDEX_REF}
 							/>
 						)}
 						{unstagedChanges.length > 0 && (
@@ -438,20 +338,22 @@ export function ChangesSection({
 								}
 								count={unstagedChanges.length}
 								open={changesOpen}
-								onToggle={() => setChangesOpen((current) => !current)}
+								onToggle={() => toggleChangesOpen()}
 								changes={unstagedChanges}
 								treeView={changesTreeView}
-								onToggleTreeView={() => setChangesTreeView((v) => !v)}
+								onToggleTreeView={() => toggleChangesTreeView()}
 								action="stage"
 								onStageAction={stageFile}
 								onBatchAction={stageAll}
 								onDiscard={discardFile}
 								editorMode={editorMode}
-								activeEditorPath={activeEditorPath}
+								activeEditor={activeEditor}
 								onOpenEditorFile={onOpenEditorFile}
+								onOpenExternalEditor={handleOpenExternalEditor}
 								flashingPaths={flashingPaths}
 								workspaceBranch={workspaceBranch}
 								workspaceRemoteUrl={workspaceRemoteUrl}
+								originalRef={INDEX_REF}
 							/>
 						)}
 					</>
@@ -463,13 +365,14 @@ export function ChangesSection({
 						count={committedChanges.length}
 						loading={branchSwitching}
 						open={branchDiffOpen}
-						onToggle={() => setBranchDiffOpen((current) => !current)}
+						onToggle={() => toggleBranchDiffOpen()}
 						changes={committedChanges}
 						treeView={branchDiffTreeView}
-						onToggleTreeView={() => setBranchDiffTreeView((v) => !v)}
+						onToggleTreeView={() => toggleBranchDiffTreeView()}
 						editorMode={editorMode}
-						activeEditorPath={activeEditorPath}
+						activeEditor={activeEditor}
 						onOpenEditorFile={onOpenEditorFile}
+						onOpenExternalEditor={handleOpenExternalEditor}
 						flashingPaths={flashingPaths}
 						workspaceBranch={workspaceBranch}
 						workspaceRemoteUrl={workspaceRemoteUrl}
@@ -502,11 +405,14 @@ function ChangesGroup({
 	onBatchAction,
 	onDiscard,
 	editorMode,
-	activeEditorPath,
+	activeEditor,
 	onOpenEditorFile,
+	onOpenExternalEditor,
 	flashingPaths,
 	workspaceBranch,
 	workspaceRemoteUrl,
+	originalRef,
+	modifiedRef,
 }: {
 	label: string;
 	icon?: React.ReactNode;
@@ -521,12 +427,38 @@ function ChangesGroup({
 	onBatchAction?: () => void;
 	onDiscard?: (path: string) => void;
 	editorMode: boolean;
-	activeEditorPath?: string | null;
+	activeEditor?: ActiveEditorTarget | null;
 	onOpenEditorFile: (path: string, options?: DiffOpenOptions) => void;
+	onOpenExternalEditor: (path: string) => void;
 	flashingPaths: Set<string>;
 	workspaceBranch: string | null;
 	workspaceRemoteUrl: string | null;
+	/** Git ref for the original (left) side. Staged → "HEAD"; Unstaged → INDEX_REF. */
+	originalRef?: string;
+	/** Git ref for the modified (right) side. Staged → INDEX_REF; Unstaged → undefined
+	 * (so the editor reads the working tree from disk). */
+	modifiedRef?: string;
 }) {
+	const handleOpenFile = useCallback(
+		(path: string, options?: DiffOpenOptions) => {
+			onOpenEditorFile(path, {
+				fileStatus: options?.fileStatus ?? "M",
+				originalRef,
+				modifiedRef,
+			});
+		},
+		[onOpenEditorFile, originalRef, modifiedRef],
+	);
+	// Same file can appear in Staged AND Unstaged. The selection highlight
+	// belongs to whichever area's bases match the open editor — comparing
+	// path alone lights up both rows simultaneously.
+	const activeEditorPath = isActiveEditorTarget(
+		activeEditor,
+		originalRef,
+		modifiedRef,
+	)
+		? activeEditor.path
+		: null;
 	return (
 		<div>
 			<div className="group/header flex w-full items-center gap-1 py-1 pl-1 pr-2 text-[11.5px] font-semibold tracking-[-0.01em] text-muted-foreground">
@@ -579,7 +511,8 @@ function ChangesGroup({
 							changes={changes}
 							editorMode={editorMode}
 							activeEditorPath={activeEditorPath}
-							onOpenEditorFile={onOpenEditorFile}
+							onOpenEditorFile={handleOpenFile}
+							onOpenExternalEditor={onOpenExternalEditor}
 							flashingPaths={flashingPaths}
 							action={action}
 							onStageAction={onStageAction}
@@ -592,7 +525,8 @@ function ChangesGroup({
 							changes={changes}
 							editorMode={editorMode}
 							activeEditorPath={activeEditorPath}
-							onOpenEditorFile={onOpenEditorFile}
+							onOpenEditorFile={handleOpenFile}
+							onOpenExternalEditor={onOpenExternalEditor}
 							flashingPaths={flashingPaths}
 							action={action}
 							onStageAction={onStageAction}
@@ -617,8 +551,9 @@ function BranchDiffSection({
 	treeView,
 	onToggleTreeView,
 	editorMode,
-	activeEditorPath,
+	activeEditor,
 	onOpenEditorFile,
+	onOpenExternalEditor,
 	flashingPaths,
 	workspaceBranch,
 	workspaceRemoteUrl,
@@ -632,22 +567,32 @@ function BranchDiffSection({
 	treeView: boolean;
 	onToggleTreeView: () => void;
 	editorMode: boolean;
-	activeEditorPath?: string | null;
+	activeEditor?: ActiveEditorTarget | null;
 	onOpenEditorFile: (path: string, options?: DiffOpenOptions) => void;
+	onOpenExternalEditor: (path: string) => void;
 	flashingPaths: Set<string>;
 	workspaceBranch: string | null;
 	workspaceRemoteUrl: string | null;
 }) {
+	const remoteOriginalRef = targetBranch ?? undefined;
+	const remoteModifiedRef = "HEAD";
 	const handleOpenFile = useCallback(
 		(path: string, options?: DiffOpenOptions) => {
 			onOpenEditorFile(path, {
 				fileStatus: options?.fileStatus ?? "M",
-				originalRef: targetBranch ?? undefined,
-				modifiedRef: "HEAD",
+				originalRef: remoteOriginalRef,
+				modifiedRef: remoteModifiedRef,
 			});
 		},
-		[onOpenEditorFile, targetBranch],
+		[onOpenEditorFile, remoteOriginalRef, remoteModifiedRef],
 	);
+	const activeEditorPath = isActiveEditorTarget(
+		activeEditor,
+		remoteOriginalRef,
+		remoteModifiedRef,
+	)
+		? activeEditor.path
+		: null;
 
 	return (
 		<div>
@@ -703,6 +648,7 @@ function BranchDiffSection({
 							editorMode={editorMode}
 							activeEditorPath={activeEditorPath}
 							onOpenEditorFile={handleOpenFile}
+							onOpenExternalEditor={onOpenExternalEditor}
 							flashingPaths={flashingPaths}
 							workspaceBranch={workspaceBranch}
 							workspaceRemoteUrl={workspaceRemoteUrl}
@@ -713,6 +659,7 @@ function BranchDiffSection({
 							editorMode={editorMode}
 							activeEditorPath={activeEditorPath}
 							onOpenEditorFile={handleOpenFile}
+							onOpenExternalEditor={onOpenExternalEditor}
 							flashingPaths={flashingPaths}
 							workspaceBranch={workspaceBranch}
 							workspaceRemoteUrl={workspaceRemoteUrl}
@@ -764,6 +711,7 @@ function ChangesTreeView({
 	editorMode,
 	activeEditorPath,
 	onOpenEditorFile,
+	onOpenExternalEditor,
 	flashingPaths,
 	action,
 	onStageAction,
@@ -775,6 +723,7 @@ function ChangesTreeView({
 	editorMode: boolean;
 	activeEditorPath?: string | null;
 	onOpenEditorFile: (path: string, options?: DiffOpenOptions) => void;
+	onOpenExternalEditor: (path: string) => void;
 	flashingPaths: Set<string>;
 	action?: StageActionKind;
 	onStageAction?: (path: string) => void;
@@ -809,6 +758,7 @@ function ChangesTreeView({
 				editorMode={editorMode}
 				activeEditorPath={activeEditorPath}
 				onOpenEditorFile={onOpenEditorFile}
+				onOpenExternalEditor={onOpenExternalEditor}
 				flashingPaths={flashingPaths}
 				action={action}
 				onStageAction={onStageAction}
@@ -839,6 +789,7 @@ function TreeNodeList({
 	editorMode,
 	activeEditorPath,
 	onOpenEditorFile,
+	onOpenExternalEditor,
 	flashingPaths,
 	action,
 	onStageAction,
@@ -853,6 +804,7 @@ function TreeNodeList({
 	editorMode: boolean;
 	activeEditorPath?: string | null;
 	onOpenEditorFile: (path: string, options?: DiffOpenOptions) => void;
+	onOpenExternalEditor: (path: string) => void;
 	flashingPaths: Set<string>;
 	action?: StageActionKind;
 	onStageAction?: (path: string) => void;
@@ -879,7 +831,7 @@ function TreeNodeList({
 					return (
 						<div key={node.path}>
 							<div
-								className="flex cursor-pointer items-center gap-1 py-[1.5px] pr-2 text-muted-foreground transition-colors hover:bg-accent/60"
+								className="flex cursor-interactive items-center gap-1 py-[1.5px] pr-2 text-muted-foreground transition-colors hover:bg-accent/60"
 								style={{ paddingLeft: `${depth * 12 + 8}px` }}
 								onClick={() => onToggle(node.path)}
 								onKeyDown={(event) => {
@@ -914,6 +866,7 @@ function TreeNodeList({
 									editorMode={editorMode}
 									activeEditorPath={activeEditorPath}
 									onOpenEditorFile={onOpenEditorFile}
+									onOpenExternalEditor={onOpenExternalEditor}
 									flashingPaths={flashingPaths}
 									action={action}
 									onStageAction={onStageAction}
@@ -933,7 +886,7 @@ function TreeNodeList({
 				const row = (
 					<div
 						className={cn(
-							"group/row flex cursor-pointer items-center gap-1 py-[1.5px] pr-2 text-muted-foreground transition-colors hover:bg-accent/60",
+							"group/row flex cursor-interactive items-center gap-1 py-[1.5px] pr-2 text-muted-foreground transition-colors hover:bg-accent/60",
 							selected &&
 								(editorMode
 									? "bg-accent text-foreground"
@@ -967,6 +920,7 @@ function TreeNodeList({
 							<StageActionSlot
 								file={file}
 								action={action}
+								onOpenExternalEditor={onOpenExternalEditor}
 								onStageAction={onStageAction}
 								onDiscard={onDiscard}
 							/>
@@ -999,6 +953,7 @@ function ChangesFlatView({
 	editorMode,
 	activeEditorPath,
 	onOpenEditorFile,
+	onOpenExternalEditor,
 	flashingPaths,
 	action,
 	onStageAction,
@@ -1010,6 +965,7 @@ function ChangesFlatView({
 	editorMode: boolean;
 	activeEditorPath?: string | null;
 	onOpenEditorFile: (path: string, options?: DiffOpenOptions) => void;
+	onOpenExternalEditor: (path: string) => void;
 	flashingPaths: Set<string>;
 	action?: StageActionKind;
 	onStageAction?: (path: string) => void;
@@ -1019,91 +975,98 @@ function ChangesFlatView({
 }) {
 	const hasStage = !!action && !!onStageAction;
 	const hasDiscard = !!onDiscard;
-	const hasAction = hasStage || hasDiscard;
 
 	return (
 		<div className="py-0.5">
-			{changes.map((change) => (
-				<FileRowContextMenu
-					key={change.path}
-					file={change}
-					workspaceBranch={workspaceBranch}
-					workspaceRemoteUrl={workspaceRemoteUrl}
-				>
-					<div
-						className={cn(
-							"group/row flex cursor-pointer items-center gap-1.5 py-[1.5px] pl-2 pr-2 text-muted-foreground transition-colors hover:bg-accent/60",
-							change.absolutePath === activeEditorPath &&
-								(editorMode
-									? "bg-accent text-foreground"
-									: "bg-muted/60 text-foreground"),
-						)}
-						role="button"
-						tabIndex={0}
-						onClick={() =>
-							onOpenEditorFile(change.absolutePath, {
-								fileStatus: change.status,
-							})
-						}
-						onKeyDown={(event) => {
-							if (event.key === "Enter" || event.key === " ") {
-								event.preventDefault();
+			{changes.map((change) => {
+				const canOpenExternalEditor = change.status !== "D";
+				const hasHoverAction = canOpenExternalEditor || hasStage || hasDiscard;
+
+				return (
+					<FileRowContextMenu
+						key={change.path}
+						file={change}
+						workspaceBranch={workspaceBranch}
+						workspaceRemoteUrl={workspaceRemoteUrl}
+					>
+						<div
+							className={cn(
+								"group/row flex cursor-interactive items-center gap-1.5 py-[1.5px] pl-2 pr-2 text-muted-foreground transition-colors hover:bg-accent/60",
+								change.absolutePath === activeEditorPath &&
+									(editorMode
+										? "bg-accent text-foreground"
+										: "bg-muted/60 text-foreground"),
+							)}
+							role="button"
+							tabIndex={0}
+							onClick={() =>
 								onOpenEditorFile(change.absolutePath, {
 									fileStatus: change.status,
-								});
+								})
 							}
-						}}
-					>
-						<img
-							src={getMaterialFileIcon(change.name)}
-							alt=""
-							className="size-4 shrink-0"
-						/>
-						<span className="min-w-0 max-w-[60%] truncate">
-							<ShinyFlash active={flashingPaths.has(change.path)}>
-								{change.name}
-							</ShinyFlash>
-						</span>
-						<span
-							className={cn(
-								"min-w-0 flex-1 truncate text-right text-[10px] text-muted-foreground",
-								hasAction && "group-hover/row:hidden",
-							)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" || event.key === " ") {
+									event.preventDefault();
+									onOpenEditorFile(change.absolutePath, {
+										fileStatus: change.status,
+									});
+								}
+							}}
 						>
-							{change.path.includes("/")
-								? change.path.slice(0, change.path.lastIndexOf("/"))
-								: ""}
-						</span>
-						<span
-							className={cn(
-								"flex shrink-0 items-center gap-1 tabular-nums",
-								hasAction && "group-hover/row:hidden",
-							)}
-						>
-							<LineStats
-								insertions={change.insertions}
-								deletions={change.deletions}
+							<img
+								src={getMaterialFileIcon(change.name)}
+								alt=""
+								className="size-4 shrink-0"
 							/>
+							<span className="min-w-0 max-w-[60%] truncate">
+								<ShinyFlash active={flashingPaths.has(change.path)}>
+									{change.name}
+								</ShinyFlash>
+							</span>
 							<span
 								className={cn(
-									"inline-flex h-4 w-4 items-center justify-center text-[10px] font-semibold",
-									STATUS_COLORS[change.status],
+									"min-w-0 flex-1 truncate text-right text-[10px] text-muted-foreground",
+									hasHoverAction && "group-hover/row:hidden",
 								)}
 							>
-								{change.status}
+								{change.path.includes("/")
+									? change.path.slice(0, change.path.lastIndexOf("/"))
+									: ""}
 							</span>
-						</span>
-						{hasAction && (
-							<RowHoverActions
-								path={change.path}
-								action={action}
-								onStageAction={onStageAction}
-								onDiscard={onDiscard}
-							/>
-						)}
-					</div>
-				</FileRowContextMenu>
-			))}
+							<span
+								className={cn(
+									"flex shrink-0 items-center gap-1 tabular-nums",
+									hasHoverAction && "group-hover/row:hidden",
+								)}
+							>
+								<LineStats
+									insertions={change.insertions}
+									deletions={change.deletions}
+								/>
+								<span
+									className={cn(
+										"inline-flex h-4 w-4 items-center justify-center text-[10px] font-semibold",
+										STATUS_COLORS[change.status],
+									)}
+								>
+									{change.status}
+								</span>
+							</span>
+							{hasHoverAction && (
+								<RowHoverActions
+									path={change.path}
+									absolutePath={change.absolutePath}
+									canOpenExternalEditor={canOpenExternalEditor}
+									action={hasStage ? action : undefined}
+									onOpenExternalEditor={onOpenExternalEditor}
+									onStageAction={hasStage ? onStageAction : undefined}
+									onDiscard={hasDiscard ? onDiscard : undefined}
+								/>
+							)}
+						</div>
+					</FileRowContextMenu>
+				);
+			})}
 		</div>
 	);
 }
@@ -1111,24 +1074,27 @@ function ChangesFlatView({
 function StageActionSlot({
 	file,
 	action,
+	onOpenExternalEditor,
 	onStageAction,
 	onDiscard,
 }: {
 	file: ChangeRow;
 	action?: StageActionKind;
+	onOpenExternalEditor: (path: string) => void;
 	onStageAction?: (path: string) => void;
 	onDiscard?: (path: string) => void;
 }) {
 	const hasStage = !!action && !!onStageAction;
 	const hasDiscard = !!onDiscard;
-	const hasAction = hasStage || hasDiscard;
+	const canOpenExternalEditor = file.status !== "D";
+	const hasHoverAction = canOpenExternalEditor || hasStage || hasDiscard;
 
 	return (
 		<>
 			<span
 				className={cn(
 					"ml-auto flex shrink-0 items-center gap-1.5",
-					hasAction && "group-hover/row:hidden",
+					hasHoverAction && "group-hover/row:hidden",
 				)}
 			>
 				<LineStats insertions={file.insertions} deletions={file.deletions} />
@@ -1141,12 +1107,15 @@ function StageActionSlot({
 					{file.status}
 				</span>
 			</span>
-			{hasAction && (
+			{hasHoverAction && (
 				<RowHoverActions
 					path={file.path}
-					action={action}
-					onStageAction={onStageAction}
-					onDiscard={onDiscard}
+					absolutePath={file.absolutePath}
+					canOpenExternalEditor={canOpenExternalEditor}
+					action={hasStage ? action : undefined}
+					onOpenExternalEditor={onOpenExternalEditor}
+					onStageAction={hasStage ? onStageAction : undefined}
+					onDiscard={hasDiscard ? onDiscard : undefined}
 				/>
 			)}
 		</>
@@ -1155,17 +1124,37 @@ function StageActionSlot({
 
 function RowHoverActions({
 	path,
+	absolutePath,
+	canOpenExternalEditor,
 	action,
+	onOpenExternalEditor,
 	onStageAction,
 	onDiscard,
 }: {
 	path: string;
+	absolutePath: string;
+	canOpenExternalEditor: boolean;
 	action?: StageActionKind;
+	onOpenExternalEditor: (path: string) => void;
 	onStageAction?: (path: string) => void;
 	onDiscard?: (path: string) => void;
 }) {
 	return (
 		<span className="ml-auto hidden items-center gap-0.5 group-hover/row:inline-flex">
+			{canOpenExternalEditor && (
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<RowIconButton
+							aria-label="Open in editor"
+							onClick={() => onOpenExternalEditor(absolutePath)}
+							className="text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+						>
+							<ExternalLinkIcon className="size-3.5" strokeWidth={2} />
+						</RowIconButton>
+					</TooltipTrigger>
+					<TooltipContent side="top">Open in editor</TooltipContent>
+				</Tooltip>
+			)}
 			{onDiscard && (
 				<RowIconButton
 					aria-label="Discard file changes"

@@ -27,16 +27,30 @@ pub async fn prepare_workspace_from_repo(
     repo_id: String,
     source_branch: Option<String>,
     mode: Option<crate::workspace_state::WorkspaceMode>,
+    branch_intent: Option<crate::workspace_state::WorkspaceBranchIntent>,
+    initial_status: Option<WorkspaceStatus>,
 ) -> CmdResult<workspaces::PrepareWorkspaceResponse> {
     let mode = mode.unwrap_or_default();
+    let branch_intent = branch_intent.unwrap_or_default();
+    let initial_status = initial_status.unwrap_or_default();
     let result = {
         let _lock = db::WORKSPACE_FS_MUTATION_LOCK.lock().await;
         run_blocking(move || match mode {
             crate::workspace_state::WorkspaceMode::Worktree => {
-                workspaces::prepare_workspace_from_repo_impl(&repo_id, source_branch.as_deref())
+                workspaces::prepare_workspace_from_repo_impl(
+                    &repo_id,
+                    source_branch.as_deref(),
+                    branch_intent,
+                    initial_status,
+                )
             }
             crate::workspace_state::WorkspaceMode::Local => {
-                workspaces::prepare_local_workspace_impl(&repo_id, source_branch.as_deref())
+                // Local mode ignores `branch_intent` (no separate worktree).
+                workspaces::prepare_local_workspace_impl(
+                    &repo_id,
+                    source_branch.as_deref(),
+                    initial_status,
+                )
             }
         })
         .await?
@@ -146,6 +160,30 @@ pub async fn list_branches_for_local_picker(repo_id: String) -> CmdResult<Vec<St
     .await
 }
 
+/// Same source as `list_branches_for_local_picker` (local + remote refs,
+/// purely local fs reads) but returns where each branch lives so the
+/// picker can show a source icon and the pill can decide whether to
+/// prefix with `origin/`. Sorted by name.
+#[tauri::command]
+pub async fn list_branches_for_workspace_picker(
+    repo_id: String,
+) -> CmdResult<Vec<workspaces::BranchPickerEntry>> {
+    run_blocking(
+        move || -> anyhow::Result<Vec<workspaces::BranchPickerEntry>> {
+            let Some(repo) = crate::repos::load_repository_by_id(&repo_id)? else {
+                return Ok(Vec::new());
+            };
+            let repo_root = std::path::PathBuf::from(repo.root_path.trim());
+            if !repo_root.is_dir() {
+                return Ok(Vec::new());
+            }
+            let remote = repo.remote.unwrap_or_else(|| "origin".to_string());
+            Ok(workspaces::list_branch_picker_entries(&repo_root, &remote))
+        },
+    )
+    .await
+}
+
 /// Legacy combined flow (prepare + finalize in a single call). Retained
 /// for CLI / MCP / add-repository callers that don't benefit from the
 /// two-phase UI split.
@@ -208,6 +246,28 @@ pub async fn unpin_workspace(workspace_id: String) -> CmdResult<()> {
 #[tauri::command]
 pub async fn set_workspace_status(workspace_id: String, status: WorkspaceStatus) -> CmdResult<()> {
     run_blocking(move || workspaces::set_workspace_status(&workspace_id, status)).await
+}
+
+/// Sidebar drag-and-drop entry point. `target_group_id` is a sidebar group
+/// id from the frontend — `"pinned"`, a status lane (`"done"` / `"review"`
+/// / `"progress"` / `"backlog"` / `"canceled"`), or a repo bucket
+/// (`"repo:<repo_id>"`). The backend writes the corresponding `pinned_at`
+/// / `status` mutation plus a single `display_order` cell, only falling
+/// back to a full-group rebalance when the sparse gap runs out.
+#[tauri::command]
+pub async fn move_workspace_in_sidebar(
+    workspace_id: String,
+    target_group_id: String,
+    before_workspace_id: Option<String>,
+) -> CmdResult<()> {
+    run_blocking(move || {
+        workspaces::move_workspace_in_sidebar(
+            &workspace_id,
+            &target_group_id,
+            before_workspace_id.as_deref(),
+        )
+    })
+    .await
 }
 
 /// `/add-dir` feature: list the extra directories the user has linked to
@@ -375,7 +435,7 @@ pub async fn prepare_archive_workspace(
 
 #[tauri::command]
 pub async fn start_archive_workspace(app: AppHandle, workspace_id: String) -> CmdResult<()> {
-    workspaces::start_archive_workspace(&app, &workspace_id)?;
+    workspaces::start_archive_workspace(&app, &workspace_id, workspaces::ArchiveOrigin::Manual)?;
     Ok(())
 }
 

@@ -69,6 +69,25 @@ class MockCodexAppServer {
 			});
 			return {};
 		}
+		if (method === "skills/list") {
+			return {
+				data: [
+					{
+						cwd: "/tmp/workspace",
+						skills: [
+							{ name: "workspace-skill", description: "from workspace" },
+						],
+					},
+					{
+						cwd: "/tmp/repo",
+						skills: [
+							{ name: "repo-skill", description: "from repo" },
+							{ name: "workspace-skill", description: "duplicate" },
+						],
+					},
+				],
+			};
+		}
 		if (method === "turn/start") {
 			queueMicrotask(() => {
 				serverState.onNotification?.({
@@ -146,6 +165,26 @@ describe("CodexAppServerManager", () => {
 		};
 		codexConfigState.calls = 0;
 		emitter = createSidecarEmitter(() => {});
+	});
+
+	test("listSlashCommands sends cwd plus additionalDirectories to skills/list", async () => {
+		const manager = new CodexAppServerManager();
+
+		const commands = await manager.listSlashCommands({
+			cwd: "/tmp/workspace",
+			additionalDirectories: ["/tmp/repo", "/tmp/repo", " "],
+		});
+
+		const skillsList = serverState.requests.find(
+			(request) => request.method === "skills/list",
+		);
+		expect(skillsList?.params).toEqual({
+			cwds: ["/tmp/workspace", "/tmp/repo"],
+		});
+		expect(commands.map((command) => command.name)).toEqual([
+			"workspace-skill",
+			"repo-skill",
+		]);
 	});
 
 	test("returns the hardcoded model list", async () => {
@@ -753,6 +792,73 @@ describe("CodexAppServerManager goal pre-flight", () => {
 		expect(goalSet?.params).toMatchObject({
 			threadId: "thread-1",
 			objective: "review the diff",
+		});
+	});
+
+	test("/goal recycles idle context so continuation inherits full access", async () => {
+		const manager = new CodexAppServerManager();
+
+		await manager.sendMessage(
+			"REQ-seed-full-access",
+			{
+				sessionId: "s-goal-full-access",
+				prompt: "warm-up",
+				model: "gpt-5.4",
+				cwd: "/tmp",
+				resume: undefined,
+				permissionMode: "bypassPermissions",
+				effortLevel: "medium",
+				fastMode: false,
+				images: [],
+			},
+			emitter,
+		);
+		const stale = serverState.instances[0];
+		expect(stale?.killed).toBe(false);
+
+		serverState.requests = [];
+
+		await manager.sendMessage(
+			"REQ-goal-full-access",
+			{
+				sessionId: "s-goal-full-access",
+				prompt: "/goal finish the migration",
+				model: "gpt-5.4",
+				cwd: "/tmp",
+				resume: undefined,
+				permissionMode: "bypassPermissions",
+				effortLevel: "medium",
+				fastMode: false,
+				images: [],
+			},
+			emitter,
+		);
+
+		expect(stale?.killed).toBe(true);
+		expect(serverState.instances).toHaveLength(2);
+		const resume = serverState.requests.find(
+			(r) => r.method === "thread/resume",
+		);
+		expect(resume?.params).toMatchObject({
+			threadId: "thread-1",
+			cwd: "/tmp",
+			approvalPolicy: {
+				granular: {
+					sandbox_approval: false,
+					rules: false,
+					skill_approval: false,
+					request_permissions: false,
+					mcp_elicitations: true,
+				},
+			},
+			sandbox: "danger-full-access",
+		});
+		const goalSet = serverState.requests.find(
+			(r) => r.method === "thread/goal/set",
+		);
+		expect(goalSet?.params).toMatchObject({
+			threadId: "thread-1",
+			objective: "finish the migration",
 		});
 	});
 

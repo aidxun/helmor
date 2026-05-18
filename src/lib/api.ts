@@ -2,6 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { InspectorFileItem } from "./editor-session";
 import { type ErrorCode, extractError } from "./errors";
+import { setSessionThreadPaginationState } from "./session-thread-pagination";
 
 export type GroupTone =
 	| "pinned"
@@ -64,6 +65,7 @@ export type WorkspaceRow = {
 	title: string;
 	avatar?: string;
 	directoryName?: string;
+	repoId?: string;
 	repoName?: string;
 	repoIconSrc?: string | null;
 	repoInitials?: string | null;
@@ -96,6 +98,12 @@ export type WorkspaceRow = {
 	createdAt?: string;
 	/** ISO-8601 timestamp — last DB-recorded change to the workspace. */
 	updatedAt?: string;
+	/** Sparse sidebar order. Lower comes first; shared across every grouping
+	 * mode (status / repo / pinned). */
+	displayOrder?: number;
+	/** Sparse order of this row's parent repo bucket. Used in repo grouping
+	 * mode to sort buckets. Mirrors `repos.display_order`. */
+	repoSidebarOrder?: number;
 	/** ISO-8601 timestamp — most recent user message across all sessions
 	 * in this workspace. Null when the workspace has no user messages yet. */
 	lastUserMessageAt?: string | null;
@@ -166,6 +174,7 @@ export type WorkspaceSummary = {
 	id: string;
 	title: string;
 	directoryName: string;
+	repoId: string;
 	repoName: string;
 	repoIconSrc?: string | null;
 	repoInitials?: string | null;
@@ -187,6 +196,10 @@ export type WorkspaceSummary = {
 	prSyncState?: PrSyncState;
 	prUrl?: string | null;
 	pinnedAt?: string | null;
+	/** Sparse sidebar order. Mirrors `WorkspaceRow.displayOrder`; carried
+	 * through the archived list so restore can predict the live-group
+	 * position without waiting for refetch. */
+	displayOrder?: number;
 	sessionCount?: number;
 	messageCount?: number;
 	createdAt: string;
@@ -312,6 +325,11 @@ export type WorkspaceDetail = {
 	/** gh/glab account login bound to the parent repo. NULL means no
 	 * account is bound — UI shows the "Connect" prompt. */
 	forgeLogin?: string | null;
+	/** Set when this workspace's setup script last finished with exit
+	 * code 0. NULL means never run (or skipped because the repo had no
+	 * setup script). Drives the inspector's Setup tab "ran in another
+	 * session" notice and the default-tab heuristic on workspace switch. */
+	setupCompletedAt?: string | null;
 };
 
 export type WorkspaceSessionSummary = {
@@ -358,14 +376,22 @@ export type PrepareArchiveWorkspaceResponse = {
 	workspaceId: string;
 };
 
+/** Mirrors `workspace::archive::ArchiveOrigin`. `manual` drives the existing
+ *  `pendingArchives` + `archiveGate` UI flow; `autoAfterMerge` has no
+ *  optimistic state and needs the controller to reconcile + use a calmer
+ *  failure toast on its own. */
+export type ArchiveOrigin = "manual" | "autoAfterMerge";
+
 export type ArchiveExecutionFailedPayload = {
 	workspaceId: string;
 	code: ErrorCode;
 	message: string;
+	origin: ArchiveOrigin;
 };
 
 export type ArchiveExecutionSucceededPayload = {
 	workspaceId: string;
+	origin: ArchiveOrigin;
 };
 
 export type CreateWorkspaceResponse = {
@@ -391,6 +417,8 @@ export type PrepareWorkspaceResponse = {
 	 *  immediately. Worktree mode: null until finalize materialises the
 	 *  worktree — callers MUST then read `FinalizeWorkspaceResponse.workingDirectory`. */
 	workingDirectory: string | null;
+	/** Echo of the branch-intent the workspace was created with. */
+	branchIntent: WorkspaceBranchIntent;
 };
 
 export type FinalizeWorkspaceResponse = {
@@ -756,6 +784,8 @@ export type AgentLoginStatusResult = {
 	claude: boolean;
 	codex: boolean;
 	cursor: boolean;
+	codexProvider?: string | null;
+	codexAuthMethod?: "login" | "apiKey" | string | null;
 };
 
 export async function getAgentLoginStatus(): Promise<AgentLoginStatusResult> {
@@ -957,7 +987,9 @@ export async function listCursorModels(
 export type InboxItemSource =
 	| "github_issue"
 	| "github_pr"
-	| "github_discussion";
+	| "github_discussion"
+	| "gitlab_issue"
+	| "gitlab_mr";
 
 export type InboxItemStateTone =
 	| "open"
@@ -981,8 +1013,12 @@ export type InboxItem = {
 };
 
 export type InboxItemDetailRef = {
-	provider: Extract<ForgeProvider, "github">;
+	provider: Extract<ForgeProvider, "github" | "gitlab">;
 	login: string;
+	/** Host the item lives on. Critical for self-hosted GitLab where a
+	 *  login may have accounts on multiple instances — without this the
+	 *  detail call could route to the wrong host and 404. */
+	host?: string | null;
 	source: InboxItemSource;
 	externalId: string;
 };
@@ -1028,10 +1064,39 @@ export type GitHubDiscussionDetail = {
 	updatedAt?: string | null;
 };
 
+export type GitLabIssueDetail = {
+	externalId: string;
+	title: string;
+	body?: string | null;
+	url: string;
+	state: string;
+	authorLogin?: string | null;
+	createdAt?: string | null;
+	updatedAt?: string | null;
+	closedAt?: string | null;
+};
+
+export type GitLabMergeRequestDetail = {
+	externalId: string;
+	title: string;
+	body?: string | null;
+	url: string;
+	state: string;
+	merged: boolean;
+	draft: boolean;
+	authorLogin?: string | null;
+	sourceBranch?: string | null;
+	targetBranch?: string | null;
+	createdAt?: string | null;
+	updatedAt?: string | null;
+};
+
 export type InboxItemDetail =
 	| { type: "github_issue"; data: GitHubIssueDetail }
 	| { type: "github_pr"; data: GitHubPullRequestDetail }
-	| { type: "github_discussion"; data: GitHubDiscussionDetail };
+	| { type: "github_discussion"; data: GitHubDiscussionDetail }
+	| { type: "gitlab_issue"; data: GitLabIssueDetail }
+	| { type: "gitlab_mr"; data: GitLabMergeRequestDetail };
 
 export type InboxPage = {
 	items: InboxItem[];
@@ -1040,11 +1105,10 @@ export type InboxPage = {
 	nextCursor: string | null;
 };
 
-export type InboxToggles = {
-	issues: boolean;
-	prs: boolean;
-	discussions: boolean;
-};
+/** Sub-tab the inbox is showing. The Tauri command takes one kind per
+ *  call; the frontend maps each tab onto a separate React-Query so
+ *  switching tabs reuses the prior cached pages. */
+export type InboxKind = "issues" | "prs" | "discussions";
 
 export type InboxStateFilter =
 	| "open"
@@ -1078,44 +1142,63 @@ export type InboxFilters = {
 	labels?: string | null;
 };
 
-export type GithubLabelOption = {
+/** Repo-scoped label, shared between GitHub and GitLab — both forges
+ *  expose `(name, color, description)` triples on their labels API. */
+export type ForgeLabelOption = {
 	name: string;
 	color?: string | null;
 	description?: string | null;
 };
 
-export async function listGithubLabels(args: {
+/** Union of labels visible across the given repositories. Powers the
+ *  Settings → Context labels multi-select. `host` is required for
+ *  self-hosted GitLab; ignored by GitHub today. */
+export async function listForgeLabels(args: {
+	provider: ForgeProvider;
 	login: string;
+	host?: string | null;
 	repos: string[];
-}): Promise<GithubLabelOption[]> {
+}): Promise<ForgeLabelOption[]> {
 	try {
-		return await invoke<GithubLabelOption[]>("list_github_labels", {
+		return await invoke<ForgeLabelOption[]>("list_forge_labels", {
+			provider: args.provider,
 			login: args.login,
+			host: args.host ?? null,
 			repos: args.repos,
 		});
 	} catch (error) {
 		throw new Error(
-			describeInvokeError(error, "Unable to load GitHub labels."),
+			describeInvokeError(error, "Unable to load repository labels."),
 		);
 	}
 }
 
 export async function listInboxItems(args: {
 	provider: ForgeProvider;
+	/** Sub-tab kind. Pass one at a time — the backend dispatches via
+	 *  per-kind trait methods. Asking GitLab for "discussions" panics
+	 *  via Rust's `unimplemented!()` (it's a router bug); callers must
+	 *  consult `listSupportedInboxKinds(provider)` first. */
+	kind: InboxKind;
 	login: string;
-	toggles: InboxToggles;
+	/** Host the API call should target. Required for self-hosted GitLab
+	 *  to avoid querying `gitlab.com` for projects that live elsewhere.
+	 *  When `null`, the backend falls back to the login's home host
+	 *  (correct for the single-host "involves @me" global feed). */
+	host?: string | null;
 	cursor?: string | null;
 	limit?: number;
-	/** GitHub `owner/name` filter — when present, all enabled kinds are
-	 *  scoped to that single repo via a `repo:owner/name` qualifier. */
+	/** `owner/name` (GitHub) or `group/.../project` (GitLab) — scopes
+	 *  the query to one repo on the backend. */
 	repo?: string | null;
 	filters?: InboxFilters | null;
 }): Promise<InboxPage> {
 	try {
 		return await invoke<InboxPage>("list_inbox_items", {
 			provider: args.provider,
+			kind: args.kind,
 			login: args.login,
-			toggles: args.toggles,
+			host: args.host ?? null,
 			cursor: args.cursor ?? null,
 			limit: args.limit ?? 20,
 			repo: args.repo ?? null,
@@ -1126,6 +1209,45 @@ export async function listInboxItems(args: {
 	}
 }
 
+/** User-facing labels for one inbox kind, scoped to a forge.
+ *
+ *  All inbox copy that differs between GitHub and GitLab ("PR" vs
+ *  "MR", "Pull requests" vs "Merge requests", GitHub-only Discussions
+ *  entry, …) lives in these structs on the backend. The frontend
+ *  renders strings from the fields directly — no provider-branched
+ *  copy in TypeScript. */
+export type InboxKindLabels = {
+	kind: InboxKind;
+	/** Short title-cased form for sub-tab dropdown items
+	 *  ("Issues", "PRs", "MRs", "Discussions"). */
+	short: string;
+	/** Title-cased plural for empty-state titles and section headers
+	 *  ("Issues", "Pull requests", "Merge requests", "Discussions"). */
+	plural: string;
+	/** Lowercase singular for inline mentions ("issue", "pull request",
+	 *  "merge request", "discussion"). */
+	singular: string;
+};
+
+/** Inbox kinds the forge supports + their labels. The set is also the
+ *  capability gate — kinds NOT in the response don't have a backend
+ *  implementation (e.g. GitLab omits Discussions because GitLab has no
+ *  equivalent feature, and `listInboxItems(gitlab, discussions)` would
+ *  panic via `unimplemented!()`). */
+export async function listInboxKindLabels(
+	provider: ForgeProvider,
+): Promise<InboxKindLabels[]> {
+	try {
+		return await invoke<InboxKindLabels[]>("list_inbox_kind_labels", {
+			provider,
+		});
+	} catch (error) {
+		throw new Error(
+			describeInvokeError(error, "Unable to load inbox kind labels."),
+		);
+	}
+}
+
 export async function getInboxItemDetail(
 	ref: InboxItemDetailRef,
 ): Promise<InboxItemDetail | null> {
@@ -1133,6 +1255,7 @@ export async function getInboxItemDetail(
 		return await invoke<InboxItemDetail | null>("get_inbox_item_detail", {
 			provider: ref.provider,
 			login: ref.login,
+			host: ref.host ?? null,
 			source: ref.source,
 			externalId: ref.externalId,
 		});
@@ -1203,6 +1326,19 @@ export async function prewarmSlashCommandsForWorkspace(
 	}
 }
 
+/** Fire-and-forget: prewarm the slash-command cache for a repo (start page). */
+export async function prewarmSlashCommandsForRepo(
+	repoId: string,
+): Promise<void> {
+	try {
+		await invoke<void>("prewarm_slash_commands_for_repo", {
+			repoId,
+		});
+	} catch {
+		// Best-effort; cache will still be populated lazily on first /.
+	}
+}
+
 export async function loadWorkspaceDetail(
 	workspaceId: string,
 ): Promise<WorkspaceDetail | null> {
@@ -1264,6 +1400,32 @@ export async function listBranchesForLocalPicker(
 	}
 }
 
+/** One row of the start-page branch picker. */
+export type BranchPickerEntry = {
+	name: string;
+	hasLocal: boolean;
+	hasRemote: boolean;
+};
+
+/**
+ * Merged local + remote branches with source flags so the picker can
+ * show an icon and the pill can decide whether to prefix with `origin/`.
+ * Pure local fs reads — no network.
+ */
+export async function listBranchesForWorkspacePicker(
+	repoId: string,
+): Promise<BranchPickerEntry[]> {
+	try {
+		return await invoke<BranchPickerEntry[]>(
+			"list_branches_for_workspace_picker",
+			{ repoId },
+		);
+	} catch (error) {
+		console.warn("[helmor] listBranchesForWorkspacePicker failed:", error);
+		return [];
+	}
+}
+
 /**
  * `git checkout -b <branch>` against the repo's source path. Caller is
  * responsible for refreshing whatever query feeds the branch picker.
@@ -1300,6 +1462,9 @@ export async function moveLocalWorkspaceToWorktree(
 
 /** How a workspace's filesystem is provisioned. */
 export type WorkspaceMode = "worktree" | "local";
+
+/** `from_branch`: fork off the picked base. `use_branch`: attach to it. */
+export type WorkspaceBranchIntent = "from_branch" | "use_branch";
 
 export type UpdateIntendedTargetBranchResponse = {
 	/** True if the workspace's local branch was hard-reset to origin/<target>. */
@@ -1487,22 +1652,76 @@ export async function loadWorkspaceSessions(
 	}
 }
 
+export type SessionThreadMessagesPage = {
+	messages: ThreadMessageLike[];
+	hasMore: boolean;
+};
+
 /**
- * Load session messages as pipeline-rendered ThreadMessageLike[].
- * The frontend can render these directly without any conversion.
+ * Default tail window for session message loads. Mirrored in
+ * `query-client.ts` as `SESSION_THREAD_DEFAULT_TAIL_LIMIT` — keep in sync.
  */
-export async function loadSessionThreadMessages(
+export const DEFAULT_SESSION_THREAD_TAIL_LIMIT = 200;
+
+/**
+ * Raw page fetch — returns both messages and the `hasMore` flag.
+ *
+ * Lower-level than `loadSessionThreadMessages`. Used by the React Query
+ * queryFn (which then updates the pagination store) and by the
+ * "Load earlier" expand path (which needs `hasMore` after each fetch).
+ */
+export async function fetchSessionThreadMessagesPage(
 	sessionId: string,
-): Promise<ThreadMessageLike[]> {
+	options?: { tailLimit?: number | null },
+): Promise<SessionThreadMessagesPage> {
+	const tailLimit =
+		options?.tailLimit === undefined
+			? DEFAULT_SESSION_THREAD_TAIL_LIMIT
+			: options.tailLimit;
 	try {
-		return await invoke<ThreadMessageLike[]>("list_session_thread_messages", {
-			sessionId,
-		});
+		return await invoke<SessionThreadMessagesPage>(
+			"list_session_thread_messages",
+			{
+				sessionId,
+				tailLimit,
+			},
+		);
 	} catch (error) {
 		throw new Error(
 			describeInvokeError(error, "Unable to load session thread messages."),
 		);
 	}
+}
+
+/**
+ * Load session messages as pipeline-rendered ThreadMessageLike[].
+ *
+ * Thin wrapper over `fetchSessionThreadMessagesPage` that drops
+ * `hasMore` for callers wanting just the array. As a side effect this
+ * also updates the pagination store so the React Query path (which
+ * calls this for trivial mockability) keeps `hasMore` / `loadedTailLimit`
+ * in sync with the cache.
+ *
+ * Pass `tailLimit: null` (e.g. full session export) to skip the store
+ * update — that path lives under a different cache key and should not
+ * stomp the live panel's pagination state.
+ */
+export async function loadSessionThreadMessages(
+	sessionId: string,
+	options?: { tailLimit?: number | null },
+): Promise<ThreadMessageLike[]> {
+	const page = await fetchSessionThreadMessagesPage(sessionId, options);
+	if (options?.tailLimit !== null) {
+		const tailLimit =
+			options?.tailLimit === undefined
+				? DEFAULT_SESSION_THREAD_TAIL_LIMIT
+				: options.tailLimit;
+		setSessionThreadPaginationState(sessionId, {
+			hasMore: page.hasMore,
+			loadedTailLimit: tailLimit,
+		});
+	}
+	return page.messages;
 }
 
 export async function restoreWorkspace(
@@ -1592,6 +1811,13 @@ export async function openWorkspaceInEditor(
 	editor: string,
 ): Promise<void> {
 	await invoke("open_workspace_in_editor", { workspaceId, editor });
+}
+
+export async function openFileInEditor(
+	path: string,
+	editor: string,
+): Promise<void> {
+	await invoke("open_file_in_editor", { path, editor });
 }
 
 export async function openWorkspaceInFinder(
@@ -1828,6 +2054,7 @@ export type ForgeActionStatus = {
 	changeRequest: ChangeRequestInfo | null;
 	reviewDecision?: string | null;
 	mergeable?: string | null;
+	mergeStateStatus?: string | null;
 	deployments: ForgeActionItem[];
 	checks: ForgeActionItem[];
 	remoteState: "ok" | "noPr" | "unauthenticated" | "unavailable" | "error";
@@ -2090,19 +2317,22 @@ export async function createWorkspaceFromRepo(
  * session, and returns all metadata plus repo-level scripts. The
  * frontend paints with this response immediately — no placeholders.
  *
- * `sourceBranch` (optional): branch to branch the new workspace from. When
- * omitted, the repo's default branch is used. The kanban "create" flow
- * forwards the user's branch picker selection here.
+ * `sourceBranch` is the fork base for `from_branch` (default) or the
+ * branch to attach to for `use_branch` (required).
  */
 export async function prepareWorkspaceFromRepo(
 	repoId: string,
 	sourceBranch?: string | null,
 	mode?: WorkspaceMode | null,
+	branchIntent?: WorkspaceBranchIntent | null,
+	initialStatus?: WorkspaceStatus | null,
 ): Promise<PrepareWorkspaceResponse> {
 	return invoke<PrepareWorkspaceResponse>("prepare_workspace_from_repo", {
 		repoId,
 		sourceBranch: sourceBranch ?? null,
 		mode: mode ?? null,
+		branchIntent: branchIntent ?? null,
+		initialStatus: initialStatus ?? null,
 	});
 }
 
@@ -2178,6 +2408,39 @@ export async function setWorkspaceStatus(
 	status: WorkspaceStatus,
 ): Promise<void> {
 	return invoke<void>("set_workspace_status", { workspaceId, status });
+}
+
+/**
+ * Sidebar drag drop. `targetGroupId` matches the frontend grouping ids:
+ *   - `"pinned"`
+ *   - a status lane: `"done"` / `"review"` / `"progress"` / `"backlog"` / `"canceled"`
+ *   - a repo bucket: `"repo:<repoId>"`
+ *
+ * The backend rewrites status / pinned_at / display_order on a single row
+ * in the common case; only the gap-exhausted fallback rebalances neighbours.
+ */
+export async function moveWorkspaceInSidebar(
+	workspaceId: string,
+	targetGroupId: string,
+	beforeWorkspaceId: string | null,
+): Promise<void> {
+	return invoke<void>("move_workspace_in_sidebar", {
+		workspaceId,
+		targetGroupId,
+		beforeWorkspaceId,
+	});
+}
+
+/** Drag-reorder a repo bucket in the sidebar's repo grouping mode.
+ *  `beforeRepoId === null` appends to the end. */
+export async function moveRepositoryInSidebar(
+	repoId: string,
+	beforeRepoId: string | null,
+): Promise<void> {
+	return invoke<void>("move_repository_in_sidebar", {
+		repoId,
+		beforeRepoId,
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -2700,6 +2963,17 @@ export async function getSessionContextUsage(
 	return await invoke<string | null>("get_session_context_usage", {
 		sessionId,
 	});
+}
+
+/** Frontend-driven write of `context_usage_meta`. Used after a
+ *  trustworthy Claude hover-time live fetch so the persisted baseline
+ *  catches up without waiting for the next turn end. The backend
+ *  broadcasts `ContextUsageChanged`, so other observers refresh too. */
+export async function setSessionContextUsage(
+	sessionId: string,
+	meta: string,
+): Promise<void> {
+	await invoke<void>("set_session_context_usage", { sessionId, meta });
 }
 
 /** Active Codex `/goal` payload as JSON. Null when no goal is set. */

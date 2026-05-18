@@ -118,7 +118,7 @@ export function OpenDevServerButton({ urls }: { urls: string[] }) {
 								type="button"
 								role="menuitem"
 								onClick={() => handleOpen(url)}
-								className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+								className="flex cursor-interactive items-center gap-2 rounded-md px-2 py-1.5 text-left text-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
 							>
 								<ExternalLink
 									className="size-3 shrink-0 text-muted-foreground"
@@ -234,6 +234,11 @@ export function RunTab({
 	);
 
 	const hasScript = !!runScript?.trim();
+	const autoExpandEnabled = settings.terminalHoverExpansion;
+	// Auto-expand off → zoom never fires, so anchor the button unconditionally.
+	const showFloatingAction =
+		(status === "running" || status === "exited") &&
+		(autoExpandEnabled ? isZoomPresented : true);
 
 	return (
 		<div
@@ -257,14 +262,18 @@ export function RunTab({
 						/>
 					</div>
 
-					{isZoomPresented && (status === "running" || status === "exited") && (
+					{showFloatingAction && (
 						<div
 							className="absolute bottom-3 right-4"
-							style={{
-								opacity: isHoverExpanded ? 1 : 0,
-								pointerEvents: isHoverExpanded ? "auto" : "none",
-								transition: `opacity ${TABS_HOVER_TRANSITION_MS}ms ${TABS_EASING}`,
-							}}
+							style={
+								autoExpandEnabled
+									? {
+											opacity: isHoverExpanded ? 1 : 0,
+											pointerEvents: isHoverExpanded ? "auto" : "none",
+											transition: `opacity ${TABS_HOVER_TRANSITION_MS}ms ${TABS_EASING}`,
+										}
+									: undefined
+							}
 						>
 							<Button
 								variant={status === "running" ? "destructive" : "secondary"}

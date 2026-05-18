@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createContext, useContext } from "react";
+import type { WorkspaceBranchIntent, WorkspaceMode } from "./api";
 import type { ContextCard } from "./sources/types";
 
 export type ThemeMode = "system" | "light" | "dark";
@@ -11,8 +12,16 @@ export type DarkTheme = "default" | "midnight" | "forest" | "ember" | "aurora";
  *  - `queue`: stash locally; auto-fire as a new turn once the agent finishes.
  */
 export type FollowUpBehavior = "steer" | "queue";
+
+/** Controls how Claude Code returns thinking content.
+ *  - `summarized`: thinking blocks contain summarized thinking text.
+ *  - `omitted`: server skips streaming thinking tokens; the final text
+ *    response begins streaming sooner. */
+export type ClaudeThinkingDisplay = "summarized" | "omitted";
 export type AppSurface = "workspace" | "workspace-start";
 export type WorkspaceRightSidebarMode = "inspector" | "context";
+export type SidebarGrouping = "status" | "repo";
+export type SidebarSort = "custom" | "repoName" | "updatedAt" | "createdAt";
 
 export type ShortcutOverrides = Record<string, string | null>;
 
@@ -157,6 +166,10 @@ export type KanbanViewState = {
 	/** Whether new kanban workspaces land in "in progress" (immediate
 	 *  agent dispatch) or "backlog" (draft saved, no agent). */
 	createState: "in-progress" | "backlog";
+	/** Start-composer branch-intent picker default. Worktree mode only. */
+	branchIntent: WorkspaceBranchIntent;
+	/** Start-composer worktree-vs-local picker default. */
+	mode: WorkspaceMode;
 	/** Repository id last selected in the kanban header picker.
 	 *  Resolved against the current repo list on hydrate — falls back
 	 *  to the first repo when the saved id is no longer present. */
@@ -178,10 +191,23 @@ export type KanbanViewState = {
 };
 
 export type AppSettings = {
-	fontSize: number;
+	/** Chat message body font size (px). Migrated from the legacy `fontSize`
+	 *  field, which only ever affected chat rendering. */
+	chatFontSize: number;
+	/** Override for the sans-serif UI font stack. `null` = preset default. */
+	uiFontFamily: string | null;
+	/** Override for the monospace code font stack. `null` = preset default. */
+	codeFontFamily: string | null;
+	/** Override for embedded terminal font stack. `null` = preset default. */
+	terminalFontFamily: string | null;
+	/** When true, all clickable elements show a pointer cursor on hover.
+	 *  When false, falls back to the default arrow. */
+	usePointerCursors: boolean;
 	theme: ThemeMode;
 	darkTheme: DarkTheme;
 	notifications: boolean;
+	/** When true, hovering a terminal-like inspector tab body expands it. */
+	terminalHoverExpansion: boolean;
 	lastWorkspaceId: string | null;
 	lastSessionId: string | null;
 	lastSurface: AppSurface;
@@ -197,14 +223,13 @@ export type AppSettings = {
 	/** Fast-mode flag for the Review helper. When null, falls back to
 	 *  `defaultFastMode`. */
 	reviewFastMode: boolean | null;
-	/** Model used when the inspector "Create PR/MR" action starts a session.
-	 *  Applies to both GitHub PRs and GitLab MRs. When null, falls back to
-	 *  `defaultModelId`. */
+	/** Model used by simple action sessions: create/reopen PR/MR and
+	 *  commit-and-push. When null, falls back to `defaultModelId`. */
 	prModelId: string | null;
-	/** Effort level for the Create PR/MR helper. When null, falls back to
+	/** Effort level for simple action sessions. When null, falls back to
 	 *  `defaultEffort`. */
 	prEffort: string | null;
-	/** Fast-mode flag for the Create PR/MR helper. When null, falls back to
+	/** Fast-mode flag for simple action sessions. When null, falls back to
 	 *  `defaultFastMode`. */
 	prFastMode: boolean | null;
 	defaultEffort: string | null;
@@ -212,21 +237,40 @@ export type AppSettings = {
 	/** Webview zoom factor. 1.0 = 100%. Range 0.5–2.0. */
 	zoomLevel: number;
 	followUpBehavior: FollowUpBehavior;
+	/** How Claude Code returns thinking content. Plumbed through to the
+	 *  sidecar's `thinking.display` field. */
+	claudeThinkingDisplay: ClaudeThinkingDisplay;
 	/** Force the context-usage ring to always be visible. When false (the
 	 *  default), the ring auto-hides until usage crosses
 	 *  `CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD`. */
 	alwaysShowContextUsage: boolean;
 	showUsageStats: boolean;
+	/** Opt-in: when the workspace's linked PR/MR transitions to merged,
+	 *  attempt to archive the workspace automatically. One-shot — runs
+	 *  exactly once at the merged-edge; skipped if the workspace has an
+	 *  active agent session or fails archive validation. */
+	autoArchiveOnMerge: boolean;
 	onboardingCompleted: boolean;
 	shortcuts: ShortcutOverrides;
 	claudeCustomProviders: ClaudeCustomProviderSettings;
 	cursorProvider: CursorProviderSettings;
 	inboxSourceConfig: InboxSourceConfig;
 	kanbanViewState: KanbanViewState;
+	/** Sidebar grouping mode. Persisted to localStorage (sync read on boot
+	 *  to avoid the sidebar flashing the wrong grouping while SQLite-backed
+	 *  settings load asynchronously). */
+	sidebarGrouping: SidebarGrouping;
+	/** Sidebar repository filter. Empty means all repositories. Persisted
+	 *  to localStorage because it affects first-paint navigation shape. */
+	sidebarRepoFilterIds: string[];
+	/** Sidebar view-only sort. `custom` preserves saved drag order. */
+	sidebarSort: SidebarSort;
 };
 
 export const DEFAULT_KANBAN_VIEW_STATE: KanbanViewState = {
 	createState: "in-progress",
+	branchIntent: "from_branch",
+	mode: "worktree",
 	repoId: null,
 	inboxProviderTab: "github",
 	inboxProviderSourceTab: "github_issue",
@@ -243,10 +287,15 @@ export const DEFAULT_KANBAN_VIEW_STATE: KanbanViewState = {
 export const CONTEXT_USAGE_AUTO_REVEAL_THRESHOLD = 70;
 
 export const DEFAULT_SETTINGS: AppSettings = {
-	fontSize: 14,
+	chatFontSize: 14,
+	uiFontFamily: null,
+	codeFontFamily: null,
+	terminalFontFamily: null,
+	usePointerCursors: true,
 	theme: "system",
 	darkTheme: "default",
 	notifications: true,
+	terminalHoverExpansion: true,
 	lastWorkspaceId: null,
 	lastSessionId: null,
 	lastSurface: "workspace",
@@ -263,8 +312,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	defaultFastMode: false,
 	zoomLevel: 1.0,
 	followUpBehavior: "steer",
+	claudeThinkingDisplay: "summarized",
 	alwaysShowContextUsage: true,
 	showUsageStats: true,
+	autoArchiveOnMerge: false,
 	onboardingCompleted: false,
 	shortcuts: {},
 	claudeCustomProviders: {
@@ -280,10 +331,43 @@ export const DEFAULT_SETTINGS: AppSettings = {
 	},
 	inboxSourceConfig: { accounts: {} },
 	kanbanViewState: DEFAULT_KANBAN_VIEW_STATE,
+	sidebarGrouping: "status",
+	sidebarRepoFilterIds: [],
+	sidebarSort: "custom",
 };
 
 export const THEME_STORAGE_KEY = "helmor-theme";
 export const DARK_THEME_STORAGE_KEY = "helmor-dark-theme";
+export const SIDEBAR_GROUPING_STORAGE_KEY = "helmor-sidebar-grouping";
+export const SIDEBAR_REPO_FILTER_STORAGE_KEY = "helmor-sidebar-repo-filter";
+export const SIDEBAR_SORT_STORAGE_KEY = "helmor-sidebar-sort";
+export const UI_FONT_FAMILY_STORAGE_KEY = "helmor-ui-font-family";
+export const CODE_FONT_FAMILY_STORAGE_KEY = "helmor-code-font-family";
+export const TERMINAL_FONT_FAMILY_STORAGE_KEY = "helmor-terminal-font-family";
+
+/** Keys mirrored to localStorage for flash-free synchronous boot reads.
+ *  Anything visible in the first paint must live here so we don't wait
+ *  on the async SQLite round-trip. */
+const LOCALSTORAGE_KEYS = {
+	theme: THEME_STORAGE_KEY,
+	darkTheme: DARK_THEME_STORAGE_KEY,
+	sidebarGrouping: SIDEBAR_GROUPING_STORAGE_KEY,
+	sidebarRepoFilterIds: SIDEBAR_REPO_FILTER_STORAGE_KEY,
+	sidebarSort: SIDEBAR_SORT_STORAGE_KEY,
+	uiFontFamily: UI_FONT_FAMILY_STORAGE_KEY,
+	codeFontFamily: CODE_FONT_FAMILY_STORAGE_KEY,
+	terminalFontFamily: TERMINAL_FONT_FAMILY_STORAGE_KEY,
+} as const;
+
+type LocalStorageKey = keyof typeof LOCALSTORAGE_KEYS;
+
+const VALID_SIDEBAR_GROUPINGS: readonly SidebarGrouping[] = ["status", "repo"];
+const VALID_SIDEBAR_SORTS: readonly SidebarSort[] = [
+	"custom",
+	"repoName",
+	"updatedAt",
+	"createdAt",
+];
 
 const VALID_DARK_THEMES: readonly DarkTheme[] = [
 	"default",
@@ -293,13 +377,70 @@ const VALID_DARK_THEMES: readonly DarkTheme[] = [
 	"aurora",
 ];
 
-// theme + darkTheme are stored in localStorage (sync read for flash-free boot), not SQLite
+// Synchronous theme read for flash-free splash boot. The full settings
+// payload lives in SQLite and loads async; theme is mirrored to
+// localStorage so we can paint with the right colour scheme before that
+// returns.
+export function getPreloadedTheme(): ThemeMode {
+	if (typeof localStorage === "undefined") {
+		return DEFAULT_SETTINGS.theme;
+	}
+	const raw = localStorage.getItem(THEME_STORAGE_KEY);
+	return (raw as ThemeMode | null) ?? DEFAULT_SETTINGS.theme;
+}
+
+function readLocalStorageString(key: string): string | null {
+	if (typeof localStorage === "undefined") return null;
+	const v = localStorage.getItem(key);
+	return v && v.length > 0 ? v : null;
+}
+
+export function getPreloadedSettings(): AppSettings {
+	const darkTheme = (() => {
+		const raw = readLocalStorageString(DARK_THEME_STORAGE_KEY);
+		return VALID_DARK_THEMES.includes(raw as DarkTheme)
+			? (raw as DarkTheme)
+			: DEFAULT_SETTINGS.darkTheme;
+	})();
+	const sidebarGrouping = (() => {
+		const raw = readLocalStorageString(SIDEBAR_GROUPING_STORAGE_KEY);
+		return VALID_SIDEBAR_GROUPINGS.includes(raw as SidebarGrouping)
+			? (raw as SidebarGrouping)
+			: DEFAULT_SETTINGS.sidebarGrouping;
+	})();
+	const sidebarSort = (() => {
+		const raw = readLocalStorageString(SIDEBAR_SORT_STORAGE_KEY);
+		return VALID_SIDEBAR_SORTS.includes(raw as SidebarSort)
+			? (raw as SidebarSort)
+			: DEFAULT_SETTINGS.sidebarSort;
+	})();
+	return {
+		...DEFAULT_SETTINGS,
+		theme: getPreloadedTheme(),
+		darkTheme,
+		sidebarGrouping,
+		sidebarRepoFilterIds: parseSidebarRepoFilterIds(
+			readLocalStorageString(SIDEBAR_REPO_FILTER_STORAGE_KEY) ?? undefined,
+		),
+		sidebarSort,
+		uiFontFamily: readLocalStorageString(UI_FONT_FAMILY_STORAGE_KEY),
+		codeFontFamily: readLocalStorageString(CODE_FONT_FAMILY_STORAGE_KEY),
+		terminalFontFamily: readLocalStorageString(
+			TERMINAL_FONT_FAMILY_STORAGE_KEY,
+		),
+	};
+}
+
+// localStorage-backed fields (sync read for flash-free boot) live in
+// `LOCALSTORAGE_KEYS` above. Everything else goes through SQLite.
 const SETTINGS_KEY_MAP: Record<
-	Exclude<keyof AppSettings, "theme" | "darkTheme">,
+	Exclude<keyof AppSettings, LocalStorageKey>,
 	string
 > = {
-	fontSize: "app.font_size",
+	chatFontSize: "app.chat_font_size",
+	usePointerCursors: "app.use_pointer_cursors",
 	notifications: "app.notifications",
+	terminalHoverExpansion: "app.terminal_hover_expansion",
 	lastWorkspaceId: "app.last_workspace_id",
 	lastSessionId: "app.last_session_id",
 	lastSurface: "app.last_surface",
@@ -316,8 +457,10 @@ const SETTINGS_KEY_MAP: Record<
 	defaultFastMode: "app.default_fast_mode",
 	zoomLevel: "app.zoom_level",
 	followUpBehavior: "app.follow_up_behavior",
+	claudeThinkingDisplay: "app.claude_thinking_display",
 	alwaysShowContextUsage: "app.always_show_context_usage",
 	showUsageStats: "app.show_usage_stats",
+	autoArchiveOnMerge: "app.auto_archive_on_merge",
 	onboardingCompleted: "app.onboarding_completed",
 	shortcuts: "app.shortcuts",
 	claudeCustomProviders: "app.claude_custom_providers",
@@ -325,6 +468,24 @@ const SETTINGS_KEY_MAP: Record<
 	inboxSourceConfig: "app.inbox_source_config",
 	kanbanViewState: "app.kanban_view_state",
 };
+
+function parseSidebarRepoFilterIds(raw: string | undefined): string[] {
+	if (!raw) return DEFAULT_SETTINGS.sidebarRepoFilterIds;
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		if (!Array.isArray(parsed)) return DEFAULT_SETTINGS.sidebarRepoFilterIds;
+		return Array.from(
+			new Set(
+				parsed.filter(
+					(value): value is string =>
+						typeof value === "string" && value.length > 0,
+				),
+			),
+		);
+	} catch {
+		return DEFAULT_SETTINGS.sidebarRepoFilterIds;
+	}
+}
 
 function parseShortcutOverrides(raw: string | undefined): ShortcutOverrides {
 	if (!raw) return DEFAULT_SETTINGS.shortcuts;
@@ -550,6 +711,14 @@ function parseKanbanViewState(raw: string | undefined): KanbanViewState {
 			o.createState === "backlog" || o.createState === "in-progress"
 				? o.createState
 				: DEFAULT_KANBAN_VIEW_STATE.createState;
+		const branchIntent =
+			o.branchIntent === "use_branch" || o.branchIntent === "from_branch"
+				? o.branchIntent
+				: DEFAULT_KANBAN_VIEW_STATE.branchIntent;
+		const mode =
+			o.mode === "worktree" || o.mode === "local"
+				? o.mode
+				: DEFAULT_KANBAN_VIEW_STATE.mode;
 		const repoId = typeof o.repoId === "string" && o.repoId ? o.repoId : null;
 		const inboxProviderTab =
 			typeof o.inboxProviderTab === "string" && o.inboxProviderTab
@@ -579,6 +748,8 @@ function parseKanbanViewState(raw: string | undefined): KanbanViewState {
 			.slice(0, KANBAN_OPEN_INBOX_CARDS_MAX);
 		return {
 			createState,
+			branchIntent,
+			mode,
 			repoId,
 			inboxProviderTab,
 			inboxProviderSourceTab,
@@ -695,6 +866,23 @@ function parseClaudeCustomProviderSettings(
 	}
 }
 
+/** Read an integer setting bounded to [min, max] with a default fallback.
+ *  Used for font sizes so corrupted or out-of-range values can't render
+ *  the UI unreadable. */
+function readClampedInt(
+	value: string | undefined,
+	{ min, max, fallback }: { min: number; max: number; fallback: number },
+): number {
+	if (value === undefined) return fallback;
+	const n = Number(value);
+	if (!Number.isFinite(n)) return fallback;
+	return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+function readModelId(value: string | undefined): string | null {
+	return value && value !== "" ? value : null;
+}
+
 export async function loadSettings(): Promise<AppSettings> {
 	try {
 		const raw = await invoke<Record<string, string>>("get_app_settings");
@@ -705,10 +893,24 @@ export async function loadSettings(): Promise<AppSettings> {
 		const rawPrModelId = raw[SETTINGS_KEY_MAP.prModelId];
 		const rawPrEffort = raw[SETTINGS_KEY_MAP.prEffort];
 		const rawPrFastMode = raw[SETTINGS_KEY_MAP.prFastMode];
+		// Migration: legacy `app.font_size` is the new chatFontSize. Read
+		// it as a fallback when the new key is absent; the old row stays
+		// in SQLite (unused) until the user next changes the chat font.
+		const legacyFontSize = raw["app.font_size"];
 		return {
-			fontSize: raw[SETTINGS_KEY_MAP.fontSize]
-				? Number(raw[SETTINGS_KEY_MAP.fontSize])
-				: DEFAULT_SETTINGS.fontSize,
+			chatFontSize: readClampedInt(
+				raw[SETTINGS_KEY_MAP.chatFontSize] ?? legacyFontSize,
+				{ min: 10, max: 24, fallback: DEFAULT_SETTINGS.chatFontSize },
+			),
+			uiFontFamily: readLocalStorageString(UI_FONT_FAMILY_STORAGE_KEY),
+			codeFontFamily: readLocalStorageString(CODE_FONT_FAMILY_STORAGE_KEY),
+			terminalFontFamily: readLocalStorageString(
+				TERMINAL_FONT_FAMILY_STORAGE_KEY,
+			),
+			usePointerCursors:
+				raw[SETTINGS_KEY_MAP.usePointerCursors] !== undefined
+					? raw[SETTINGS_KEY_MAP.usePointerCursors] === "true"
+					: DEFAULT_SETTINGS.usePointerCursors,
 			theme:
 				(localStorage.getItem(THEME_STORAGE_KEY) as AppSettings["theme"]) ??
 				DEFAULT_SETTINGS.theme,
@@ -718,10 +920,29 @@ export async function loadSettings(): Promise<AppSettings> {
 					? (raw as DarkTheme)
 					: DEFAULT_SETTINGS.darkTheme;
 			})(),
+			sidebarGrouping: (() => {
+				const raw = localStorage.getItem(SIDEBAR_GROUPING_STORAGE_KEY);
+				return VALID_SIDEBAR_GROUPINGS.includes(raw as SidebarGrouping)
+					? (raw as SidebarGrouping)
+					: DEFAULT_SETTINGS.sidebarGrouping;
+			})(),
+			sidebarRepoFilterIds: parseSidebarRepoFilterIds(
+				localStorage.getItem(SIDEBAR_REPO_FILTER_STORAGE_KEY) ?? undefined,
+			),
+			sidebarSort: (() => {
+				const raw = localStorage.getItem(SIDEBAR_SORT_STORAGE_KEY);
+				return VALID_SIDEBAR_SORTS.includes(raw as SidebarSort)
+					? (raw as SidebarSort)
+					: DEFAULT_SETTINGS.sidebarSort;
+			})(),
 			notifications:
 				raw[SETTINGS_KEY_MAP.notifications] !== undefined
 					? raw[SETTINGS_KEY_MAP.notifications] === "true"
 					: DEFAULT_SETTINGS.notifications,
+			terminalHoverExpansion:
+				raw[SETTINGS_KEY_MAP.terminalHoverExpansion] !== undefined
+					? raw[SETTINGS_KEY_MAP.terminalHoverExpansion] === "true"
+					: DEFAULT_SETTINGS.terminalHoverExpansion,
 			lastWorkspaceId: raw[SETTINGS_KEY_MAP.lastWorkspaceId] || null,
 			lastSessionId: raw[SETTINGS_KEY_MAP.lastSessionId] || null,
 			lastSurface:
@@ -736,14 +957,8 @@ export async function loadSettings(): Promise<AppSettings> {
 				raw[SETTINGS_KEY_MAP.workspaceRightSidebarMode] === "context"
 					? "context"
 					: DEFAULT_SETTINGS.workspaceRightSidebarMode,
-			defaultModelId:
-				rawDefaultModelId && rawDefaultModelId !== "default"
-					? rawDefaultModelId
-					: DEFAULT_SETTINGS.defaultModelId,
-			reviewModelId:
-				rawReviewModelId && rawReviewModelId !== "default"
-					? rawReviewModelId
-					: DEFAULT_SETTINGS.reviewModelId,
+			defaultModelId: readModelId(rawDefaultModelId),
+			reviewModelId: readModelId(rawReviewModelId),
 			reviewEffort:
 				rawReviewEffort && rawReviewEffort !== ""
 					? rawReviewEffort
@@ -754,10 +969,7 @@ export async function loadSettings(): Promise<AppSettings> {
 					: rawReviewFastMode === "false"
 						? false
 						: DEFAULT_SETTINGS.reviewFastMode,
-			prModelId:
-				rawPrModelId && rawPrModelId !== "default"
-					? rawPrModelId
-					: DEFAULT_SETTINGS.prModelId,
+			prModelId: readModelId(rawPrModelId),
 			prEffort:
 				rawPrEffort && rawPrEffort !== ""
 					? rawPrEffort
@@ -783,6 +995,12 @@ export async function loadSettings(): Promise<AppSettings> {
 					? v
 					: DEFAULT_SETTINGS.followUpBehavior;
 			})(),
+			claudeThinkingDisplay: (() => {
+				const v = raw[SETTINGS_KEY_MAP.claudeThinkingDisplay];
+				return v === "summarized" || v === "omitted"
+					? v
+					: DEFAULT_SETTINGS.claudeThinkingDisplay;
+			})(),
 			alwaysShowContextUsage:
 				raw[SETTINGS_KEY_MAP.alwaysShowContextUsage] !== undefined
 					? raw[SETTINGS_KEY_MAP.alwaysShowContextUsage] === "true"
@@ -791,6 +1009,10 @@ export async function loadSettings(): Promise<AppSettings> {
 				raw[SETTINGS_KEY_MAP.showUsageStats] !== undefined
 					? raw[SETTINGS_KEY_MAP.showUsageStats] === "true"
 					: DEFAULT_SETTINGS.showUsageStats,
+			autoArchiveOnMerge:
+				raw[SETTINGS_KEY_MAP.autoArchiveOnMerge] !== undefined
+					? raw[SETTINGS_KEY_MAP.autoArchiveOnMerge] === "true"
+					: DEFAULT_SETTINGS.autoArchiveOnMerge,
 			onboardingCompleted:
 				raw[SETTINGS_KEY_MAP.onboardingCompleted] !== undefined
 					? raw[SETTINGS_KEY_MAP.onboardingCompleted] === "true"
@@ -815,31 +1037,33 @@ export async function loadSettings(): Promise<AppSettings> {
 }
 
 export async function saveSettings(patch: Partial<AppSettings>): Promise<void> {
-	if (patch.theme !== undefined) {
+	// localStorage-backed fields. `null` / "" clears the row so the next
+	// boot falls back to the preset default.
+	for (const [field, lsKey] of Object.entries(LOCALSTORAGE_KEYS) as Array<
+		[LocalStorageKey, string]
+	>) {
+		const value = patch[field];
+		if (value === undefined) continue;
 		try {
-			localStorage.setItem(THEME_STORAGE_KEY, patch.theme);
+			if (value === null || value === "") {
+				localStorage.removeItem(lsKey);
+			} else if (Array.isArray(value)) {
+				if (value.length === 0) {
+					localStorage.removeItem(lsKey);
+				} else {
+					localStorage.setItem(lsKey, JSON.stringify(value));
+				}
+			} else {
+				localStorage.setItem(lsKey, String(value));
+			}
 		} catch (error) {
-			console.error(
-				`[helmor] theme save failed for "${THEME_STORAGE_KEY}"`,
-				error,
-			);
-		}
-	}
-
-	if (patch.darkTheme !== undefined) {
-		try {
-			localStorage.setItem(DARK_THEME_STORAGE_KEY, patch.darkTheme);
-		} catch (error) {
-			console.error(
-				`[helmor] dark theme save failed for "${DARK_THEME_STORAGE_KEY}"`,
-				error,
-			);
+			console.error(`[helmor] localStorage save failed for "${lsKey}"`, error);
 		}
 	}
 
 	const settings: Record<string, string> = {};
 	for (const [key, dbKey] of Object.entries(SETTINGS_KEY_MAP)) {
-		const value = patch[key as keyof Omit<AppSettings, "theme" | "darkTheme">];
+		const value = patch[key as keyof Omit<AppSettings, LocalStorageKey>];
 		if (value !== undefined) {
 			settings[dbKey] =
 				key === "shortcuts" ||

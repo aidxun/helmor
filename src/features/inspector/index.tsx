@@ -7,8 +7,8 @@ import {
 	type ShortcutHandler,
 	useAppShortcuts,
 } from "@/features/shortcuts/use-app-shortcuts";
-import type { ChangeRequestInfo } from "@/lib/api";
-import type { DiffOpenOptions } from "@/lib/editor-session";
+import type { ChangeRequestInfo, DetectedEditor } from "@/lib/api";
+import type { ActiveEditorTarget, DiffOpenOptions } from "@/lib/editor-session";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { useWorkspaceInspectorSidebar } from "./hooks/use-inspector";
@@ -39,8 +39,13 @@ type WorkspaceInspectorSidebarProps = {
 	workspaceRemote?: string | null;
 	workspaceRemoteUrl?: string | null;
 	workspaceState?: string | null;
+	/** Timestamp from `WorkspaceDetail.setupCompletedAt`. Null when setup
+	 * was never run (or skipped); drives the Setup tab placeholder copy
+	 * and the "default to Run tab" behaviour after restart. */
+	workspaceSetupCompletedAt?: string | null;
 	editorMode: boolean;
-	activeEditorPath?: string | null;
+	activeEditor?: ActiveEditorTarget | null;
+	preferredEditor?: DetectedEditor | null;
 	onOpenEditorFile(path: string, options?: DiffOpenOptions): void;
 	onOpenMockReview?: (path: string) => void;
 	onCommitAction?: (mode: WorkspaceCommitButtonMode) => Promise<void>;
@@ -72,9 +77,11 @@ export function WorkspaceInspectorSidebar({
 	workspaceRemote,
 	workspaceRemoteUrl,
 	workspaceState,
+	workspaceSetupCompletedAt,
 	repoId,
 	editorMode,
-	activeEditorPath,
+	activeEditor,
+	preferredEditor = null,
 	onOpenEditorFile,
 	onCommitAction,
 	onReviewAction,
@@ -111,6 +118,7 @@ export function WorkspaceInspectorSidebar({
 		workspaceRootPath,
 		workspaceId: workspaceId ?? null,
 		repoId: repoId ?? null,
+		workspaceState: workspaceState ?? null,
 	});
 
 	// Fire setup auto-run / auto-complete at the sidebar level so it runs even
@@ -141,6 +149,7 @@ export function WorkspaceInspectorSidebar({
 		workspaceId ?? null,
 		"setup",
 		!!repoScripts?.setupScript?.trim(),
+		workspaceSetupCompletedAt ?? null,
 	);
 	const runScriptState = useScriptStatus(
 		workspaceId ?? null,
@@ -366,10 +375,12 @@ export function WorkspaceInspectorSidebar({
 		? terminalInstances.find((t) => t.id === activeTab)
 		: undefined;
 	const canHoverExpand = isTerminalTabActive
-		? !activeTerminalInstance?.hoverZoomDisabled
-		: scriptTabState === "running" ||
-			scriptTabState === "success" ||
-			scriptTabState === "failure";
+		? appSettings.terminalHoverExpansion &&
+			!activeTerminalInstance?.hoverZoomDisabled
+		: appSettings.terminalHoverExpansion &&
+			(scriptTabState === "running" ||
+				scriptTabState === "success" ||
+				scriptTabState === "failure");
 
 	const handleOpenSettings = onOpenSettings ?? (() => {});
 
@@ -389,7 +400,8 @@ export function WorkspaceInspectorSidebar({
 				workspaceTargetBranch={workspaceTargetBranch ?? null}
 				changes={changes}
 				editorMode={editorMode}
-				activeEditorPath={activeEditorPath}
+				activeEditor={activeEditor}
+				preferredEditor={preferredEditor}
 				onOpenEditorFile={onOpenEditorFile}
 				flashingPaths={flashingPaths}
 				onCommitAction={onCommitAction}
@@ -449,6 +461,7 @@ export function WorkspaceInspectorSidebar({
 					repoId={repoId ?? null}
 					workspaceId={workspaceId ?? null}
 					setupScript={repoScripts?.setupScript ?? null}
+					setupCompletedAt={workspaceSetupCompletedAt ?? null}
 					isActive={activeTab === "setup"}
 					onOpenSettings={handleOpenSettings}
 				/>

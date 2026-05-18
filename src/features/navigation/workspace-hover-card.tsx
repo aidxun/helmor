@@ -37,23 +37,12 @@ import {
 import { summarizeToolCall } from "@/lib/tool-summary";
 import { cn } from "@/lib/utils";
 import { WorkspaceAvatar } from "./avatar";
-import { humanizeBranch } from "./shared";
-
-const STATUS_LABEL: Record<NonNullable<WorkspaceRow["status"]>, string> = {
-	"in-progress": "In progress",
-	review: "In review",
-	done: "Done",
-	backlog: "Backlog",
-	canceled: "Canceled",
-};
-
-const STATUS_DOT_CLASS: Record<NonNullable<WorkspaceRow["status"]>, string> = {
-	"in-progress": "bg-[var(--workspace-sidebar-status-progress)]",
-	review: "bg-[var(--workspace-sidebar-status-review)]",
-	done: "bg-[var(--workspace-sidebar-status-done)]",
-	backlog: "bg-[var(--workspace-sidebar-status-backlog)]",
-	canceled: "bg-[var(--workspace-sidebar-status-canceled)]",
-};
+import {
+	WORKSPACE_DND_ACTIVE_ATTRIBUTE,
+	WORKSPACE_DND_ACTIVE_CHANGE_EVENT,
+} from "./dnd/shared";
+import { deriveWorkspaceDisplay } from "./workspace-display";
+import { deriveWorkspaceStatusDot } from "./workspace-status-display";
 
 function relativeTime(iso?: string | null): string | null {
 	if (!iso) return null;
@@ -493,8 +482,38 @@ export function WorkspaceHoverCard({
 }) {
 	// Measured on open so the card's left edge snaps to the sidebar divider.
 	const [sideOffset, setSideOffset] = useState(HOVER_CARD_DEFAULT_SIDE_OFFSET);
+	const [open, setOpen] = useState(false);
+	useEffect(() => {
+		const closeDuringDrag = () => {
+			if (
+				document.documentElement.getAttribute(
+					WORKSPACE_DND_ACTIVE_ATTRIBUTE,
+				) === "true"
+			) {
+				setOpen(false);
+			}
+		};
+
+		window.addEventListener(WORKSPACE_DND_ACTIVE_CHANGE_EVENT, closeDuringDrag);
+		closeDuringDrag();
+		return () =>
+			window.removeEventListener(
+				WORKSPACE_DND_ACTIVE_CHANGE_EVENT,
+				closeDuringDrag,
+			);
+	}, []);
 	const handleOpenChange = useCallback(
 		(open: boolean) => {
+			if (
+				open &&
+				document.documentElement.getAttribute(
+					WORKSPACE_DND_ACTIVE_ATTRIBUTE,
+				) === "true"
+			) {
+				setOpen(false);
+				return;
+			}
+			setOpen(open);
 			if (!open) return;
 			const rowEl = document.querySelector<HTMLElement>(
 				`[data-workspace-row-id="${row.id}"]`,
@@ -515,31 +534,17 @@ export function WorkspaceHoverCard({
 		[row.id],
 	);
 
-	const branch = row.branch ?? null;
-	const repoLabel = row.repoName ?? row.directoryName ?? null;
-	const subtitle = repoLabel
-		? branch
-			? `${repoLabel} › ${branch}`
-			: repoLabel
-		: branch;
+	// Shared derivation — keeps the sidebar hover card and the Ctrl+Tab
+	// quick-switch overlay showing the exact same human label for every
+	// workspace. `prTitle` is exposed separately so this card can still
+	// render the PR row when it differs from the resolved title.
+	const {
+		title,
+		subtitle,
+		prTitle: trimmedPrTitle,
+	} = deriveWorkspaceDisplay(row);
 
-	// Title fallback chain: PR title → primary session → active session → branch.
-	const trimmedPrTitle = row.prTitle?.trim() || null;
-	const primarySessionTitle =
-		row.primarySessionTitle && row.primarySessionTitle !== "Untitled"
-			? row.primarySessionTitle
-			: null;
-	const activeSessionTitleRaw =
-		row.activeSessionTitle && row.activeSessionTitle !== "Untitled"
-			? row.activeSessionTitle
-			: null;
-	const title =
-		trimmedPrTitle ??
-		primarySessionTitle ??
-		activeSessionTitleRaw ??
-		(branch ? humanizeBranch(branch) : row.title);
-
-	const status = row.status ?? "in-progress";
+	const statusDot = deriveWorkspaceStatusDot(row);
 
 	// "Last touched" prefers the most human-meaningful signal available.
 	const lastActivityIso =
@@ -555,6 +560,7 @@ export function WorkspaceHoverCard({
 
 	return (
 		<HoverCardRoot
+			open={open}
 			openDelay={400}
 			closeDelay={80}
 			onOpenChange={handleOpenChange}
@@ -586,11 +592,11 @@ export function WorkspaceHoverCard({
 						<div className="mt-0.5 flex shrink-0 items-center gap-2">
 							<GitStats workspaceId={row.id} />
 							<span
-								aria-label={STATUS_LABEL[status]}
-								title={STATUS_LABEL[status]}
+								aria-label={statusDot.label}
+								title={statusDot.label}
 								className={cn(
 									"size-2 shrink-0 rounded-full",
-									STATUS_DOT_CLASS[status],
+									statusDot.dotClass,
 								)}
 							/>
 						</div>
