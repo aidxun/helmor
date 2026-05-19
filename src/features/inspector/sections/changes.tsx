@@ -19,7 +19,14 @@ import {
 	PlusIcon,
 	Undo2Icon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { AnimatedShinyText } from "@/components/ui/animated-shiny-text";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +84,11 @@ const STATUS_COLORS: Record<InspectorFileItem["status"], string> = {
 	A: "text-green-500",
 	D: "text-red-500",
 };
+
+const CHANGE_ROW_VISIBILITY_STYLE = {
+	contentVisibility: "auto",
+	containIntrinsicSize: "auto 21px",
+} satisfies CSSProperties;
 
 /** A change item already projected into a single area's line counts.
  * `insertions`/`deletions` are derived from the corresponding area
@@ -840,7 +852,10 @@ function TreeNodeList({
 						<div key={node.path}>
 							<div
 								className="flex cursor-interactive items-center gap-1 py-[1.5px] pr-2 text-muted-foreground transition-colors hover:bg-accent/60"
-								style={{ paddingLeft: `${depth * 12 + 8}px` }}
+								style={{
+									...CHANGE_ROW_VISIBILITY_STYLE,
+									paddingLeft: `${depth * 12 + 8}px`,
+								}}
 								onClick={() => onToggle(node.path)}
 								onKeyDown={(event) => {
 									if (event.key === "Enter" || event.key === " ") {
@@ -900,7 +915,10 @@ function TreeNodeList({
 									? "bg-accent text-foreground"
 									: "bg-muted/60 text-foreground"),
 						)}
-						style={{ paddingLeft: `${depth * 12 + 22}px` }}
+						style={{
+							...CHANGE_ROW_VISIBILITY_STYLE,
+							paddingLeft: `${depth * 12 + 22}px`,
+						}}
 						role="treeitem"
 						tabIndex={0}
 						onClick={() =>
@@ -1005,6 +1023,7 @@ function ChangesFlatView({
 										? "bg-accent text-foreground"
 										: "bg-muted/60 text-foreground"),
 							)}
+							style={CHANGE_ROW_VISIBILITY_STYLE}
 							role="button"
 							tabIndex={0}
 							onClick={() =>
