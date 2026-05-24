@@ -1,20 +1,54 @@
 import "@/global.css";
 
 import type { Href } from "expo-router";
-import { Plus } from "lucide-react-native";
+import {
+	Circle,
+	CircleCheck,
+	CircleDashed,
+	CircleDotDashed,
+	CircleX,
+	type LucideIcon,
+	MessageCircle,
+	Pin,
+	Plus,
+} from "lucide-react-native";
 import type React from "react";
 import { createContext, use, useCallback, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Icon } from "@/components/icon";
 import { TouchableGlass } from "@/components/touchable-glass";
 import { SafeAreaView } from "@/components/tw";
-import { MOCK_CHATS } from "@/utils/mock-chats";
+import {
+	type MobileWorkspaceGroup,
+	type MobileWorkspaceRow,
+	useWorkspaces,
+	workspaceStatusLabel,
+	workspaceSubtitle,
+} from "@/features/workspaces";
 import { cn } from "@/utils/tailwind";
 
 type DrawerContextValue = {
 	isOpen: boolean;
 	openDrawer: () => void;
 	closeDrawer: () => void;
+};
+
+const GROUP_TONE_CLASS: Record<MobileWorkspaceGroup["tone"], string> = {
+	pinned: "text-workspace-status-neutral",
+	chats: "text-muted-foreground",
+	done: "text-workspace-status-done",
+	review: "text-workspace-status-review",
+	progress: "text-workspace-status-progress",
+	backlog: "text-workspace-status-backlog",
+	canceled: "text-workspace-status-canceled",
+};
+
+const STATUS_DOT_CLASS: Record<MobileWorkspaceRow["status"], string> = {
+	"in-progress": "bg-workspace-status-progress",
+	review: "bg-workspace-status-review",
+	done: "bg-workspace-status-done",
+	backlog: "bg-workspace-status-backlog",
+	canceled: "bg-workspace-status-canceled",
 };
 
 const DrawerContext = createContext<DrawerContextValue | null>(null);
@@ -57,32 +91,112 @@ function DrawerNavItem({
 	);
 }
 
-function DrawerChatItem({
-	title,
+function DrawerWorkspaceGroup({
+	group,
+	activeWorkspaceId,
+	onSelectWorkspace,
+}: {
+	group: MobileWorkspaceGroup;
+	activeWorkspaceId: string | null;
+	onSelectWorkspace: (workspaceId: string) => void;
+}) {
+	return (
+		<View className="pt-4">
+			<View className="flex-row items-center gap-2 px-6 pb-1.5">
+				<DrawerGroupIcon group={group} />
+				<Text className="flex-1 text-[13px] font-semibold text-muted-foreground">
+					{group.label}
+				</Text>
+				<Text className="text-[12px] text-muted-foreground">
+					{group.rows.length}
+				</Text>
+			</View>
+			{group.rows.map((workspace) => (
+				<DrawerWorkspaceItem
+					key={workspace.id}
+					workspace={workspace}
+					active={workspace.id === activeWorkspaceId}
+					onPress={() => onSelectWorkspace(workspace.id)}
+				/>
+			))}
+		</View>
+	);
+}
+
+function DrawerGroupIcon({ group }: { group: MobileWorkspaceGroup }) {
+	const className = cn("h-3.5 w-3.5", GROUP_TONE_CLASS[group.tone]);
+
+	if (group.id === "chats") {
+		return (
+			<Icon icon={MessageCircle} className={className} strokeWidth={1.9} />
+		);
+	}
+
+	const iconByTone: Partial<Record<MobileWorkspaceGroup["tone"], LucideIcon>> =
+		{
+			pinned: Pin,
+			done: CircleCheck,
+			review: CircleDotDashed,
+			progress: CircleDashed,
+			backlog: Circle,
+			canceled: CircleX,
+		};
+	const icon = iconByTone[group.tone] ?? Circle;
+
+	return <Icon icon={icon} className={className} strokeWidth={1.9} />;
+}
+
+function DrawerWorkspaceItem({
+	workspace,
 	onPress,
 	active,
 }: {
-	title: string;
+	workspace: MobileWorkspaceRow;
 	onPress: () => void;
 	active?: boolean;
 }) {
+	const subtitle = workspaceSubtitle(workspace);
+	const status = workspaceStatusLabel(workspace.status);
+
 	return (
 		<Pressable
 			onPress={onPress}
 			className={cn(
-				`px-4 py-2.5 mx-2 rounded-[10px] active:bg-accent`,
+				"px-4 py-2.5 mx-2 rounded-[10px] active:bg-accent",
 				active && "bg-muted",
 			)}
 		>
-			<Text
-				numberOfLines={1}
-				className={cn(
-					`text-[15px]`,
-					active ? "text-foreground" : "text-muted-foreground",
-				)}
-			>
-				{title}
-			</Text>
+			<View className="flex-row items-start gap-2.5">
+				<View
+					className={cn(
+						"mt-1.5 h-2.5 w-2.5 rounded-full",
+						STATUS_DOT_CLASS[workspace.status],
+						!workspace.hasUnread && "opacity-70",
+					)}
+				/>
+				<View className="flex-1 gap-0.5">
+					<Text
+						numberOfLines={1}
+						className={cn(
+							"text-[15px]",
+							active ? "text-foreground" : "text-muted-foreground",
+						)}
+					>
+						{workspace.title}
+					</Text>
+					<Text numberOfLines={1} className="text-[12px] text-muted-foreground">
+						{subtitle}
+					</Text>
+					<View className="flex-row items-center gap-2">
+						<Text className="text-[11px] text-muted-foreground">{status}</Text>
+						{workspace.unreadSessionCount > 0 && (
+							<Text className="rounded-full bg-foreground px-1.5 py-0.5 text-[11px] font-medium text-background">
+								{workspace.unreadSessionCount} unread
+							</Text>
+						)}
+					</View>
+				</View>
+			</View>
 		</Pressable>
 	);
 }
@@ -94,6 +208,17 @@ export function DrawerContent({
 	onNavigate: (path: Href) => void;
 	onOpenModal: (path: Href) => void;
 }) {
+	const { visibleGroups, selectedWorkspaceId, selectWorkspace } =
+		useWorkspaces();
+
+	const handleSelectWorkspace = useCallback(
+		(workspaceId: string) => {
+			selectWorkspace(workspaceId);
+			onNavigate("/");
+		},
+		[onNavigate, selectWorkspace],
+	);
+
 	return (
 		<SafeAreaView
 			// NOTE: Some issue with uniwind that prevents updates for this component.
@@ -105,7 +230,7 @@ export function DrawerContent({
 				<Text className="text-[28px] font-bold text-foreground">Helmor</Text>
 			</View>
 
-			{/* Nav + Chat history */}
+			{/* Nav + workspace list */}
 			<ScrollView
 				className="flex-1"
 				contentContainerStyle={{ paddingBottom: 8 }}
@@ -121,16 +246,12 @@ export function DrawerContent({
 					}}
 				/>
 
-				{/* Recents */}
-				<Text className="text-[13px] font-semibold text-muted-foreground px-6 pt-5 pb-1.5">
-					Recents
-				</Text>
-				{MOCK_CHATS.map((chat) => (
-					<DrawerChatItem
-						key={chat.id}
-						title={chat.title}
-						active={chat.id === "1"}
-						onPress={() => onNavigate("/")}
+				{visibleGroups.map((group) => (
+					<DrawerWorkspaceGroup
+						key={group.id}
+						group={group}
+						activeWorkspaceId={selectedWorkspaceId}
+						onSelectWorkspace={handleSelectWorkspace}
 					/>
 				))}
 			</ScrollView>

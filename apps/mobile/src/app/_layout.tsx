@@ -19,6 +19,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaListener } from "react-native-safe-area-context";
 import { Uniwind, useCSSVariable } from "uniwind";
 import { ModelProvider } from "@/components/model-context";
+import { WorkspaceProvider } from "@/features/workspaces";
 import { useSystemBackgroundColor } from "@/utils/use-system-background-color";
 
 const GLASS = isLiquidGlassAvailable();
@@ -69,9 +70,11 @@ export default function RootLayout() {
 		<ThemeProvider>
 			<KeyboardProvider>
 				<ModelProvider models={ALL_MODELS}>
-					<DrawerProvider>
-						<RootDrawer />
-					</DrawerProvider>
+					<WorkspaceProvider>
+						<DrawerProvider>
+							<RootDrawer />
+						</DrawerProvider>
+					</WorkspaceProvider>
 				</ModelProvider>
 				{process.env.EXPO_OS !== "ios" && <StatusBar style="auto" />}
 			</KeyboardProvider>
