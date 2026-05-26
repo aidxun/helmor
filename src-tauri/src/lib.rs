@@ -13,6 +13,8 @@ mod import;
 pub mod logging;
 pub mod maintenance;
 pub mod mcp;
+pub mod mobile_access;
+pub mod mobile_rpc;
 pub mod models;
 pub mod pipeline;
 pub mod rate_limits;
@@ -74,6 +76,7 @@ pub fn run() {
         .manage(workspace::archive::ArchiveJobManager::new())
         .manage(git_watcher::GitWatcherManager::new())
         .manage(workspace::scripts::ScriptProcessManager::new())
+        .manage(mobile_access::MobileAccessManager::new())
         .manage(ui_sync::UiSyncManager::new())
         .manage(global_hotkey::GlobalHotkeyState::default())
         .manage(commands::forge_commands::ForgeAuthEdgeStore::default())
@@ -408,6 +411,10 @@ pub fn run() {
             commands::system_commands::show_image_in_finder,
             commands::system_commands::reveal_path_in_finder,
             commands::system_commands::copy_image_to_clipboard,
+            commands::mobile_access_commands::get_mobile_access_status,
+            commands::mobile_access_commands::create_mobile_pairing,
+            commands::mobile_access_commands::stop_mobile_access_server,
+            commands::mobile_access_commands::revoke_mobile_device,
             commands::system_commands::request_quit,
             commands::system_commands::dev_reset_all_data,
             commands::settings_commands::update_app_settings,

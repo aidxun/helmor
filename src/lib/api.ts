@@ -3475,6 +3475,53 @@ export async function findExistingHelmorRepo(): Promise<ExistingHelmorRepo | nul
 	return invoke<ExistingHelmorRepo | null>("find_existing_helmor_repo");
 }
 
+// ---------------------------------------------------------------------------
+// Mobile access
+// ---------------------------------------------------------------------------
+
+export type MobilePairedDevice = {
+	deviceId: string;
+	deviceName: string;
+	createdAt: string;
+	lastSeenAt: string | null;
+};
+
+export type MobileAccessStatus = {
+	running: boolean;
+	hosts: string[];
+	port: number | null;
+	hostKeyFingerprint: string | null;
+	pairedDevices: MobilePairedDevice[];
+};
+
+export type MobilePairingPayload = {
+	protocolVersion: number;
+	desktopId: string;
+	desktopName: string;
+	hosts: string[];
+	port: number;
+	pairingUser: string;
+	pairingSecret: string;
+	hostKeyFingerprint: string;
+	expiresAt: string;
+};
+
+export async function getMobileAccessStatus(): Promise<MobileAccessStatus> {
+	return invoke<MobileAccessStatus>("get_mobile_access_status");
+}
+
+export async function createMobilePairing(): Promise<MobilePairingPayload> {
+	return invoke<MobilePairingPayload>("create_mobile_pairing");
+}
+
+export async function stopMobileAccessServer(): Promise<void> {
+	await invoke("stop_mobile_access_server");
+}
+
+export async function revokeMobileDevice(deviceId: string): Promise<void> {
+	await invoke("revoke_mobile_device", { deviceId });
+}
+
 function describeInvokeError(error: unknown, fallback: string): string {
 	return extractError(error, fallback).message;
 }

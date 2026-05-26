@@ -176,6 +176,28 @@ function StackLayout() {
 			/>
 
 			<Stack.Screen
+				name="workspace-summary"
+				options={{
+					title: "Workspace",
+					presentation: "formSheet",
+					sheetAllowedDetents: [0.72],
+					sheetCornerRadius: IS_ANDROID ? 28 : undefined,
+					sheetGrabberVisible: true,
+					headerTransparent: GLASS,
+					headerLargeTitleShadowVisible: false,
+				}}
+			/>
+
+			<Stack.Screen
+				name="pair"
+				options={{
+					title: "Pair Desktop",
+					presentation: "modal",
+					headerShown: false,
+				}}
+			/>
+
+			<Stack.Screen
 				name="(settings)"
 				options={{
 					presentation: IS_ANDROID ? undefined : "modal",

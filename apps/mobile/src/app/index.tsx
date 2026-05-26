@@ -1,10 +1,10 @@
 import { MainHeader } from "@/components/main-header";
-import { WorkspaceSummarySurface } from "@/features/workspaces";
+import { WorkspaceChatSurface } from "@/features/workspaces";
 
 export default function WorkspaceScreen() {
 	return (
 		<>
-			<WorkspaceSummarySurface />
+			<WorkspaceChatSurface />
 			<MainHeader />
 		</>
 	);

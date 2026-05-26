@@ -6,7 +6,6 @@ import {
 	Section,
 	Image as SUIImage,
 	Text as SUIText,
-	Toggle,
 	VStack,
 } from "@expo/ui/swift-ui";
 import {
@@ -14,26 +13,46 @@ import {
 	font,
 	foregroundStyle,
 } from "@expo/ui/swift-ui/modifiers";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { useColorScheme } from "react-native";
-import { useModel } from "@/components/model-context";
+import { useWorkspaces } from "@/features/workspaces";
 import { useDrawer } from "./drawer-content";
 
 function HeaderTitleMenu() {
-	const { models, selectedModel, extendedThinking, setExtendedThinking } =
-		useModel();
+	const {
+		selectedWorkspace,
+		selectedWorkspaceSessionTab,
+		selectWorkspaceSession,
+		sessionTabs,
+		activeDesktop,
+		isNewWorkspaceDraft,
+		syncStatus,
+	} = useWorkspaces();
+	const router = useRouter();
 	const colorScheme = useColorScheme();
 	const isDark = colorScheme === "dark";
 	const headerFg = isDark ? "#fff" : "#000";
 	const headerFgMuted = isDark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.5)";
+	const title = isNewWorkspaceDraft
+		? "New workspace"
+		: (selectedWorkspaceSessionTab?.title ??
+			selectedWorkspace?.title ??
+			(activeDesktop
+				? syncStatus === "syncing"
+					? "Syncing"
+					: "Workspaces"
+				: "Helmor"));
+	const subtitle =
+		!isNewWorkspaceDraft && selectedWorkspaceSessionTab && selectedWorkspace
+			? selectedWorkspace.title
+			: undefined;
 
-	const selected = models.find((m) => m.id === selectedModel);
-	const subtitle = extendedThinking ? "Extended" : undefined;
 	return (
 		<Host
 			style={{
-				minWidth: 120,
-				minHeight: 40,
+				minWidth: 220,
+				maxWidth: 280,
+				minHeight: subtitle ? 42 : 34,
 			}}
 		>
 			<Menu
@@ -46,41 +65,44 @@ function HeaderTitleMenu() {
 									font({ weight: "semibold", size: 17 }),
 								]}
 							>
-								{selected?.label ?? "Model"}
+								{title}
 							</SUIText>
 							<SUIImage systemName="chevron.down" size={10} color={headerFg} />
 						</HStack>
-						{subtitle && (
+						{subtitle ? (
 							<SUIText
 								modifiers={[foregroundStyle(headerFgMuted), font({ size: 12 })]}
 							>
 								{subtitle}
 							</SUIText>
-						)}
+						) : null}
 					</VStack>
 				}
 				modifiers={[controlSize("regular")]}
 			>
-				<Section title="Helmor workspace session">
+				{sessionTabs.length > 0 ? (
+					<Section title="Sessions">
+						{sessionTabs.map((tab) => (
+							<Button
+								key={tab.id}
+								systemImage={
+									tab.id === selectedWorkspaceSessionTab?.id
+										? "checkmark.circle"
+										: "message"
+								}
+								label={tab.title}
+								onPress={() => selectWorkspaceSession(tab.id)}
+							/>
+						))}
+					</Section>
+				) : null}
+				<Section title="Workspace">
 					<Button
-						systemImage="archivebox"
-						label="Add to project"
-						onPress={() => {}}
-					/>
-					<Button systemImage="star" label="Star" onPress={() => {}} />
-					<Button systemImage="pencil" label="Rename" onPress={() => {}} />
-					{/* biome-ignore lint/a11y/useValidAriaRole: @expo/ui swift-ui uses role to map destructive menu actions. */}
-					<Button
-						systemImage="trash"
-						label="Delete"
-						role="destructive"
-						onPress={() => {}}
+						systemImage="info.circle"
+						label="Workspace summary"
+						onPress={() => router.navigate("/workspace-summary")}
 					/>
 				</Section>
-				<Toggle isOn={extendedThinking} onIsOnChange={setExtendedThinking}>
-					<SUIText>Extended thinking</SUIText>
-					<SUIText>Think longer for complex tasks</SUIText>
-				</Toggle>
 			</Menu>
 		</Host>
 	);
@@ -88,6 +110,8 @@ function HeaderTitleMenu() {
 
 export function MainHeader() {
 	const { openDrawer } = useDrawer();
+	const router = useRouter();
+
 	return (
 		<>
 			<Stack.Screen.Title asChild>
@@ -97,7 +121,10 @@ export function MainHeader() {
 				<Stack.Toolbar.Button icon="list.bullet" onPress={openDrawer} />
 			</Stack.Toolbar>
 			<Stack.Toolbar placement="right">
-				<Stack.Toolbar.Button icon="eyeglasses" />
+				<Stack.Toolbar.Button
+					icon="info.circle"
+					onPress={() => router.navigate("/workspace-summary")}
+				/>
 			</Stack.Toolbar>
 		</>
 	);

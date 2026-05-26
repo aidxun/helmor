@@ -1,6 +1,7 @@
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import type { Href } from "expo-router";
 import { Link, usePathname } from "expo-router";
 import {
 	Archive,
@@ -55,15 +56,12 @@ function SidebarTooltip({
 	);
 }
 
-const NAV_ITEMS = [
-	{ href: "/", label: "Sessions" },
-	{ href: "/settings", label: "Settings" },
-] as const;
+const NAV_ITEMS = [{ href: "/" as Href, label: "Sessions" }] as const;
 
 /**
  * Sidebar matching the native drawer content layout:
  * - Bold "Chat" title
- * - Nav items (Chats, Settings)
+ * - Nav items
  * - Scrollable "Recents" section with mock chat history
  * - Footer with user avatar + new chat button
  *
@@ -147,7 +145,7 @@ export function Sidebar({
 						{NAV_ITEMS.map((item) => {
 							const isActive = pathname === item.href;
 							return (
-								<Link key={item.href} href={item.href as any} asChild>
+								<Link key={item.href} href={item.href} asChild>
 									<Pressable
 										className={`px-4 py-3 mx-2 rounded-[10px] ${
 											isActive

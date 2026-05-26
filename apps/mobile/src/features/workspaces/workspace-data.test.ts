@@ -8,6 +8,13 @@ import {
 } from "./workspace-selectors";
 
 describe("mobile workspace mock data", () => {
+	test("supports an empty workspace snapshot", () => {
+		expect(getVisibleWorkspaceGroups([])).toEqual([]);
+		expect(getDefaultWorkspaceId([])).toBe(null);
+		expect(getWorkspaceById([], "missing")).toBe(null);
+		expect(getWorkspaceSummary(null).title).toBe("No workspace selected");
+	});
+
 	test("keeps desktop sidebar bucket order while hiding empty groups", () => {
 		const visibleGroups = getVisibleWorkspaceGroups(MOCK_WORKSPACE_GROUPS);
 

@@ -67,6 +67,7 @@ import {
 	ContextConfigRow,
 	ContextKindSection,
 } from "./inbox/inbox-section-layout";
+import { MobileAccessPanel } from "./mobile-access";
 
 /** Storage key shape used by the inbox settings map: `<provider>:<login>`.
  * Keep the shape stable — the future Tauri command that fetches inbox
@@ -390,7 +391,9 @@ export function InboxSettingsPanel({
 				onChange={(provider) => setActiveProvider(provider)}
 			/>
 
-			{!activeForgeProvider ? (
+			{activeProvider === "mobile" ? (
+				<MobileAccessPanel />
+			) : !activeForgeProvider ? (
 				<ProviderComingSoon
 					provider={
 						activeProvider as Exclude<ContextProviderTab, "github" | "gitlab">

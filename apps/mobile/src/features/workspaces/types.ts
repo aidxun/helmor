@@ -50,6 +50,14 @@ export type MobileWorkspaceRow = {
 	summary: string;
 };
 
+export type MobileWorkspaceSessionTab = {
+	id: string;
+	title: string;
+	agentType?: string | null;
+	status?: string | null;
+	source: "active" | "primary";
+};
+
 export type MobileWorkspaceGroup = {
 	id: MobileWorkspaceGroupId;
 	label: string;

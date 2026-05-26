@@ -2,6 +2,7 @@ import type {
 	MobileWorkspaceGroup,
 	MobileWorkspaceGroupId,
 	MobileWorkspaceRow,
+	MobileWorkspaceSessionTab,
 	MobileWorkspaceSummary,
 } from "./types";
 
@@ -124,6 +125,38 @@ export function workspaceStatusLabel(
 	status: MobileWorkspaceRow["status"],
 ): string {
 	return STATUS_LABELS[status];
+}
+
+export function getWorkspaceSessionTabs(
+	workspace: MobileWorkspaceRow | null | undefined,
+): MobileWorkspaceSessionTab[] {
+	if (!workspace) return [];
+
+	const tabs: MobileWorkspaceSessionTab[] = [];
+	if (workspace.activeSessionId) {
+		tabs.push({
+			id: workspace.activeSessionId,
+			title: workspace.activeSessionTitle || "Active session",
+			agentType: workspace.activeSessionAgentType,
+			status: workspace.activeSessionStatus,
+			source: "active",
+		});
+	}
+
+	if (
+		workspace.primarySessionId &&
+		workspace.primarySessionId !== workspace.activeSessionId
+	) {
+		tabs.push({
+			id: workspace.primarySessionId,
+			title: workspace.primarySessionTitle || "Primary session",
+			agentType: workspace.primarySessionAgentType,
+			status: null,
+			source: "primary",
+		});
+	}
+
+	return tabs;
 }
 
 function formatCount(value: number, noun: string): string {

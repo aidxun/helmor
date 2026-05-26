@@ -68,6 +68,12 @@ export default function SettingsLayout() {
 					title: "Capabilities",
 				}}
 			/>
+			<Stack.Screen
+				name="desktops"
+				options={{
+					title: "Desktops",
+				}}
+			/>
 		</Stack>
 	);
 }

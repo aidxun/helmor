@@ -1,37 +1,64 @@
-import { Link, Stack } from "expo-router";
-import { ChevronDown, Glasses, Menu } from "lucide-react-native";
+import { Stack, useRouter } from "expo-router";
+import { ChevronDown, Info, Menu } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { Icon } from "@/components/icon";
-import { useModel } from "@/components/model-context";
+import { useWorkspaces } from "@/features/workspaces";
 import { useDrawer } from "./drawer-content";
 
 function HeaderTitleMenu() {
-	const { models, selectedModel, extendedThinking } = useModel();
-	const selected = models.find((m) => m.id === selectedModel);
-	const subtitle = extendedThinking ? "Extended" : undefined;
+	const {
+		activeDesktop,
+		isNewWorkspaceDraft,
+		selectedWorkspace,
+		selectedWorkspaceSessionTab,
+		syncStatus,
+	} = useWorkspaces();
+	const router = useRouter();
+	const title = isNewWorkspaceDraft
+		? "New workspace"
+		: (selectedWorkspaceSessionTab?.title ??
+			selectedWorkspace?.title ??
+			(activeDesktop
+				? syncStatus === "syncing"
+					? "Syncing"
+					: "Workspaces"
+				: "Helmor"));
+	const subtitle =
+		!isNewWorkspaceDraft && selectedWorkspaceSessionTab && selectedWorkspace
+			? selectedWorkspace.title
+			: undefined;
 
 	return (
-		<Link href="/model-picker" asChild>
-			<Pressable
-				accessibilityRole="button"
-				className="px-2 py-1 rounded-md active:bg-muted flex-col items-center self-center"
-			>
-				<View className="flex-row items-center gap-1">
-					<Text className="text-[17px] font-semibold text-foreground">
-						{selected?.label ?? "Model"}
-					</Text>
-					<Icon icon={ChevronDown} className="w-3 h-3 text-foreground" />
-				</View>
-				{subtitle && (
-					<Text className="text-[12px] text-muted-foreground">{subtitle}</Text>
-				)}
-			</Pressable>
-		</Link>
+		<Pressable
+			onPress={() => router.navigate("/workspace-summary")}
+			accessibilityRole="button"
+			className="flex-col items-center self-center rounded-md px-2 py-1 active:bg-muted"
+		>
+			<View className="max-w-[280px] flex-row items-center gap-1">
+				<Text
+					numberOfLines={1}
+					className="text-[17px] font-semibold text-foreground"
+				>
+					{title}
+				</Text>
+				<Icon icon={ChevronDown} className="h-3 w-3 text-foreground" />
+			</View>
+			{subtitle ? (
+				<Text
+					numberOfLines={1}
+					className="max-w-[280px] text-[12px] text-muted-foreground"
+				>
+					{subtitle}
+				</Text>
+			) : null}
+		</Pressable>
 	);
 }
 
 export function MainHeader() {
 	const { openDrawer } = useDrawer();
+	const router = useRouter();
+
 	return (
 		<>
 			{process.env.EXPO_OS === "ios" ? (
@@ -58,17 +85,21 @@ export function MainHeader() {
 
 			{process.env.EXPO_OS === "ios" ? (
 				<Stack.Toolbar placement="right">
-					<Stack.Toolbar.Button icon="eyeglasses" />
+					<Stack.Toolbar.Button
+						icon="info.circle"
+						onPress={() => router.navigate("/workspace-summary")}
+					/>
 				</Stack.Toolbar>
 			) : (
 				// TODO: Migrate to unified Toolbar support for Android in SDK 56
 				<Stack.Toolbar placement="right" asChild>
 					<Pressable
-						accessibilityLabel="Reader"
+						onPress={() => router.navigate("/workspace-summary")}
+						accessibilityLabel="Workspace summary"
 						accessibilityRole="button"
 						className="p-2 -mr-1 active:opacity-60"
 					>
-						<Icon icon={Glasses} className="w-6 h-6 text-foreground" />
+						<Icon icon={Info} className="w-6 h-6 text-foreground" />
 					</Pressable>
 				</Stack.Toolbar>
 			)}

@@ -4,6 +4,7 @@
 		"slug": "helmor-mobile",
 		"version": "0.1.0",
 		"orientation": "portrait",
+		"icon": "./assets/images/icon.png",
 		"scheme": "helmor",
 		"userInterfaceStyle": "automatic",
 		"ios": {
@@ -11,11 +12,16 @@
 			"supportsTablet": true,
 			"infoPlist": {
 				"ITSAppUsesNonExemptEncryption": false,
+				"NSLocalNetworkUsageDescription": "Helmor Mobile connects to Helmor Desktop on your local network to sync workspaces and send backlog tasks.",
 				"UIViewControllerBasedStatusBarAppearance": true
 			}
 		},
 		"android": {
 			"package": "dev.helmor.mobile",
+			"adaptiveIcon": {
+				"foregroundImage": "./assets/images/icon.png",
+				"backgroundColor": "#10110F"
+			},
 			"predictiveBackGestureEnabled": false
 		},
 		"web": {
@@ -42,7 +48,8 @@
 			"expo-web-browser",
 			"expo-system-ui",
 			"expo-status-bar",
-			"expo-dev-client"
+			"expo-dev-client",
+			"./plugins/with-nmssh"
 		],
 		"experiments": {
 			"typedRoutes": true,

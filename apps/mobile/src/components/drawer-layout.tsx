@@ -1,4 +1,4 @@
-/* eslint-disable react-hooks/immutability, react-hooks/refs */
+/* eslint-disable react-hooks/immutability */
 /**
  * Simplified drawer layout forked from react-native-drawer-layout.
  * Only supports "back" type (drawer behind content), left-side, LTR.
@@ -6,13 +6,7 @@
 
 import * as Haptics from "expo-haptics";
 import * as React from "react";
-import {
-	InteractionManager,
-	Keyboard,
-	Pressable,
-	useWindowDimensions,
-	View,
-} from "react-native";
+import { Keyboard, Pressable, useWindowDimensions, View } from "react-native";
 import {
 	Gesture,
 	GestureDetector,
@@ -75,30 +69,6 @@ export function DrawerLayout({
 	const { width: layoutWidth } = useWindowDimensions();
 	const drawerWidth = getDrawerWidth(layoutWidth, drawerWidthProp);
 
-	// Use refs for callbacks to keep toggleDrawer stable
-	const onOpenRef = React.useRef(onOpen);
-	const onCloseRef = React.useRef(onClose);
-	React.useEffect(() => {
-		onOpenRef.current = onOpen;
-		onCloseRef.current = onClose;
-	});
-
-	const callOnOpen = React.useCallback(() => onOpenRef.current(), []);
-	const callOnClose = React.useCallback(() => onCloseRef.current(), []);
-
-	const interactionHandleRef = React.useRef<number | null>(null);
-
-	const startInteraction = React.useCallback(() => {
-		interactionHandleRef.current = InteractionManager.createInteractionHandle();
-	}, []);
-
-	const endInteraction = React.useCallback(() => {
-		if (interactionHandleRef.current != null) {
-			InteractionManager.clearInteractionHandle(interactionHandleRef.current);
-			interactionHandleRef.current = null;
-		}
-	}, []);
-
 	const touchStartX = useSharedValue(0);
 	const touchX = useSharedValue(0);
 	const translationX = useSharedValue(open ? 0 : -drawerWidth);
@@ -125,12 +95,12 @@ export function DrawerLayout({
 			});
 
 			if (isOpen) {
-				runOnJS(callOnOpen)();
+				runOnJS(onOpen)();
 			} else {
-				runOnJS(callOnClose)();
+				runOnJS(onClose)();
 			}
 		},
-		[drawerWidth, callOnOpen, callOnClose, touchStartX, touchX, translationX],
+		[drawerWidth, onOpen, onClose, touchStartX, touchX, translationX],
 	);
 
 	// Animate to match `open` prop
@@ -143,20 +113,15 @@ export function DrawerLayout({
 	}, [open, toggleDrawer, openValue]);
 
 	const onGestureBegin = React.useCallback(() => {
-		startInteraction();
 		Keyboard.dismiss();
-	}, [startInteraction]);
+	}, []);
 
-	const onGestureFinish = React.useCallback(
-		(nextOpen: boolean) => {
-			endInteraction();
-			Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-			if (nextOpen) {
-				Keyboard.dismiss();
-			}
-		},
-		[endInteraction],
-	);
+	const onGestureFinish = React.useCallback((nextOpen: boolean) => {
+		Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+		if (nextOpen) {
+			Keyboard.dismiss();
+		}
+	}, []);
 
 	const pan = React.useMemo(() => {
 		const gesture = Gesture.Pan()

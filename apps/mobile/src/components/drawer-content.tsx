@@ -2,19 +2,31 @@ import "@/global.css";
 
 import type { Href } from "expo-router";
 import {
+	ChevronDown,
 	Circle,
 	CircleCheck,
 	CircleDashed,
 	CircleDotDashed,
 	CircleX,
+	GitBranch,
+	Laptop,
 	type LucideIcon,
 	MessageCircle,
+	MonitorUp,
 	Pin,
 	Plus,
+	RefreshCw,
 } from "lucide-react-native";
 import type React from "react";
 import { createContext, use, useCallback, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import Animated, {
+	FadeIn,
+	FadeOut,
+	LinearTransition,
+	useAnimatedStyle,
+	withTiming,
+} from "react-native-reanimated";
 import { Icon } from "@/components/icon";
 import { TouchableGlass } from "@/components/touchable-glass";
 import { SafeAreaView } from "@/components/tw";
@@ -22,7 +34,6 @@ import {
 	type MobileWorkspaceGroup,
 	type MobileWorkspaceRow,
 	useWorkspaces,
-	workspaceStatusLabel,
 	workspaceSubtitle,
 } from "@/features/workspaces";
 import { cn } from "@/utils/tailwind";
@@ -35,20 +46,12 @@ type DrawerContextValue = {
 
 const GROUP_TONE_CLASS: Record<MobileWorkspaceGroup["tone"], string> = {
 	pinned: "text-workspace-status-neutral",
-	chats: "text-muted-foreground",
+	chats: "text-foreground",
 	done: "text-workspace-status-done",
 	review: "text-workspace-status-review",
 	progress: "text-workspace-status-progress",
 	backlog: "text-workspace-status-backlog",
 	canceled: "text-workspace-status-canceled",
-};
-
-const STATUS_DOT_CLASS: Record<MobileWorkspaceRow["status"], string> = {
-	"in-progress": "bg-workspace-status-progress",
-	review: "bg-workspace-status-review",
-	done: "bg-workspace-status-done",
-	backlog: "bg-workspace-status-backlog",
-	canceled: "bg-workspace-status-canceled",
 };
 
 const DrawerContext = createContext<DrawerContextValue | null>(null);
@@ -86,7 +89,7 @@ function DrawerNavItem({
 			onPress={onPress}
 			className="px-4 py-3 mx-2 rounded-[10px] active:bg-muted"
 		>
-			<Text className="text-base text-foreground">{label}</Text>
+			<Text className="text-base font-semibold text-foreground">{label}</Text>
 		</Pressable>
 	);
 }
@@ -94,37 +97,68 @@ function DrawerNavItem({
 function DrawerWorkspaceGroup({
 	group,
 	activeWorkspaceId,
+	collapsed,
+	onOpenChange,
 	onSelectWorkspace,
 }: {
 	group: MobileWorkspaceGroup;
 	activeWorkspaceId: string | null;
+	collapsed: boolean;
+	onOpenChange: (open: boolean) => void;
 	onSelectWorkspace: (workspaceId: string) => void;
 }) {
+	const chevronStyle = useAnimatedStyle(() => ({
+		transform: [
+			{
+				rotateZ: withTiming(collapsed ? "-90deg" : "0deg", {
+					duration: 160,
+				}),
+			},
+		],
+	}));
+
 	return (
-		<View className="pt-4">
-			<View className="flex-row items-center gap-2 px-6 pb-1.5">
+		<Animated.View layout={LinearTransition.duration(180)} className="pt-4">
+			<Pressable
+				onPress={() => onOpenChange(collapsed)}
+				accessibilityRole="button"
+				accessibilityState={{ expanded: !collapsed }}
+				className="mx-2 flex-row items-center gap-2.5 rounded-[10px] py-0 pb-2 pl-2 pr-4 active:opacity-70"
+			>
 				<DrawerGroupIcon group={group} />
-				<Text className="flex-1 text-[13px] font-semibold text-muted-foreground">
+				<Text className="flex-1 text-base font-semibold text-foreground">
 					{group.label}
 				</Text>
-				<Text className="text-[12px] text-muted-foreground">
+				<Text className="text-sm font-semibold text-foreground">
 					{group.rows.length}
 				</Text>
-			</View>
-			{group.rows.map((workspace) => (
-				<DrawerWorkspaceItem
-					key={workspace.id}
-					workspace={workspace}
-					active={workspace.id === activeWorkspaceId}
-					onPress={() => onSelectWorkspace(workspace.id)}
-				/>
-			))}
-		</View>
+				<Animated.View style={chevronStyle}>
+					<Icon icon={ChevronDown} className="h-4 w-4 text-foreground" />
+				</Animated.View>
+			</Pressable>
+			{collapsed ? null : (
+				<Animated.View
+					entering={FadeIn.duration(120)}
+					exiting={FadeOut.duration(100)}
+					layout={LinearTransition.duration(180)}
+					className="gap-1"
+				>
+					{group.rows.map((workspace) => (
+						<DrawerWorkspaceItem
+							key={workspace.id}
+							workspace={workspace}
+							active={workspace.id === activeWorkspaceId}
+							onPress={() => onSelectWorkspace(workspace.id)}
+						/>
+					))}
+				</Animated.View>
+			)}
+		</Animated.View>
 	);
 }
 
 function DrawerGroupIcon({ group }: { group: MobileWorkspaceGroup }) {
-	const className = cn("h-3.5 w-3.5", GROUP_TONE_CLASS[group.tone]);
+	const className = cn("h-5 w-5", GROUP_TONE_CLASS[group.tone]);
 
 	if (group.id === "chats") {
 		return (
@@ -146,6 +180,26 @@ function DrawerGroupIcon({ group }: { group: MobileWorkspaceGroup }) {
 	return <Icon icon={icon} className={className} strokeWidth={1.9} />;
 }
 
+function DrawerWorkspaceModeIcon({
+	mode,
+}: {
+	mode: MobileWorkspaceRow["mode"];
+}) {
+	if (mode === "chat") {
+		return null;
+	}
+
+	const icon = mode === "local" ? Laptop : GitBranch;
+
+	return (
+		<Icon
+			icon={icon}
+			className="h-3.5 w-3.5 shrink-0 text-foreground"
+			strokeWidth={1.9}
+		/>
+	);
+}
+
 function DrawerWorkspaceItem({
 	workspace,
 	onPress,
@@ -156,48 +210,70 @@ function DrawerWorkspaceItem({
 	active?: boolean;
 }) {
 	const subtitle = workspaceSubtitle(workspace);
-	const status = workspaceStatusLabel(workspace.status);
 
 	return (
 		<Pressable
 			onPress={onPress}
 			className={cn(
-				"px-4 py-2.5 mx-2 rounded-[10px] active:bg-accent",
-				active && "bg-muted",
+				"ml-8 mr-2 rounded-[10px] px-3 py-2.5 active:bg-accent",
+				active && "bg-accent",
 			)}
 		>
-			<View className="flex-row items-start gap-2.5">
-				<View
-					className={cn(
-						"mt-1.5 h-2.5 w-2.5 rounded-full",
-						STATUS_DOT_CLASS[workspace.status],
-						!workspace.hasUnread && "opacity-70",
-					)}
-				/>
+			<View
+				className={cn(
+					"flex-row items-start",
+					workspace.mode !== "chat" && "gap-2.5",
+				)}
+			>
+				{workspace.mode !== "chat" && (
+					<View className="mt-1">
+						<DrawerWorkspaceModeIcon mode={workspace.mode} />
+					</View>
+				)}
 				<View className="flex-1 gap-0.5">
-					<Text
-						numberOfLines={1}
-						className={cn(
-							"text-[15px]",
-							active ? "text-foreground" : "text-muted-foreground",
-						)}
-					>
+					<Text numberOfLines={1} className="text-[15px] text-foreground">
 						{workspace.title}
 					</Text>
 					<Text numberOfLines={1} className="text-[12px] text-muted-foreground">
 						{subtitle}
 					</Text>
-					<View className="flex-row items-center gap-2">
-						<Text className="text-[11px] text-muted-foreground">{status}</Text>
-						{workspace.unreadSessionCount > 0 && (
+					{workspace.unreadSessionCount > 0 && (
+						<View className="flex-row">
 							<Text className="rounded-full bg-foreground px-1.5 py-0.5 text-[11px] font-medium text-background">
 								{workspace.unreadSessionCount} unread
 							</Text>
-						)}
-					</View>
+						</View>
+					)}
 				</View>
 			</View>
 		</Pressable>
+	);
+}
+
+function DrawerWorkspaceEmpty({
+	connected,
+	syncing,
+}: {
+	connected: boolean;
+	syncing: boolean;
+}) {
+	const icon = syncing ? RefreshCw : MonitorUp;
+	return (
+		<View className="mx-4 mt-6 items-center gap-2 rounded-[12px] border border-border bg-muted/40 px-4 py-5">
+			<Icon icon={icon} className="h-5 w-5 text-muted-foreground" />
+			<Text className="text-center text-[13px] font-medium text-foreground">
+				{connected
+					? syncing
+						? "Syncing workspaces"
+						: "No workspaces synced"
+					: "No desktop connected"}
+			</Text>
+			<Text className="text-center text-[12px] leading-4 text-muted-foreground">
+				{connected
+					? "Refresh after the desktop finishes loading workspace data."
+					: "Pair a desktop to show its workspaces here."}
+			</Text>
+		</View>
 	);
 }
 
@@ -208,8 +284,17 @@ export function DrawerContent({
 	onNavigate: (path: Href) => void;
 	onOpenModal: (path: Href) => void;
 }) {
-	const { visibleGroups, selectedWorkspaceId, selectWorkspace } =
-		useWorkspaces();
+	const {
+		visibleGroups,
+		selectedWorkspaceId,
+		selectWorkspace,
+		startNewWorkspace,
+		activeDesktop,
+		syncStatus,
+	} = useWorkspaces();
+	const [collapsedGroups, setCollapsedGroups] = useState<
+		Partial<Record<MobileWorkspaceGroup["id"], boolean>>
+	>({});
 
 	const handleSelectWorkspace = useCallback(
 		(workspaceId: string) => {
@@ -217,6 +302,21 @@ export function DrawerContent({
 			onNavigate("/");
 		},
 		[onNavigate, selectWorkspace],
+	);
+
+	const handleStartNewWorkspace = useCallback(() => {
+		startNewWorkspace();
+		onNavigate("/");
+	}, [onNavigate, startNewWorkspace]);
+
+	const setGroupOpen = useCallback(
+		(groupId: MobileWorkspaceGroup["id"], open: boolean) => {
+			setCollapsedGroups((previous) => ({
+				...previous,
+				[groupId]: !open,
+			}));
+		},
+		[],
 	);
 
 	return (
@@ -228,6 +328,11 @@ export function DrawerContent({
 			{/* Header */}
 			<View className="px-4 pt-2 pb-3">
 				<Text className="text-[28px] font-bold text-foreground">Helmor</Text>
+				<Text numberOfLines={1} className="text-[13px] text-muted-foreground">
+					{activeDesktop
+						? `${activeDesktop.desktopName}${syncStatus === "syncing" ? " - syncing" : ""}`
+						: "No desktop connected"}
+				</Text>
 			</View>
 
 			{/* Nav + workspace list */}
@@ -235,25 +340,28 @@ export function DrawerContent({
 				className="flex-1"
 				contentContainerStyle={{ paddingBottom: 8 }}
 			>
-				<DrawerNavItem label="Sessions" onPress={() => onNavigate("/chats")} />
 				<DrawerNavItem
-					label="Settings"
-					onPress={() => {
-						if (process.env.EXPO_OS === "android") {
-							onNavigate("/(settings)/settings");
-						}
-						onOpenModal("/(settings)/settings");
-					}}
+					label="Desktops"
+					onPress={() => onOpenModal("/(settings)/desktops")}
 				/>
 
-				{visibleGroups.map((group) => (
-					<DrawerWorkspaceGroup
-						key={group.id}
-						group={group}
-						activeWorkspaceId={selectedWorkspaceId}
-						onSelectWorkspace={handleSelectWorkspace}
+				{visibleGroups.length === 0 ? (
+					<DrawerWorkspaceEmpty
+						connected={Boolean(activeDesktop)}
+						syncing={syncStatus === "syncing"}
 					/>
-				))}
+				) : (
+					visibleGroups.map((group) => (
+						<DrawerWorkspaceGroup
+							key={group.id}
+							group={group}
+							activeWorkspaceId={selectedWorkspaceId}
+							collapsed={collapsedGroups[group.id] === true}
+							onOpenChange={(open) => setGroupOpen(group.id, open)}
+							onSelectWorkspace={handleSelectWorkspace}
+						/>
+					))
+				)}
 			</ScrollView>
 
 			{/* Footer */}
@@ -274,10 +382,14 @@ export function DrawerContent({
 				</TouchableGlass>
 				<View className="flex-1" />
 				<TouchableGlass
-					onPress={() => onNavigate("/")}
-					className="w-10 h-10 rounded-full bg-foreground active:bg-muted items-center justify-center"
+					onPress={handleStartNewWorkspace}
+					accessibilityLabel="New workspace"
+					className="h-10 rounded-full bg-foreground px-3.5 active:bg-muted flex-row items-center justify-center gap-1.5"
 				>
-					<Icon icon={Plus} className="w-6 h-6 text-background" />
+					<Icon icon={Plus} className="h-4 w-4 text-background" />
+					<Text className="text-[13px] font-semibold text-background">
+						New workspace
+					</Text>
 				</TouchableGlass>
 			</View>
 		</SafeAreaView>

@@ -9,6 +9,7 @@ import {
 	LayoutGrid,
 	Link2,
 	LogOut,
+	MonitorSmartphone,
 	ShieldCheck,
 	SlidersHorizontal,
 	SunMoon,
@@ -52,6 +53,11 @@ export default function SettingsScreen() {
 				icon={SlidersHorizontal}
 				label="Capabilities"
 				href="/(settings)/capabilities"
+			/>
+			<SettingsRow
+				icon={MonitorSmartphone}
+				label="Desktops"
+				href="/(settings)/desktops"
 			/>
 			<SettingsRow icon={LayoutGrid} label="Repositories" />
 			<SettingsRow icon={Users} label="Permissions" />
