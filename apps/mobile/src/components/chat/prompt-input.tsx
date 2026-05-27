@@ -13,6 +13,7 @@ import {
 	View,
 } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolImage } from "@/components/symbol-image";
 import { TouchableGlass } from "@/components/touchable-glass";
 import { cn } from "@/utils/tailwind";
@@ -22,23 +23,23 @@ import { useConversationContext } from "./conversation";
 const AnimatedGlassContainer = Animated.createAnimatedComponent(GlassContainer);
 
 /**
- * Root container for the message composer. Positions itself at the bottom of
- * the `<Conversation />` using the shared conversation context. Children are
- * laid out in a horizontal row inside a glass container.
+ * Root container for the message composer. It lives as the bottom region of
+ * `<Conversation />`; keyboard avoidance is handled by the conversation shell.
  */
 export function PromptInput({ children }: { children: ReactNode }) {
 	const { promptInputStyle, onPromptInputLayout } = useConversationContext();
 	const { error } = useChatContext();
+	const insets = useSafeAreaInsets();
 
 	return (
 		<Animated.View
 			onLayout={onPromptInputLayout}
-			style={[{ position: "absolute", left: 0, right: 0 }, promptInputStyle]}
+			style={[{ paddingBottom: Math.max(insets.bottom, 8) }, promptInputStyle]}
 		>
 			{error && <PromptInputError message={error.message} />}
 			<AnimatedGlassContainer
 				style={{
-					flex: 1,
+					width: "100%",
 					flexDirection: "row",
 					padding: 12,
 					gap: 10,

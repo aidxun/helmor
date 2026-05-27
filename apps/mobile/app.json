@@ -49,6 +49,12 @@
 			"expo-system-ui",
 			"expo-status-bar",
 			"expo-dev-client",
+			[
+				"react-native-enriched-markdown",
+				{
+					"enableMath": false
+				}
+			],
 			"./plugins/with-nmssh"
 		],
 		"experiments": {

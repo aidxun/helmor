@@ -1,3 +1,4 @@
+import type { ThreadMessageLike } from "@helmor/thread-schema";
 import type { MobileWorkspaceGroup } from "@/features/workspaces/types";
 
 export type DesktopConnection = {
@@ -40,6 +41,36 @@ export type WorkspaceSnapshot = {
 	desktopId: string;
 	syncedAt: string;
 	groups: MobileWorkspaceGroup[];
+};
+
+export type WorkspaceSessionSummary = {
+	id: string;
+	workspaceId: string;
+	title: string;
+	agentType?: string | null;
+	status: string;
+	model?: string | null;
+	permissionMode: string;
+	providerSessionId?: string | null;
+	effortLevel?: string | null;
+	unreadCount: number;
+	fastMode: boolean;
+	createdAt: string;
+	updatedAt: string;
+	lastUserMessageAt?: string | null;
+	isHidden: boolean;
+	actionKind?: unknown;
+	active: boolean;
+};
+
+export type SessionThreadMessagesPage = {
+	messages: ThreadMessageLike[];
+	hasMore: boolean;
+};
+
+export type SessionThreadPageRequest = {
+	sessionId: string;
+	tailLimit?: number | null;
 };
 
 export type BacklogCreateRequest = {

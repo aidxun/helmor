@@ -6,6 +6,7 @@ use crate::{
     helpers,
     mobile_access::{self, AuthPrincipal},
     models::sessions,
+    pipeline,
     workspace_state::{WorkspaceBranchIntent, WorkspaceMode},
     workspace_status::WorkspaceStatus,
     workspaces,
@@ -126,6 +127,33 @@ pub struct BacklogCreateParams {
     pub linked_directories: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionListParams {
+    pub workspace_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionThreadPageParams {
+    pub session_id: String,
+    #[serde(default)]
+    pub tail_limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionThreadMessagesPage {
+    pub messages: Vec<pipeline::types::ThreadMessageLike>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionReadParams {
+    pub session_id: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BacklogCreateResult {
@@ -169,6 +197,15 @@ pub fn handle_rpc_request(request: RpcRequest, principal: AuthPrincipal) -> RpcR
     let result = match request.method.as_str() {
         "initialize" => initialize(),
         "workspace.snapshot" => workspace_snapshot().map(to_value),
+        "session.list" => parse_params::<SessionListParams>(request.params)
+            .and_then(|params| sessions::list_workspace_sessions(&params.workspace_id))
+            .map(to_value),
+        "session.thread.page" => parse_params::<SessionThreadPageParams>(request.params)
+            .and_then(session_thread_page)
+            .map(to_value),
+        "session.markRead" => parse_params::<SessionReadParams>(request.params)
+            .and_then(|params| sessions::mark_session_read(&params.session_id))
+            .map(to_value),
         "backlog.create" => parse_params::<BacklogCreateParams>(request.params)
             .and_then(create_backlog_task)
             .map(to_value),
@@ -207,6 +244,16 @@ fn workspace_snapshot() -> Result<WorkspaceSnapshot> {
         desktop_id: identity.desktop_id,
         synced_at: crate::models::db::current_timestamp()?,
         groups,
+    })
+}
+
+fn session_thread_page(params: SessionThreadPageParams) -> Result<SessionThreadMessagesPage> {
+    let windowed =
+        sessions::list_session_historical_records_windowed(&params.session_id, params.tail_limit)?;
+    let messages = pipeline::MessagePipeline::convert_historical(&windowed.records);
+    Ok(SessionThreadMessagesPage {
+        messages,
+        has_more: windowed.has_more,
     })
 }
 

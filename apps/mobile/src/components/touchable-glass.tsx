@@ -1,3 +1,4 @@
+import type { BlurViewProps } from "expo-blur";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
 import type React from "react";
 import { useState } from "react";
@@ -18,6 +19,16 @@ type TouchableGlassProps = GlassViewProps & {
 };
 
 type ViewOnlyProps = ViewProps & { className?: string };
+
+type TouchableGlassFallbackRestProps = ViewOnlyProps & {
+	fallbackTint?: BlurViewProps["tint"];
+	fallbackIntensity?: BlurViewProps["intensity"];
+	glassEffectStyle?: unknown;
+	tintColor?: unknown;
+	isInteractive?: unknown;
+	colorScheme?: unknown;
+	animatedProps?: unknown;
+};
 
 function TouchableGlassNative({
 	onPress,
@@ -74,7 +85,7 @@ function TouchableGlassFallback({
 		colorScheme,
 		animatedProps,
 		...viewProps
-	} = rest as Record<string, unknown>;
+	} = rest as TouchableGlassFallbackRestProps;
 	const safeViewProps = viewProps as ViewOnlyProps;
 	const [pressed, setPressed] = useState(false);
 	const onTouchBegin = () => {
@@ -116,7 +127,10 @@ function TouchableGlassFallback({
 					style,
 				]}
 			>
-				<BlurViewRawBackdrop />
+				<BlurViewRawBackdrop
+					tint={fallbackTint ?? "systemThinMaterial"}
+					intensity={fallbackIntensity ?? 80}
+				/>
 				{children as React.ReactNode}
 			</Animated.View>
 		</TouchableWithoutFeedback>

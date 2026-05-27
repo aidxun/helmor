@@ -1,9 +1,14 @@
-import { Stack, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { ChevronDown, Info, Menu } from "lucide-react-native";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "@/components/icon";
 import { useWorkspaces } from "@/features/workspaces";
 import { useDrawer } from "./drawer-content";
+
+type MainHeaderProps = {
+	showBottomBorder?: boolean;
+};
 
 function HeaderTitleMenu() {
 	const {
@@ -23,10 +28,6 @@ function HeaderTitleMenu() {
 					? "Syncing"
 					: "Workspaces"
 				: "Helmor"));
-	const subtitle =
-		!isNewWorkspaceDraft && selectedWorkspaceSessionTab && selectedWorkspace
-			? selectedWorkspace.title
-			: undefined;
 
 	return (
 		<Pressable
@@ -43,66 +44,44 @@ function HeaderTitleMenu() {
 				</Text>
 				<Icon icon={ChevronDown} className="h-3 w-3 text-foreground" />
 			</View>
-			{subtitle ? (
-				<Text
-					numberOfLines={1}
-					className="max-w-[280px] text-[12px] text-muted-foreground"
-				>
-					{subtitle}
-				</Text>
-			) : null}
 		</Pressable>
 	);
 }
 
-export function MainHeader() {
+export function MainHeader({ showBottomBorder = false }: MainHeaderProps) {
 	const { openDrawer } = useDrawer();
 	const router = useRouter();
+	const insets = useSafeAreaInsets();
 
 	return (
-		<>
-			{process.env.EXPO_OS === "ios" ? (
-				<Stack.Toolbar placement="left">
-					<Stack.Toolbar.Button icon="list.bullet" onPress={openDrawer} />
-				</Stack.Toolbar>
-			) : (
-				// TODO: Migrate to unified Toolbar support for Android in SDK 56
-				<Stack.Toolbar placement="left" asChild>
-					<Pressable
-						onPress={openDrawer}
-						accessibilityLabel="Open drawer"
-						accessibilityRole="button"
-						className="p-2 -ml-1 active:opacity-60"
-					>
-						<Icon icon={Menu} className="w-6 h-6 text-foreground" />
-					</Pressable>
-				</Stack.Toolbar>
-			)}
-
-			<Stack.Screen.Title asChild>
-				<HeaderTitleMenu />
-			</Stack.Screen.Title>
-
-			{process.env.EXPO_OS === "ios" ? (
-				<Stack.Toolbar placement="right">
-					<Stack.Toolbar.Button
-						icon="info.circle"
-						onPress={() => router.navigate("/workspace-summary")}
-					/>
-				</Stack.Toolbar>
-			) : (
-				// TODO: Migrate to unified Toolbar support for Android in SDK 56
-				<Stack.Toolbar placement="right" asChild>
-					<Pressable
-						onPress={() => router.navigate("/workspace-summary")}
-						accessibilityLabel="Workspace summary"
-						accessibilityRole="button"
-						className="p-2 -mr-1 active:opacity-60"
-					>
-						<Icon icon={Info} className="w-6 h-6 text-foreground" />
-					</Pressable>
-				</Stack.Toolbar>
-			)}
-		</>
+		<View
+			className="border-border/50 bg-background"
+			style={{
+				paddingTop: insets.top,
+				borderBottomWidth: showBottomBorder ? StyleSheet.hairlineWidth : 0,
+			}}
+		>
+			<View className="h-11 flex-row items-center px-3">
+				<Pressable
+					onPress={openDrawer}
+					accessibilityLabel="Open drawer"
+					accessibilityRole="button"
+					className="h-11 w-11 items-center justify-center rounded-full active:bg-muted"
+				>
+					<Icon icon={Menu} className="w-6 h-6 text-foreground" />
+				</Pressable>
+				<View className="flex-1 items-center">
+					<HeaderTitleMenu />
+				</View>
+				<Pressable
+					onPress={() => router.navigate("/workspace-summary")}
+					accessibilityLabel="Workspace summary"
+					accessibilityRole="button"
+					className="h-11 w-11 items-center justify-center rounded-full active:bg-muted"
+				>
+					<Icon icon={Info} className="w-6 h-6 text-foreground" />
+				</Pressable>
+			</View>
+		</View>
 	);
 }

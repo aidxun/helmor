@@ -4,6 +4,9 @@ import type {
 	BacklogCreateResult,
 	JsonRpcResponse,
 	PairCompleteResult,
+	SessionThreadMessagesPage,
+	SessionThreadPageRequest,
+	WorkspaceSessionSummary,
 	WorkspaceSnapshot,
 } from "./types";
 
@@ -34,6 +37,24 @@ export class DesktopRpcClient {
 
 	async workspaceSnapshot(): Promise<WorkspaceSnapshot> {
 		return this.call<WorkspaceSnapshot>("workspace.snapshot", {});
+	}
+
+	async listWorkspaceSessions(
+		workspaceId: string,
+	): Promise<WorkspaceSessionSummary[]> {
+		return this.call<WorkspaceSessionSummary[]>("session.list", {
+			workspaceId,
+		});
+	}
+
+	async sessionThreadPage(
+		request: SessionThreadPageRequest,
+	): Promise<SessionThreadMessagesPage> {
+		return this.call<SessionThreadMessagesPage>("session.thread.page", request);
+	}
+
+	async markSessionRead(sessionId: string): Promise<void> {
+		await this.call("session.markRead", { sessionId });
 	}
 
 	async createBacklogTask(

@@ -1,6 +1,5 @@
 /* eslint-disable react-hooks/immutability, react-hooks/refs */
 import { LegendList, type LegendListRef } from "@legendapp/list";
-import { isLiquidGlassAvailable } from "expo-glass-effect";
 import {
 	createContext,
 	type ReactElement,
@@ -10,32 +9,37 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { type LayoutChangeEvent, Text, View } from "react-native";
-import { useKeyboardHandler } from "react-native-keyboard-controller";
+import {
+	type LayoutChangeEvent,
+	StyleSheet,
+	Text,
+	useColorScheme,
+	View,
+} from "react-native";
+import {
+	KeyboardAvoidingView,
+	useKeyboardHandler,
+} from "react-native-keyboard-controller";
 import Animated, {
 	runOnJS,
-	useAnimatedProps,
 	useAnimatedStyle,
 	useDerivedValue,
 	useSharedValue,
 	withTiming,
 } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolImage } from "@/components/symbol-image";
 import { TouchableGlass } from "../touchable-glass";
 import { KeyboardGestureArea } from "../tw";
 import { useChatContext } from "./chat-context";
 import type { ChatMessage } from "./types";
 
-const IS_GLASS = isLiquidGlassAvailable();
-
 const AnimatedLegendList = Animated.createAnimatedComponent(LegendList);
 
-type AnimatedStyle = any;
+type AnimatedStyle = object;
 
 type ConversationContextValue = {
 	scrollToBottom: () => void;
-	/** Animated style that positions the prompt input above the keyboard. */
+	/** Animated style reserved for prompt input layout adjustments. */
 	promptInputStyle: AnimatedStyle;
 	/** Prompt input reports its measured height through this callback. */
 	onPromptInputLayout: (e: LayoutChangeEvent) => void;
@@ -55,58 +59,48 @@ export function useConversationContext() {
 }
 
 export function Conversation({
+	items,
 	renderMessage,
+	keyExtractor,
+	estimatedItemSize = 80,
+	onScrolledFromTopChange,
 	emptyState,
 	children,
 }: {
-	/** Render callback for each message – passed to the underlying list. */
-	renderMessage: (info: { item: ChatMessage }) => ReactElement;
+	/** Override the chat context messages when rendering richer thread rows. */
+	items?: unknown[];
+	/** Render callback for each row passed to the underlying list. */
+	renderMessage: (info: { item: unknown; index: number }) => ReactElement;
+	keyExtractor?: (item: unknown, index: number) => string;
+	estimatedItemSize?: number;
+	onScrolledFromTopChange?: (scrolled: boolean) => void;
 	/** Element shown when the message list is empty. */
 	emptyState?: ReactElement;
 	/** Compound children: <ConversationScrollButton />, <PromptInput />, etc. */
 	children?: ReactNode;
 }) {
 	const { messages } = useChatContext();
+	const data = items ?? messages;
 	const listRef = useRef<LegendListRef>(null);
-	const insets = useSafeAreaInsets();
+	const isScrolledFromTopRef = useRef(false);
 
 	// -- Keyboard tracking --------------------------------------------------
 
 	const scrollToBottomRef = useRef<() => void>(() => {});
-	const keyboardHeight = useSharedValue(0);
-	// Separate value for contentInset that freezes during interactive dismiss
-	// to prevent the scroll view from snapping when the user is overscrolled.
-	const keyboardHeightForInset = useSharedValue(0);
 	// Tracks whether the current keyboard transition originated from an
 	// interactive dismiss gesture (vs a programmatic tap-to-open).
 	const wasInteractive = useSharedValue(false);
 	useKeyboardHandler(
 		{
-			onStart: (e) => {
-				"worklet";
-				// Track if keyboard is opening from a tap (not from interactive dismiss)
-				if (e.height > 0 && !wasInteractive.value) {
-					wasInteractive.value = false;
-				}
-			},
-			onMove: (e) => {
-				"worklet";
-				keyboardHeight.value = e.height;
-				keyboardHeightForInset.value = e.height;
-			},
 			onInteractive: (e) => {
 				"worklet";
-				// Only update prompt input position, not contentInset.
-				// Changing contentInset during an active gesture causes a jump
-				// when the user has overscrolled past the bottom.
-				keyboardHeight.value = e.height;
-				wasInteractive.value = true;
+				if (e.height > 0) {
+					wasInteractive.value = true;
+				}
 			},
 			onEnd: (e) => {
 				"worklet";
 				const shouldScroll = e.height > 0 && !wasInteractive.value;
-				keyboardHeight.value = e.height;
-				keyboardHeightForInset.value = withTiming(e.height, { duration: 250 });
 				wasInteractive.value = false;
 				if (shouldScroll) {
 					runOnJS(scrollToBottomRef.current)();
@@ -131,10 +125,7 @@ export function Conversation({
 	const lastContentHeight = useSharedValue(0);
 	const SCROLL_THRESHOLD = 50;
 
-	const bottomInset = useDerivedValue(() => {
-		const keyboard = Math.abs(keyboardHeight.value);
-		return composerHeight.value + Math.max(insets.bottom, keyboard);
-	});
+	const bottomInset = useDerivedValue(() => 0);
 
 	const isAtBottom = useDerivedValue(() => {
 		const maxScrollY =
@@ -158,9 +149,16 @@ export function Conversation({
 
 	const onScroll = useCallback(
 		(event: { nativeEvent: { contentOffset: { y: number } } }) => {
-			scrollY.value = event.nativeEvent.contentOffset.y;
+			const offsetY = event.nativeEvent.contentOffset.y;
+			scrollY.value = offsetY;
+
+			const isScrolledFromTop = offsetY > 0.5;
+			if (isScrolledFromTopRef.current !== isScrolledFromTop) {
+				isScrolledFromTopRef.current = isScrolledFromTop;
+				onScrolledFromTopChange?.(isScrolledFromTop);
+			}
 		},
-		[],
+		[onScrolledFromTopChange, scrollY],
 	);
 
 	const onContentSizeChange = useCallback((_width: number, height: number) => {
@@ -193,24 +191,19 @@ export function Conversation({
 	scrollToBottomRef.current = scrollToBottom;
 
 	// -- Animated styles -----------------------------------------------------
-	const topPadding = IS_GLASS ? 128 : 16;
 
 	const footerSpacerStyle = useAnimatedStyle(() => {
 		const scrollHeight = scrollViewHeight.value;
 		if (scrollHeight <= 0) return { height: 0 };
 
-		const keyboard = Math.abs(keyboardHeight.value);
-		const bottom = composerHeight.value + Math.max(insets.bottom, keyboard);
-		const blankSpace = scrollHeight - messagesOnlyHeight.value - bottom;
-		const footerHeight = Math.max(0, blankSpace - topPadding);
+		const blankSpace = scrollHeight - messagesOnlyHeight.value;
+		const footerHeight = Math.max(0, blankSpace);
 
 		currentFooterHeight.value = footerHeight;
 		return { height: footerHeight };
 	});
 
-	const promptInputStyle = useAnimatedStyle(() => ({
-		bottom: Math.max(insets.bottom, Math.abs(keyboardHeight.value)),
-	}));
+	const promptInputStyle = useAnimatedStyle(() => ({}));
 
 	const scrollButtonStyle = useAnimatedStyle(() => ({
 		opacity: withTiming(shouldShowScrollButton.value ? 1 : 0, {
@@ -223,20 +216,8 @@ export function Conversation({
 				}),
 			},
 		],
-		bottom:
-			composerHeight.value +
-			Math.max(insets.bottom, Math.abs(keyboardHeight.value)) +
-			12,
+		bottom: composerHeight.value + 12,
 	}));
-
-	const listAnimatedProps = useAnimatedProps(() => {
-		const keyboard = Math.abs(keyboardHeightForInset.value);
-		const bottom = composerHeight.value + Math.max(insets.bottom, keyboard);
-		return {
-			contentInset: { top: topPadding, left: 0, right: 0, bottom },
-			scrollIndicatorInsets: { top: 0, left: 0, right: 0, bottom },
-		};
-	});
 
 	const onPromptInputLayout = useCallback((e: LayoutChangeEvent) => {
 		const h = e.nativeEvent.layout.height;
@@ -257,58 +238,84 @@ export function Conversation({
 
 	return (
 		<ConversationCtx value={contextValue}>
-			<View className="flex-1 bg-background">
-				<KeyboardGestureArea
-					interpolator="ios"
-					showOnSwipeUp
-					offset={composerOffsetHeight}
-					className="flex-1"
-				>
-					<AnimatedLegendList
-						ref={listRef}
-						data={messages}
-						renderItem={renderMessage as any}
-						keyExtractor={(item) => (item as ChatMessage).id}
-						contentContainerStyle={{
-							padding: 16,
-							// transparent header spacing.
-							paddingBottom: 8,
-						}}
-						keyboardDismissMode="interactive"
-						automaticallyAdjustsScrollIndicatorInsets={false}
-						maintainVisibleContentPosition
-						estimatedItemSize={80}
-						animatedProps={listAnimatedProps}
-						onLayout={onScrollViewLayout}
-						onScroll={onScroll}
-						scrollEventThrottle={16}
-						onContentSizeChange={onContentSizeChange}
-						ListFooterComponent={
-							<Animated.View style={footerSpacerStyle}>
-								{!messages.length && emptyState}
-							</Animated.View>
-						}
-					/>
-				</KeyboardGestureArea>
+			<KeyboardAvoidingView
+				behavior="padding"
+				automaticOffset
+				style={{ flex: 1 }}
+			>
+				<View className="flex-1 bg-background">
+					<KeyboardGestureArea
+						interpolator="ios"
+						showOnSwipeUp
+						offset={composerOffsetHeight}
+						className="flex-1"
+					>
+						<AnimatedLegendList
+							ref={listRef}
+							data={data}
+							renderItem={renderMessage}
+							keyExtractor={
+								keyExtractor ?? ((item) => (item as ChatMessage).id)
+							}
+							contentContainerStyle={{
+								paddingHorizontal: 16,
+								paddingTop: 16,
+								paddingBottom: 16,
+							}}
+							keyboardDismissMode="interactive"
+							automaticallyAdjustsScrollIndicatorInsets={false}
+							maintainVisibleContentPosition
+							estimatedItemSize={estimatedItemSize}
+							onLayout={onScrollViewLayout}
+							onScroll={onScroll}
+							scrollEventThrottle={16}
+							onContentSizeChange={onContentSizeChange}
+							ListFooterComponent={
+								<Animated.View style={footerSpacerStyle}>
+									{!data.length && emptyState}
+								</Animated.View>
+							}
+						/>
+					</KeyboardGestureArea>
 
-				{children}
-			</View>
+					{children}
+				</View>
+			</KeyboardAvoidingView>
 		</ConversationCtx>
 	);
 }
 
 export function ConversationScrollButton() {
 	const { scrollToBottom, scrollButtonStyle } = useConversationContext();
+	const colorScheme = useColorScheme();
+	const isDark = colorScheme === "dark";
 
 	return (
 		<Animated.View
 			pointerEvents="box-none"
-			style={[{ position: "absolute", right: 16 }, scrollButtonStyle]}
+			style={[
+				{ position: "absolute", left: 0, right: 0, alignItems: "center" },
+				scrollButtonStyle,
+			]}
 		>
 			<TouchableGlass
 				onPress={scrollToBottom}
 				hitSlop={8}
-				className="w-10 h-10 rounded-full justify-center items-center"
+				glassEffectStyle="regular"
+				fallbackTint="systemThinMaterial"
+				fallbackIntensity={90}
+				style={{
+					width: 40,
+					height: 40,
+					borderRadius: 20,
+					alignItems: "center",
+					justifyContent: "center",
+					backgroundColor: isDark
+						? "rgba(255,255,255,0.18)"
+						: "rgba(255,255,255,0.62)",
+					borderColor: isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.08)",
+					borderWidth: StyleSheet.hairlineWidth,
+				}}
 			>
 				<SymbolImage
 					name="chevron.down"

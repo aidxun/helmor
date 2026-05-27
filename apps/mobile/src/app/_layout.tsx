@@ -135,6 +135,7 @@ function StackLayout() {
 					title: "Helmor",
 					animation: "none",
 					gestureEnabled: false,
+					headerShown: false,
 				}}
 			/>
 

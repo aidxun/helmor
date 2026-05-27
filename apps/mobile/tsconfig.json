@@ -3,6 +3,7 @@
 	"compilerOptions": {
 		"strict": true,
 		"paths": {
+			"@helmor/thread-schema": ["../../packages/thread-schema/src/index.ts"],
 			"@/*": ["./src/*"]
 		}
 	},

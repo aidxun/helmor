@@ -1,8 +1,12 @@
 import * as WebBrowser from "expo-web-browser";
-import React from "react";
-import { Linking, Platform, StyleSheet, Text, View } from "react-native";
+import { useMemo } from "react";
+import { Platform } from "react-native";
+import {
+	EnrichedMarkdownText,
+	type MarkdownStyle,
+	type Md4cFlags,
+} from "react-native-enriched-markdown";
 import { useCSSVariable } from "uniwind";
-import Markdown from "./markdown";
 
 const VAR_NAMES = [
 	"--app-foreground",
@@ -14,6 +18,17 @@ const VAR_NAMES = [
 	// Tailwind blue
 	"--color-blue-400",
 ] as const;
+
+const MONOSPACE_FONT =
+	Platform.select({
+		ios: "Menlo",
+		android: "monospace",
+		default: "monospace",
+	}) ?? "monospace";
+
+const MD4C_FLAGS: Md4cFlags = {
+	latexMath: false,
+};
 
 /**
  * Convert single newlines to hard breaks (two trailing spaces) so they render
@@ -30,122 +45,197 @@ export function ChatMarkdown({ children }: { children: string }) {
 		VAR_NAMES as unknown as string[],
 	) as string[];
 
-	const isWeb = process.env.EXPO_OS === "web";
-	const baseFontSize = isWeb ? 13 : 16;
-	const baseLineHeight = isWeb ? 21.5 : 22;
-
-	// Only overrides — defaults from utils.ts are merged automatically
-	const markdownStyles = {
-		heading1: { fontSize: 24, color: text },
-		heading2: {
-			fontSize: 20,
-			lineHeight: 28,
-			fontWeight: "bold" as const,
-			color: text,
-		},
-		heading3: { fontSize: 18, color: text },
-		heading4: { fontSize: 16, color: text },
-		heading5: { fontSize: 14, color: text },
-		heading6: { fontSize: 12, color: text },
-		paragraph: {
-			fontSize: baseFontSize,
-			lineHeight: baseLineHeight,
-			marginVertical: 8,
-		},
-		text: { color: text, fontSize: baseFontSize, lineHeight: baseLineHeight },
-		thematicBreak: { backgroundColor: border },
-		blockquote: {
-			backgroundColor: bg3,
-			borderColor: border,
-			paddingHorizontal: 8,
-		},
-		codeContainer: { backgroundColor: fill3, padding: 12, borderRadius: 8 },
-		codeText: {
-			fontSize: isWeb ? 12 : 14,
-			color: text,
-			fontFamily: Platform.select({
-				ios: "ui-monospace",
-				default: "monospace",
-			}),
-		},
-		inlineCode: {
-			fontFamily: Platform.select({
-				ios: "ui-monospace",
-				default: "monospace",
-			}),
-			paddingHorizontal: 4,
-			fontSize: isWeb ? 12 : 15,
-			color: text,
-			overflow: "hidden" as const,
-			borderRadius: 4,
-			backgroundColor: fill3,
-		},
-		link: { fontSize: baseFontSize, color: link },
-		image: {
-			height: 200,
-			aspectRatio: 16 / 9,
-			backgroundColor: fill3,
-			borderRadius: 8,
-		},
-		listBullet: {
-			color: text2,
-			fontVariant: ["tabular-nums" as const],
-			marginRight: 8,
-		},
-		table: { borderColor: border, borderRadius: 8 },
-		tableRow: { borderBottomColor: border },
-		tableHeaderRow: { backgroundColor: bg2 },
-		tableCell: { padding: 10, borderRightColor: border },
-		tableHeaderCell: { backgroundColor: bg2 },
-		tableCellText: { color: text },
-		tableHeaderCellText: { color: text },
-	};
+	const markdownStyle = useMemo<MarkdownStyle>(
+		() => ({
+			paragraph: {
+				fontSize: 16,
+				lineHeight: 22,
+				color: text,
+				marginTop: 0,
+				marginBottom: 8,
+			},
+			h1: {
+				fontSize: 24,
+				lineHeight: 32,
+				fontWeight: "700",
+				color: text,
+				marginTop: 12,
+				marginBottom: 8,
+			},
+			h2: {
+				fontSize: 20,
+				lineHeight: 28,
+				fontWeight: "700",
+				color: text,
+				marginTop: 12,
+				marginBottom: 8,
+			},
+			h3: {
+				fontSize: 18,
+				lineHeight: 26,
+				fontWeight: "700",
+				color: text,
+				marginTop: 10,
+				marginBottom: 6,
+			},
+			h4: {
+				fontSize: 16,
+				lineHeight: 24,
+				fontWeight: "700",
+				color: text,
+				marginTop: 10,
+				marginBottom: 6,
+			},
+			h5: {
+				fontSize: 14,
+				lineHeight: 22,
+				fontWeight: "700",
+				color: text,
+				marginTop: 8,
+				marginBottom: 4,
+			},
+			h6: {
+				fontSize: 12,
+				lineHeight: 18,
+				fontWeight: "700",
+				color: text2,
+				marginTop: 8,
+				marginBottom: 4,
+			},
+			blockquote: {
+				fontSize: 16,
+				lineHeight: 22,
+				color: text2,
+				marginTop: 4,
+				marginBottom: 8,
+				borderColor: border,
+				borderWidth: 3,
+				gapWidth: 10,
+				backgroundColor: bg3,
+			},
+			list: {
+				fontSize: 16,
+				lineHeight: 22,
+				color: text,
+				marginTop: 0,
+				marginBottom: 8,
+				bulletColor: text2,
+				bulletSize: 6,
+				markerMinWidth: 16,
+				markerColor: text2,
+				markerFontWeight: "500",
+				gapWidth: 8,
+				marginLeft: 20,
+			},
+			codeBlock: {
+				fontSize: 14,
+				lineHeight: 20,
+				fontFamily: MONOSPACE_FONT,
+				color: text,
+				marginTop: 4,
+				marginBottom: 8,
+				backgroundColor: fill3,
+				borderColor: border,
+				borderRadius: 8,
+				borderWidth: 0,
+				padding: 12,
+			},
+			link: {
+				color: link,
+				underline: false,
+				backgroundColor: "transparent",
+			},
+			strong: {
+				fontWeight: "bold",
+				color: text,
+			},
+			em: {
+				fontStyle: "italic",
+				color: text,
+			},
+			strikethrough: {
+				color: text2,
+			},
+			underline: {
+				color: text,
+			},
+			code: {
+				fontFamily: MONOSPACE_FONT,
+				fontSize: 15,
+				color: text,
+				backgroundColor: fill3,
+				borderColor: "transparent",
+			},
+			image: {
+				height: 200,
+				borderRadius: 8,
+				marginTop: 4,
+				marginBottom: 8,
+			},
+			inlineImage: {
+				size: 20,
+			},
+			thematicBreak: {
+				color: border,
+				height: 1,
+				marginTop: 12,
+				marginBottom: 12,
+			},
+			table: {
+				fontSize: 14,
+				lineHeight: 20,
+				color: text,
+				marginTop: 4,
+				marginBottom: 8,
+				headerBackgroundColor: bg2,
+				headerTextColor: text,
+				rowEvenBackgroundColor: "transparent",
+				rowOddBackgroundColor: bg3,
+				borderColor: border,
+				borderWidth: 1,
+				borderRadius: 8,
+				cellPaddingHorizontal: 10,
+				cellPaddingVertical: 8,
+			},
+			taskList: {
+				checkedColor: link,
+				borderColor: border,
+				checkboxSize: 14,
+				checkboxBorderRadius: 4,
+				checkmarkColor: text,
+				checkedTextColor: text2,
+				checkedStrikethrough: false,
+			},
+			math: {
+				fontSize: 16,
+				color: text,
+				backgroundColor: fill3,
+				padding: 10,
+				marginTop: 4,
+				marginBottom: 8,
+				textAlign: "left",
+			},
+			inlineMath: {
+				color: text,
+			},
+		}),
+		[text, text2, border, bg2, bg3, fill3, link],
+	);
 
 	return (
-		<Markdown
-			styles={markdownStyles}
-			onLinkPress={(url) => {
-				if (process.env.EXPO_OS === "web") {
-					Linking.openURL(url);
-				} else {
-					WebBrowser.openBrowserAsync(url, {
-						presentationStyle: WebBrowser.WebBrowserPresentationStyle.AUTOMATIC,
-					});
-				}
-			}}
-			renderRules={{
-				listItem: ({ node, styles, children, extras }) => (
-					<View key={node.key} style={styles.listItem as any}>
-						{extras?.customListStyleType ? (
-							extras.customListStyleType
-						) : (
-							<Text
-								style={[
-									styles.listBullet as any,
-									extras?.ordered
-										? fullStyles.orderedBullet
-										: fullStyles.unorderedBullet,
-								]}
-							>
-								{extras?.listStyleType}
-							</Text>
-						)}
-						<View style={styles.listItemContent as any}>{children}</View>
-					</View>
-				),
-			}}
+		<EnrichedMarkdownText
+			allowTrailingMargin={false}
+			containerStyle={{ width: "100%" }}
+			flavor="github"
 			markdown={preserveNewlines(children)}
+			markdownStyle={markdownStyle}
+			md4cFlags={MD4C_FLAGS}
+			onLinkPress={({ url }) => {
+				void WebBrowser.openBrowserAsync(url, {
+					presentationStyle: WebBrowser.WebBrowserPresentationStyle.AUTOMATIC,
+				});
+			}}
+			selectable
 		/>
 	);
 }
-
-const fullStyles = StyleSheet.create({
-	orderedBullet: {
-		fontFamily: Platform.select({ ios: "ui-monospace", default: "monospace" }),
-		fontWeight: "normal",
-	},
-	unorderedBullet: {
-		fontSize: 18,
-		fontWeight: "900",
-	},
-});

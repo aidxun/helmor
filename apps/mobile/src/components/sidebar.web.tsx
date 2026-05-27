@@ -145,7 +145,7 @@ export function Sidebar({
 						{NAV_ITEMS.map((item) => {
 							const isActive = pathname === item.href;
 							return (
-								<Link key={item.href} href={item.href} asChild>
+								<Link key={String(item.href)} href={item.href} asChild>
 									<Pressable
 										className={`px-4 py-3 mx-2 rounded-[10px] ${
 											isActive

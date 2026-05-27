@@ -6,17 +6,22 @@ import {
 	Section,
 	Image as SUIImage,
 	Text as SUIText,
-	VStack,
 } from "@expo/ui/swift-ui";
 import {
 	controlSize,
 	font,
 	foregroundStyle,
 } from "@expo/ui/swift-ui/modifiers";
-import { Stack, useRouter } from "expo-router";
-import { useColorScheme } from "react-native";
+import { useRouter } from "expo-router";
+import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SymbolImage } from "@/components/symbol-image";
 import { useWorkspaces } from "@/features/workspaces";
 import { useDrawer } from "./drawer-content";
+
+type MainHeaderProps = {
+	showBottomBorder?: boolean;
+};
 
 function HeaderTitleMenu() {
 	const {
@@ -28,11 +33,9 @@ function HeaderTitleMenu() {
 		isNewWorkspaceDraft,
 		syncStatus,
 	} = useWorkspaces();
-	const router = useRouter();
 	const colorScheme = useColorScheme();
 	const isDark = colorScheme === "dark";
 	const headerFg = isDark ? "#fff" : "#000";
-	const headerFgMuted = isDark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.5)";
 	const title = isNewWorkspaceDraft
 		? "New workspace"
 		: (selectedWorkspaceSessionTab?.title ??
@@ -42,41 +45,28 @@ function HeaderTitleMenu() {
 					? "Syncing"
 					: "Workspaces"
 				: "Helmor"));
-	const subtitle =
-		!isNewWorkspaceDraft && selectedWorkspaceSessionTab && selectedWorkspace
-			? selectedWorkspace.title
-			: undefined;
 
 	return (
 		<Host
 			style={{
 				minWidth: 220,
 				maxWidth: 280,
-				minHeight: subtitle ? 42 : 34,
+				minHeight: 34,
 			}}
 		>
 			<Menu
 				label={
-					<VStack spacing={0}>
-						<HStack spacing={4} alignment="center">
-							<SUIText
-								modifiers={[
-									foregroundStyle(headerFg),
-									font({ weight: "semibold", size: 17 }),
-								]}
-							>
-								{title}
-							</SUIText>
-							<SUIImage systemName="chevron.down" size={10} color={headerFg} />
-						</HStack>
-						{subtitle ? (
-							<SUIText
-								modifiers={[foregroundStyle(headerFgMuted), font({ size: 12 })]}
-							>
-								{subtitle}
-							</SUIText>
-						) : null}
-					</VStack>
+					<HStack spacing={4} alignment="center">
+						<SUIText
+							modifiers={[
+								foregroundStyle(headerFg),
+								font({ weight: "semibold", size: 17 }),
+							]}
+						>
+							{title}
+						</SUIText>
+						<SUIImage systemName="chevron.down" size={10} color={headerFg} />
+					</HStack>
 				}
 				modifiers={[controlSize("regular")]}
 			>
@@ -96,36 +86,47 @@ function HeaderTitleMenu() {
 						))}
 					</Section>
 				) : null}
-				<Section title="Workspace">
-					<Button
-						systemImage="info.circle"
-						label="Workspace summary"
-						onPress={() => router.navigate("/workspace-summary")}
-					/>
-				</Section>
 			</Menu>
 		</Host>
 	);
 }
 
-export function MainHeader() {
+export function MainHeader({ showBottomBorder = false }: MainHeaderProps) {
 	const { openDrawer } = useDrawer();
 	const router = useRouter();
+	const insets = useSafeAreaInsets();
+	const colorScheme = useColorScheme();
+	const headerFg = colorScheme === "dark" ? "#fff" : "#000";
 
 	return (
-		<>
-			<Stack.Screen.Title asChild>
-				<HeaderTitleMenu />
-			</Stack.Screen.Title>
-			<Stack.Toolbar placement="left">
-				<Stack.Toolbar.Button icon="list.bullet" onPress={openDrawer} />
-			</Stack.Toolbar>
-			<Stack.Toolbar placement="right">
-				<Stack.Toolbar.Button
-					icon="info.circle"
+		<View
+			className="border-border/50 bg-background"
+			style={{
+				paddingTop: insets.top,
+				borderBottomWidth: showBottomBorder ? StyleSheet.hairlineWidth : 0,
+			}}
+		>
+			<View className="h-11 flex-row items-center px-3">
+				<Pressable
+					onPress={openDrawer}
+					accessibilityLabel="Open drawer"
+					accessibilityRole="button"
+					className="h-11 w-11 items-center justify-center rounded-full active:bg-muted"
+				>
+					<SymbolImage name="list.bullet" size={19} tintColor={headerFg} />
+				</Pressable>
+				<View className="flex-1 items-center">
+					<HeaderTitleMenu />
+				</View>
+				<Pressable
 					onPress={() => router.navigate("/workspace-summary")}
-				/>
-			</Stack.Toolbar>
-		</>
+					accessibilityLabel="Workspace summary"
+					accessibilityRole="button"
+					className="h-11 w-11 items-center justify-center rounded-full active:bg-muted"
+				>
+					<SymbolImage name="info.circle" size={20} tintColor={headerFg} />
+				</Pressable>
+			</View>
+		</View>
 	);
 }

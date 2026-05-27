@@ -36,7 +36,6 @@ const FallbackAppleGlassView = ({
 	children,
 	style,
 	className,
-	...rest
 }: FallbackAppleGlassViewProps) => {
 	return (
 		<BlurView
@@ -57,7 +56,7 @@ export const AppleGlassView = GLASS_ENABLED
 function BetterGlassView(
 	props: React.ComponentProps<typeof AnimatedEXGlassView>,
 ) {
-	const { style, props: converted } = convertStylesToProps(props.style, {
+	const { style, props: converted } = copyStylesToProps(props.style, {
 		backgroundColor: "tintColor",
 	});
 
@@ -66,9 +65,9 @@ function BetterGlassView(
 
 export const GlassView = withUniwind(XGlassView);
 
-function convertStylesToProps(
+function copyStylesToProps(
 	style: React.ComponentProps<typeof AnimatedEXGlassView>["style"],
-	move: Record<string, string>,
+	copy: Record<string, string>,
 ) {
 	if (!style) {
 		return { style, props: {} as Record<string, unknown> };
@@ -79,10 +78,9 @@ function convertStylesToProps(
 	>;
 	const props: Record<string, unknown> = {};
 
-	for (const [styleKey, propKey] of Object.entries(move)) {
+	for (const [styleKey, propKey] of Object.entries(copy)) {
 		if (styleKey in flatStyle) {
 			props[propKey] = flatStyle[styleKey];
-			delete flatStyle[styleKey];
 		}
 	}
 

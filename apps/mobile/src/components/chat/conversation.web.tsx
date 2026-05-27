@@ -13,7 +13,7 @@ import { type LayoutChangeEvent, Pressable, Text, View } from "react-native";
 import { useChatContext } from "./chat-context";
 import type { ChatMessage } from "./types";
 
-type AnimatedStyle = any;
+type AnimatedStyle = object;
 
 type ConversationContextValue = {
 	scrollToBottom: () => void;
@@ -34,15 +34,22 @@ export function useConversationContext() {
 }
 
 export function Conversation({
+	items,
 	renderMessage,
+	keyExtractor,
+	estimatedItemSize = 80,
 	emptyState,
 	children,
 }: {
-	renderMessage: (info: { item: ChatMessage }) => ReactElement;
+	items?: unknown[];
+	renderMessage: (info: { item: unknown; index: number }) => ReactElement;
+	keyExtractor?: (item: unknown, index: number) => string;
+	estimatedItemSize?: number;
 	emptyState?: ReactElement;
 	children?: ReactNode;
 }) {
 	const { messages } = useChatContext();
+	const data = items ?? messages;
 	const listRef = useRef<LegendListRef>(null);
 
 	const [composerHeight, setComposerHeight] = useState(68);
@@ -122,7 +129,7 @@ export function Conversation({
 		<ConversationCtx value={contextValue}>
 			<View className="relative flex-1 bg-background">
 				{/* Empty state overlay */}
-				{messages.length === 0 && emptyState && (
+				{data.length === 0 && emptyState && (
 					<View className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
 						{emptyState}
 					</View>
@@ -131,9 +138,9 @@ export function Conversation({
 				{/* Message list */}
 				<LegendList
 					ref={listRef}
-					data={messages}
-					renderItem={renderMessage as any}
-					keyExtractor={(item) => (item as ChatMessage).id}
+					data={data}
+					renderItem={renderMessage}
+					keyExtractor={keyExtractor ?? ((item) => (item as ChatMessage).id)}
 					contentContainerStyle={{
 						paddingBottom: composerHeight + 16,
 						maxWidth: 896,
@@ -144,7 +151,7 @@ export function Conversation({
 						gap: 20,
 					}}
 					className="flex-1"
-					estimatedItemSize={80}
+					estimatedItemSize={estimatedItemSize}
 					onLayout={onScrollViewLayout}
 					onScroll={onScroll}
 					scrollEventThrottle={16}
@@ -152,7 +159,7 @@ export function Conversation({
 				/>
 
 				{/* Scroll to bottom */}
-				{!isAtBottom && messages.length > 0 && (
+				{!isAtBottom && data.length > 0 && (
 					<Pressable
 						onPress={scrollToBottom}
 						className="absolute left-1/2 z-10 flex -translate-x-1/2 h-7 flex-row items-center justify-center rounded-full border border-border/50 bg-card/90 px-3 shadow-float backdrop-blur-lg transition-all duration-200"
