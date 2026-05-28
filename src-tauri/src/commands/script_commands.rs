@@ -2,7 +2,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 
 use crate::repos::{self, RunAction};
-use crate::workspace::scripts::{ScriptContext, ScriptEvent, ScriptProcessManager};
+use crate::workspace::scripts::{ScriptContext, ScriptEvent, ScriptProcessManager, ScriptStop};
 
 use super::common::CmdResult;
 
@@ -90,6 +90,7 @@ pub async fn execute_repo_script(
             workspace_id,
             action.command,
             channel,
+            action.stop_command,
         )
         .await;
     }
@@ -123,10 +124,12 @@ pub async fn execute_repo_script(
         workspace_id,
         script,
         channel,
+        None,
     )
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn spawn_script(
     app: AppHandle,
     manager: State<'_, ScriptProcessManager>,
@@ -135,6 +138,7 @@ async fn spawn_script(
     workspace_id: Option<String>,
     script: String,
     channel: Channel<ScriptEvent>,
+    stop_command: Option<String>,
 ) -> CmdResult<()> {
     let (repo, workspace) = tauri::async_runtime::spawn_blocking({
         let repo_id = repo_id.clone();
@@ -190,6 +194,16 @@ async fn spawn_script(
     };
     let mgr = manager.inner().clone();
 
+    // Build the graceful-stop bundle now (while we still own `context` /
+    // `working_dir` / `channel`). `None` keeps the pre-feature kill path
+    // exactly as it was: SIGTERM → 200ms → SIGKILL with no detour.
+    let script_stop = stop_command.map(|cmd| ScriptStop {
+        command: cmd,
+        event_tx: channel.clone(),
+        ctx: context.clone(),
+        working_dir: working_dir.clone(),
+    });
+
     // Setup-completion hook keys on the literal `"setup"` script_type — run
     // actions (which carry a `"run:<id>"` script_type now) never trigger it.
     let is_setup = script_type == "setup";
@@ -203,6 +217,7 @@ async fn spawn_script(
             &working_dir,
             &context,
             channel.clone(),
+            script_stop,
         ) {
             Ok(Some(0)) if is_setup => {
                 if let Some(ws_id) = &workspace_id {
@@ -235,6 +250,77 @@ pub async fn stop_repo_script(
     let process_type = process_type_for(&script_type, action_id.as_deref());
     let key = (repo_id, process_type, workspace_id);
     Ok(manager.kill(&key))
+}
+
+/// Run a run action's configured `stop_command` as a standalone script
+/// (no preceding main process to terminate). The state machine for the
+/// frontend Run tab treats `exited` as "clean slate", but commands like
+/// `supabase start` / `docker compose up` leave side effects (containers,
+/// daemons) that outlive the spawned process. The Cleanup button surfaces
+/// the user-configured stop command after exit so they can tear down those
+/// side effects without re-running the failed start.
+///
+/// Reuses the same process slot (`"run:<id>"`) as the start script, so the
+/// frontend's terminal output buffer and per-action status indicator
+/// naturally reflect the cleanup run. We deliberately do NOT call
+/// `kill_others_in_repo` — for concurrent-mode actions, another workspace
+/// may legitimately be running the same action and that run is independent
+/// of this workspace's cleanup. Same-key replacement within this workspace
+/// is handled atomically by `register()` inside `spawn_script`.
+#[tauri::command]
+pub async fn execute_repo_stop_command(
+    app: AppHandle,
+    manager: State<'_, ScriptProcessManager>,
+    repo_id: String,
+    workspace_id: String,
+    action_id: String,
+    channel: Channel<ScriptEvent>,
+) -> CmdResult<()> {
+    let ws = Some(workspace_id.clone());
+    let rid = repo_id.clone();
+    let aid = Some(action_id.clone());
+    let action = match tauri::async_runtime::spawn_blocking(move || {
+        resolve_run_target(&rid, ws.as_deref(), aid.as_deref())
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("spawn_blocking join failed: {e}"))?
+    {
+        Ok(a) => a,
+        Err(e) => {
+            let _ = channel.send(ScriptEvent::Error {
+                message: e.to_string(),
+            });
+            return Ok(());
+        }
+    };
+
+    let Some(stop_command) = action
+        .stop_command
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    else {
+        let _ = channel.send(ScriptEvent::Error {
+            message: format!("No stop command configured for action: {}", action.name),
+        });
+        return Ok(());
+    };
+
+    let process_type = run_script_type(&action.id);
+
+    spawn_script(
+        app,
+        manager,
+        repo_id,
+        process_type,
+        Some(workspace_id),
+        stop_command,
+        channel,
+        // Cleanup itself has no further cleanup — None preserves the
+        // pre-feature SIGTERM→SIGKILL path if the user stops it mid-flight.
+        None,
+    )
+    .await
 }
 
 /// Write raw bytes to the PTY master of a running script. The kernel's tty
@@ -291,10 +377,19 @@ pub async fn create_repo_run_action(
     name: String,
     command: String,
     mode: String,
+    stop_command: Option<String>,
 ) -> CmdResult<repos::RunAction> {
     let result = tauri::async_runtime::spawn_blocking({
         let repo_id = repo_id.clone();
-        move || repos::create_repo_run_action(&repo_id, name.trim(), command.trim(), &mode)
+        move || {
+            repos::create_repo_run_action(
+                &repo_id,
+                name.trim(),
+                command.trim(),
+                &mode,
+                stop_command,
+            )
+        }
     })
     .await
     .map_err(|e| anyhow::anyhow!("spawn_blocking join failed: {e}"))??;
@@ -316,10 +411,19 @@ pub async fn update_repo_run_action(
     name: String,
     command: String,
     mode: String,
+    stop_command: Option<String>,
 ) -> CmdResult<()> {
     tauri::async_runtime::spawn_blocking({
         let action_id = action_id.clone();
-        move || repos::update_repo_run_action(&action_id, name.trim(), command.trim(), &mode)
+        move || {
+            repos::update_repo_run_action(
+                &action_id,
+                name.trim(),
+                command.trim(),
+                &mode,
+                stop_command,
+            )
+        }
     })
     .await
     .map_err(|e| anyhow::anyhow!("spawn_blocking join failed: {e}"))??;

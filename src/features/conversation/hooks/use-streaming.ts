@@ -541,7 +541,10 @@ export function useConversationStreaming({
 		async (
 			userInput: PendingUserInput,
 			action: "submit" | "decline" | "cancel",
-			options?: { content?: Record<string, unknown> },
+			options?: {
+				content?: Record<string, unknown>;
+				meta?: Record<string, unknown>;
+			},
 		) => {
 			if (!displayedSessionId) return;
 			const contextKey = composerContextKey;
@@ -558,6 +561,7 @@ export function useConversationStreaming({
 					userInput.userInputId,
 					action,
 					options?.content,
+					options?.meta,
 				);
 				storeActions.setUserInputResponsePending(contextKey, false);
 			} catch (error) {
@@ -887,7 +891,10 @@ export function useConversationStreaming({
 				const changesRefreshInterval = window.setInterval(() => {
 					if (!workingDirectory) return;
 					void queryClient.invalidateQueries({
-						queryKey: helmorQueryKeys.workspaceChanges(workingDirectory),
+						queryKey: helmorQueryKeys.workspaceChanges(
+							workingDirectory,
+							targetWorkspaceId,
+						),
 					});
 				}, 3_000);
 

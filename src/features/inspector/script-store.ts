@@ -1,5 +1,6 @@
 import {
 	executeRepoScript,
+	executeRepoStopCommand,
 	resizeRepoScript,
 	type ScriptEvent,
 	stopRepoScript,
@@ -17,6 +18,13 @@ type Listener = {
 	onStatusChange: (status: ScriptStatus) => void;
 	onUrlsChange?: (urls: string[]) => void;
 	/**
+	 * `true` while a configured `stopCommand` is running (Stop button
+	 * renders as "Force Stop"); `false` when it finishes or the entry is
+	 * reset by a fresh `startScript`. Only fires for actions that
+	 * configure a `stopCommand`.
+	 */
+	onStoppingChange?: (stopping: boolean) => void;
+	/**
 	 * Called at the start of a fresh `startScript` invocation. Gives any
 	 * already-attached listener a chance to clear its terminal so output from
 	 * a previous run is not mixed with the new run's chunks — important when
@@ -26,7 +34,11 @@ type Listener = {
 	onReset?: () => void;
 };
 
-type StatusListener = (status: ScriptStatus, exitCode: number | null) => void;
+type StatusListener = (
+	status: ScriptStatus,
+	exitCode: number | null,
+	userStopped: boolean,
+) => void;
 
 /**
  * Max bytes of stdout/stderr retained per script entry. Long-running dev
@@ -55,6 +67,19 @@ export type ScriptEntry = {
 	 * as new chunks arrive. Empty when the script hasn't printed any banner.
 	 */
 	urls: string[];
+	/** True while a configured `stopCommand` is running. Drives the
+	 * "Force Stop" button — a second Stop click while true escalates to
+	 * SIGKILL backend-side. */
+	stopping: boolean;
+	/**
+	 * True once the user clicks Stop on this run. The backend kills the
+	 * process via SIGTERM, which produces a non-zero exit code (typically
+	 * 143). Without this flag the icon would derive "failure" — but a
+	 * user-initiated stop is intentional, not a crash. The status hook
+	 * collapses {exited + userStopped} back to "idle" so the tab returns
+	 * to its pre-run glyph. Cleared on the next `startScript`.
+	 */
+	userStopped: boolean;
 };
 
 /** Append a chunk and evict from the head until under the byte cap. */
@@ -89,9 +114,9 @@ const workspaceRunListeners = new Map<string, Set<StatusListener>>();
 
 function emitStatus(k: string, status: ScriptStatus, exitCode: number | null) {
 	const subs = statusListeners.get(k);
-	if (subs) {
-		for (const sub of subs) sub(status, exitCode);
-	}
+	if (!subs) return;
+	const userStopped = entries.get(k)?.userStopped ?? false;
+	for (const sub of subs) sub(status, exitCode, userStopped);
 }
 
 function emitWorkspaceRunStatus(
@@ -101,7 +126,10 @@ function emitWorkspaceRunStatus(
 ) {
 	const subs = workspaceRunListeners.get(workspaceId);
 	if (!subs) return;
-	for (const sub of subs) sub(status, exitCode);
+	// Workspace-level listeners (sidebar row dot) don't care about user-
+	// initiated stops — they only need to know "is anything live here?"
+	// — so pass `false` unconditionally.
+	for (const sub of subs) sub(status, exitCode, false);
 }
 
 /**
@@ -128,11 +156,25 @@ export function getScriptState(
 	return entries.get(key(workspaceId, scriptType, actionId)) ?? null;
 }
 
-export function startScript(
-	repoId: string,
-	scriptType: ScriptKind,
+/**
+ * Shared entry-management + event-handling for any backend script
+ * invocation that streams `ScriptEvent`s into the Run / Setup tab. Both
+ * `startScript` (run the configured command) and `cleanupScript` (run the
+ * configured `stopCommand` standalone) wrap this — they only differ in
+ * which Tauri command spawns the process.
+ *
+ * `invokeBackend` is the IPC call: it receives the event handler that
+ * routes events into the entry's buffer / listeners. `failureLabel`
+ * prefixes the error chunk printed when the IPC itself rejects (rare —
+ * usually a backend `?` propagation), so users see whether the failure
+ * was during the start path or the cleanup path.
+ */
+function runScriptInternal(
 	workspaceId: string,
-	actionId?: string | null,
+	scriptType: ScriptKind,
+	actionId: string | null | undefined,
+	invokeBackend: (onEvent: (event: ScriptEvent) => void) => Promise<void>,
+	failureLabel: string,
 ) {
 	const k = key(workspaceId, scriptType, actionId);
 
@@ -148,8 +190,21 @@ export function startScript(
 		status: "running",
 		exitCode: null,
 		urls: [],
+		stopping: false,
+		userStopped: false,
 	};
 	entries.set(k, entry);
+
+	// Flip `stopping` back to false (and notify) if the entry was mid-
+	// graceful-stop when this final event arrived. Called from every
+	// `exited` / `error` / `.catch` path so the Force Stop button label
+	// always clears on exit.
+	const clearStopping = () => {
+		if (entry.stopping) {
+			entry.stopping = false;
+			listeners.get(k)?.onStoppingChange?.(false);
+		}
+	};
 
 	listeners.get(k)?.onStatusChange("running");
 	// Reset URL listener to empty — previous run's URLs don't apply.
@@ -159,88 +214,89 @@ export function startScript(
 		emitWorkspaceRunStatus(workspaceId, "running", null);
 	}
 
-	executeRepoScript(
-		repoId,
-		scriptType,
-		(event: ScriptEvent) => {
-			if (entries.get(k) !== entry) return;
-
-			switch (event.type) {
-				case "started":
-					break;
-				case "stdout":
-				case "stderr": {
-					appendChunk(entry, event.data);
-					listeners.get(k)?.onChunk(event.data);
-
-					// Cheap short-circuit: once a dev server has settled into
-					// steady-state, ~every chunk is HMR / request-log noise with
-					// no URL. Skip the regex work when the chunk can't possibly
-					// contain one. `event.data.includes("http")` is a plain
-					// substring scan — ~100x faster than the ANSI+URL regex
-					// combo and totally safe (any real localhost URL has "http"
-					// verbatim in bytes, even when wrapped in ANSI).
-					//
-					// We still run detection on every chunk until we've seen at
-					// least one URL, so the initial banner is never missed.
-					if (entry.urls.length > 0 && !event.data.includes("http")) {
-						break;
-					}
-
-					// Scan the fresh chunk for dev-server URLs. We keep a deduped,
-					// first-seen-ordered list on the entry and only fire the listener
-					// when something actually changed.
-					const fresh = extractLocalUrls(event.data);
-					if (fresh.length > 0) {
-						const seen = new Set(entry.urls.map(dedupUrlKey));
-						let changed = false;
-						for (const url of fresh) {
-							const k2 = dedupUrlKey(url);
-							if (!seen.has(k2)) {
-								seen.add(k2);
-								entry.urls.push(url);
-								changed = true;
-							}
-						}
-						if (changed) {
-							listeners.get(k)?.onUrlsChange?.([...entry.urls]);
-						}
-					}
-					break;
-				}
-				case "exited":
-					entry.status = "exited";
-					entry.exitCode = event.code;
-					listeners.get(k)?.onStatusChange("exited");
-					emitStatus(k, "exited", event.code);
-					if (scriptType === "run") {
-						emitWorkspaceRunStatus(workspaceId, "exited", event.code);
-					}
-					break;
-				case "error": {
-					const msg = `\r\n\x1b[31m${event.message}\x1b[0m\r\n`;
-					appendChunk(entry, msg);
-					entry.status = "exited";
-					// No exit code from the backend here — treat as failure.
-					entry.exitCode = entry.exitCode ?? 1;
-					listeners.get(k)?.onChunk(msg);
-					listeners.get(k)?.onStatusChange("exited");
-					emitStatus(k, "exited", entry.exitCode);
-					if (scriptType === "run") {
-						emitWorkspaceRunStatus(workspaceId, "exited", entry.exitCode);
-					}
-					break;
-				}
-			}
-		},
-		workspaceId,
-		actionId ?? null,
-	).catch((err) => {
+	invokeBackend((event: ScriptEvent) => {
 		if (entries.get(k) !== entry) return;
-		const msg = `\r\n\x1b[31mFailed to start: ${err}\x1b[0m\r\n`;
+
+		switch (event.type) {
+			case "started":
+				break;
+			case "stopping":
+				entry.stopping = true;
+				listeners.get(k)?.onStoppingChange?.(true);
+				break;
+			case "stdout":
+			case "stderr": {
+				appendChunk(entry, event.data);
+				listeners.get(k)?.onChunk(event.data);
+
+				// Cheap short-circuit: once a dev server has settled into
+				// steady-state, ~every chunk is HMR / request-log noise with
+				// no URL. Skip the regex work when the chunk can't possibly
+				// contain one. `event.data.includes("http")` is a plain
+				// substring scan — ~100x faster than the ANSI+URL regex
+				// combo and totally safe (any real localhost URL has "http"
+				// verbatim in bytes, even when wrapped in ANSI).
+				//
+				// We still run detection on every chunk until we've seen at
+				// least one URL, so the initial banner is never missed.
+				if (entry.urls.length > 0 && !event.data.includes("http")) {
+					break;
+				}
+
+				// Scan the fresh chunk for dev-server URLs. We keep a deduped,
+				// first-seen-ordered list on the entry and only fire the listener
+				// when something actually changed.
+				const fresh = extractLocalUrls(event.data);
+				if (fresh.length > 0) {
+					const seen = new Set(entry.urls.map(dedupUrlKey));
+					let changed = false;
+					for (const url of fresh) {
+						const k2 = dedupUrlKey(url);
+						if (!seen.has(k2)) {
+							seen.add(k2);
+							entry.urls.push(url);
+							changed = true;
+						}
+					}
+					if (changed) {
+						listeners.get(k)?.onUrlsChange?.([...entry.urls]);
+					}
+				}
+				break;
+			}
+			case "exited":
+				entry.status = "exited";
+				entry.exitCode = event.code;
+				clearStopping();
+				listeners.get(k)?.onStatusChange("exited");
+				emitStatus(k, "exited", event.code);
+				if (scriptType === "run") {
+					emitWorkspaceRunStatus(workspaceId, "exited", event.code);
+				}
+				break;
+			case "error": {
+				const msg = `\r\n\x1b[31m${event.message}\x1b[0m\r\n`;
+				appendChunk(entry, msg);
+				entry.status = "exited";
+				// No exit code from the backend here — treat as failure.
+				entry.exitCode = entry.exitCode ?? 1;
+				clearStopping();
+				listeners.get(k)?.onChunk(msg);
+				listeners.get(k)?.onStatusChange("exited");
+				emitStatus(k, "exited", entry.exitCode);
+				if (scriptType === "run") {
+					emitWorkspaceRunStatus(workspaceId, "exited", entry.exitCode);
+				}
+				break;
+			}
+		}
+	}).catch((err) => {
+		if (entries.get(k) !== entry) return;
+		const msg = `\r\n\x1b[31m${failureLabel}: ${err}\x1b[0m\r\n`;
 		appendChunk(entry, msg);
 		entry.status = "exited";
 		entry.exitCode = entry.exitCode ?? 1;
+		clearStopping();
 		listeners.get(k)?.onChunk(msg);
 		listeners.get(k)?.onStatusChange("exited");
 		emitStatus(k, "exited", entry.exitCode);
@@ -250,12 +306,63 @@ export function startScript(
 	});
 }
 
+export function startScript(
+	repoId: string,
+	scriptType: ScriptKind,
+	workspaceId: string,
+	actionId?: string | null,
+) {
+	runScriptInternal(
+		workspaceId,
+		scriptType,
+		actionId,
+		(onEvent) =>
+			executeRepoScript(
+				repoId,
+				scriptType,
+				onEvent,
+				workspaceId,
+				actionId ?? null,
+			),
+		"Failed to start",
+	);
+}
+
+/**
+ * Run a run action's configured `stopCommand` as a standalone script.
+ * Surfaces the Cleanup button: lets the user tear down side effects
+ * (containers, daemons) left behind by a start that already exited, so
+ * the next Rerun isn't sabotaged by "already running" state.
+ *
+ * Uses the same store key as `startScript` for this action, so the Run
+ * tab's terminal output and per-action status indicator naturally reflect
+ * the cleanup run as if it were a regular invocation.
+ */
+export function cleanupScript(
+	repoId: string,
+	workspaceId: string,
+	actionId: string,
+) {
+	runScriptInternal(
+		workspaceId,
+		"run",
+		actionId,
+		(onEvent) => executeRepoStopCommand(repoId, workspaceId, actionId, onEvent),
+		"Failed to run stop command",
+	);
+}
+
 export function stopScript(
 	repoId: string,
 	scriptType: ScriptKind,
 	workspaceId: string,
 	actionId?: string | null,
 ) {
+	// Mark before firing the backend stop so the eventual `exited` event
+	// — which will arrive with a non-zero exit code (SIGTERM = 143) —
+	// is correctly attributed to the user and not surfaced as a failure.
+	const entry = entries.get(key(workspaceId, scriptType, actionId));
+	if (entry) entry.userStopped = true;
 	void stopRepoScript(repoId, scriptType, workspaceId, actionId ?? null);
 }
 

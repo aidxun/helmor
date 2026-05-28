@@ -27,6 +27,8 @@ describe("InspectorTabsSection", () => {
 				onTabChange={vi.fn()}
 				setupScriptState="idle"
 				runScriptState="running"
+				runTabLabel="Run"
+				workspaceId={null}
 				runActions={[]}
 				activeRunActionId={null}
 				onSelectRunAction={vi.fn()}
@@ -77,6 +79,8 @@ describe("InspectorTabsSection", () => {
 				onTabChange={vi.fn()}
 				setupScriptState="idle"
 				runScriptState="running"
+				runTabLabel="Run"
+				workspaceId={null}
 				runActions={[]}
 				activeRunActionId={null}
 				onSelectRunAction={vi.fn()}
@@ -115,6 +119,8 @@ describe("InspectorTabsSection", () => {
 				onTabChange={vi.fn()}
 				setupScriptState="idle"
 				runScriptState="running"
+				runTabLabel="Run"
+				workspaceId={null}
 				runActions={[]}
 				activeRunActionId={null}
 				onSelectRunAction={vi.fn()}
@@ -153,6 +159,8 @@ describe("InspectorTabsSection", () => {
 				onTabChange={vi.fn()}
 				setupScriptState="idle"
 				runScriptState="idle"
+				runTabLabel="Run"
+				workspaceId={null}
 				runActions={[
 					{
 						id: "a1",
@@ -215,6 +223,8 @@ describe("InspectorTabsSection", () => {
 				onTabChange={vi.fn()}
 				setupScriptState="idle"
 				runScriptState="idle"
+				runTabLabel="Run"
+				workspaceId={null}
 				runActions={[
 					{
 						id: "a1",

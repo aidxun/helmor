@@ -188,6 +188,19 @@ export function WorkspaceInspectorSidebar({
 		null;
 	const activeRunActionId = activeAction?.id ?? null;
 
+	// Run-tab label. With a single action (the common case) we keep the
+	// generic "Run" — the action's name is already inlined in the empty-
+	// state heading and the dropdown radio, so doubling it on the tab is
+	// just noise. With multiple actions configured, the tab borrows the
+	// active action's name so the user can tell at a glance which action
+	// the live output belongs to once the script is running (the empty-
+	// state cue is gone by then). Falls back to "Run" if the action's
+	// name is blank.
+	const runTabLabel =
+		runActions.length > 1 && activeAction?.name?.trim()
+			? activeAction.name.trim()
+			: "Run";
+
 	const handleSelectRunAction = useCallback(
 		(actionId: string) => {
 			if (!workspaceId) return;
@@ -204,12 +217,29 @@ export function WorkspaceInspectorSidebar({
 		[workspaceId, setActiveTab, queryClient],
 	);
 
+	// "Open Scripts" — the right target for every empty-state CTA in the
+	// inspector ("Add setup script" / "Add run script" / Create-action
+	// fallback). Opens the current repo's settings panel and then fires
+	// the scroll anchor inside `RepositorySettingsPanel` so the Scripts
+	// section is visible immediately. We wait one frame so the panel has
+	// mounted before dispatching the scroll event.
+	const handleOpenRepoScripts = useCallback(() => {
+		if (repoId) {
+			onOpenSettings?.(`repo:${repoId}`);
+		} else {
+			onOpenSettings?.();
+		}
+		requestAnimationFrame(() => {
+			window.dispatchEvent(new CustomEvent("helmor:scroll-to-repo-scripts"));
+		});
+	}, [onOpenSettings, repoId]);
+
 	const handleCreateRunAction = useCallback(() => {
 		// Without a workspace context we can't open a fresh chat session;
-		// fall back to the global settings dialog so the user at least
-		// has somewhere to go.
+		// fall back to the Scripts editor in the current repo's settings
+		// panel so the user has somewhere actionable to go.
 		if (!workspaceId) {
-			onOpenSettings?.();
+			handleOpenRepoScripts();
 			return;
 		}
 		// Open a fresh session in this workspace with the composer
@@ -225,7 +255,7 @@ export function WorkspaceInspectorSidebar({
 				},
 			}),
 		);
-	}, [onOpenSettings, workspaceId]);
+	}, [handleOpenRepoScripts, workspaceId]);
 
 	// Fire setup auto-run / auto-complete at the sidebar level so it runs even
 	// when the Setup tab isn't mounted (tabsOpen=false).
@@ -490,8 +520,6 @@ export function WorkspaceInspectorSidebar({
 				scriptTabState === "success" ||
 				scriptTabState === "failure");
 
-	const handleOpenSettings = onOpenSettings ?? (() => {});
-
 	return (
 		<div
 			ref={containerRef}
@@ -556,6 +584,8 @@ export function WorkspaceInspectorSidebar({
 				tabActions={runTabActions}
 				setupScriptState={setupScriptState}
 				runScriptState={runScriptState}
+				runTabLabel={runTabLabel}
+				workspaceId={workspaceId ?? null}
 				runActions={runActions}
 				activeRunActionId={activeRunActionId}
 				onSelectRunAction={handleSelectRunAction}
@@ -573,7 +603,7 @@ export function WorkspaceInspectorSidebar({
 					setupScript={repoScripts?.setupScript ?? null}
 					setupCompletedAt={workspaceSetupCompletedAt ?? null}
 					isActive={activeTab === "setup"}
-					onOpenSettings={handleOpenSettings}
+					onOpenSettings={handleOpenRepoScripts}
 				/>
 				<RunTab
 					repoId={repoId ?? null}
@@ -581,9 +611,10 @@ export function WorkspaceInspectorSidebar({
 					activeRunActionId={activeRunActionId}
 					activeRunActionName={activeAction?.name ?? null}
 					runScript={activeAction?.command ?? null}
+					stopCommand={activeAction?.stopCommand ?? null}
 					hasAnyRunAction={runActions.length > 0}
 					isActive={activeTab === "run"}
-					onOpenSettings={handleOpenSettings}
+					onOpenSettings={handleOpenRepoScripts}
 					onStatusChange={setRunStatus}
 					onUrlsChange={setRunUrls}
 				/>

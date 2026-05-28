@@ -542,6 +542,8 @@ mod tests {
             created_at: "2026-05-25T00:00:00Z".to_string(),
             updated_at: "2026-05-25T00:00:00Z".to_string(),
             last_user_message_at: None,
+            kind: "manual".to_string(),
+            triage_priming_unconsumed: false,
         }
     }
 

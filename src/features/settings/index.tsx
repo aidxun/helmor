@@ -1,5 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronDown, HelpCircle, Settings } from "lucide-react";
+import {
+	CheckCircle2,
+	ChevronDown,
+	HelpCircle,
+	Settings,
+	Volume2,
+} from "lucide-react";
 import { memo, useEffect, useState } from "react";
 import { ModelIcon } from "@/components/model-icon";
 import { Button } from "@/components/ui/button";
@@ -38,32 +44,48 @@ import {
 	type RepositoryCreateOption,
 } from "@/lib/api";
 import {
+	NOTIFICATION_SOUND_LABELS,
+	playNotificationSound,
+} from "@/lib/notification-sound";
+import {
 	agentModelSectionsQueryOptions,
 	helmorQueryKeys,
 	repositoriesQueryOptions,
 } from "@/lib/query-client";
-import type { AppSettings, ClaudeThinkingDisplay } from "@/lib/settings";
-import { useSettings } from "@/lib/settings";
+import type {
+	AppSettings,
+	ClaudeThinkingDisplay,
+	NotificationSound,
+} from "@/lib/settings";
+import { useSettings, VALID_NOTIFICATION_SOUNDS } from "@/lib/settings";
 import { requestSidebarReconcile } from "@/lib/sidebar-mutation-gate";
 import { cn } from "@/lib/utils";
 import { clampEffort, findModelOption } from "@/lib/workspace-helpers";
 import { SettingsGroup, SettingsRow } from "./components/settings-row";
+import { SettingsSelect } from "./components/settings-select";
 import { AccountPanel } from "./panels/account";
 import { AppUpdatesPanel } from "./panels/app-updates";
 import { AppearancePanel } from "./panels/appearance";
-import { CliInstallPanel } from "./panels/cli-install";
+import { ComponentsPanel } from "./panels/components";
 import { ConductorImportPanel } from "./panels/conductor-import";
 import { CursorProviderPanel } from "./panels/cursor-provider";
 import { DevToolsPanel } from "./panels/dev-tools";
 import { InboxSettingsPanel } from "./panels/inbox";
+import { LocalLlmPanel } from "./panels/local-llm";
 import { ClaudeCustomProvidersPanel } from "./panels/model-providers";
 import { RepositorySettingsPanel } from "./panels/repository-settings";
+import { TriagePanel } from "./panels/triage";
 
 const FALLBACK_EFFORT_LEVELS = ["low", "medium", "high"];
 
-export type { SettingsSection } from "./types";
+const NOTIFICATION_SOUND_OPTIONS = VALID_NOTIFICATION_SOUNDS.map((value) => ({
+	value,
+	label: NOTIFICATION_SOUND_LABELS[value],
+})) satisfies readonly { value: NotificationSound; label: string }[];
 
-import type { SettingsSection } from "./types";
+export type { ContextProviderTab, SettingsSection } from "./types";
+
+import type { ContextProviderTab, SettingsSection } from "./types";
 
 /// Display labels for settings sections in the sidebar / dialog title.
 /// Most match the section key with a leading capital, but a few names
@@ -106,12 +128,14 @@ export const SettingsDialog = memo(function SettingsDialog({
 	workspaceId,
 	workspaceRepoId,
 	initialSection,
+	initialInboxProvider,
 	onClose,
 }: {
 	open: boolean;
 	workspaceId: string | null;
 	workspaceRepoId: string | null;
 	initialSection?: SettingsSection;
+	initialInboxProvider?: ContextProviderTab;
 	onClose: () => void;
 }) {
 	const { settings, updateSettings } = useSettings();
@@ -159,10 +183,14 @@ export const SettingsDialog = memo(function SettingsDialog({
 		"model",
 		"shortcuts",
 		...(conductorEnabled ? (["import"] as const) : []),
-		...(isDev ? (["developer"] as const) : []),
 		"account",
 		"inbox",
 		"experimental",
+		// Developer is intentionally last in the fixed group — it sits
+		// directly above the dynamic repository entries in the sidebar
+		// (so the bottom of the static nav reads: experimental →
+		// developer → <repos>). Hidden in non-dev builds.
+		...(isDev ? (["developer"] as const) : []),
 	];
 
 	const activeRepoId = activeSection.startsWith("repo:")
@@ -263,6 +291,41 @@ export const SettingsDialog = memo(function SettingsDialog({
 												updateSettings({ notifications: checked })
 											}
 										/>
+									</SettingsRow>
+									<SettingsRow
+										title="Notification sound"
+										description="Play a sound when a desktop notification fires"
+									>
+										<div className="flex items-center gap-1.5">
+											<SettingsSelect<NotificationSound>
+												value={settings.notificationSound}
+												options={NOTIFICATION_SOUND_OPTIONS}
+												onChange={(next) =>
+													updateSettings({ notificationSound: next })
+												}
+												disabled={!settings.notifications}
+												ariaLabel="Notification sound"
+											/>
+											<Button
+												type="button"
+												variant="ghost"
+												size="icon"
+												aria-label="Test notification sound"
+												className="size-8"
+												disabled={
+													!settings.notifications ||
+													settings.notificationSound === "off"
+												}
+												onClick={() =>
+													playNotificationSound(settings.notificationSound)
+												}
+											>
+												<Volume2
+													className="size-4 text-muted-foreground"
+													strokeWidth={1.8}
+												/>
+											</Button>
+										</div>
 									</SettingsRow>
 									<SettingsRow
 										title="Expand terminals on hover"
@@ -435,6 +498,7 @@ export const SettingsDialog = memo(function SettingsDialog({
 										</ToggleGroup>
 									</SettingsRow>
 									<AppUpdatesPanel />
+									<ComponentsPanel />
 								</SettingsGroup>
 							)}
 
@@ -527,9 +591,13 @@ export const SettingsDialog = memo(function SettingsDialog({
 							)}
 
 							{activeSection === "experimental" && (
-								<div className="flex flex-col gap-3">
-									<CliInstallPanel />
-								</div>
+								<SettingsGroup>
+									<LocalLlmPanel
+										settings={settings}
+										updateSettings={updateSettings}
+									/>
+									{settings.localLlm.enabled ? <TriagePanel /> : null}
+								</SettingsGroup>
 							)}
 
 							{activeSection === "import" && <ConductorImportPanel />}
@@ -541,7 +609,10 @@ export const SettingsDialog = memo(function SettingsDialog({
 							)}
 
 							{activeSection === "inbox" && (
-								<InboxSettingsPanel repositories={repositories} />
+								<InboxSettingsPanel
+									repositories={repositories}
+									initialProvider={initialInboxProvider}
+								/>
 							)}
 
 							{activeRepo && (
