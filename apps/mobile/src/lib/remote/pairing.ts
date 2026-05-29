@@ -1,8 +1,4 @@
-import {
-	createPairingClient,
-	prioritizeHosts,
-	type RemoteProgress,
-} from "./rpc-client";
+import { createPairingClient, type RemoteProgress } from "./rpc-client";
 import { upsertDesktopConnection } from "./store";
 import type { DesktopConnectionState, MobilePairingPayload } from "./types";
 
@@ -12,25 +8,20 @@ export async function pairDesktop(
 	payload: MobilePairingPayload,
 	onProgress?: RemoteProgress,
 ): Promise<DesktopConnectionState> {
-	onProgress?.(
-		`Pairing payload: ${payload.desktopName} on ${payload.hosts.join(", ")}:${payload.port}`,
-	);
-	if (new Date(payload.expiresAt).valueOf() < Date.now()) {
-		throw new Error("Pairing code expired");
-	}
+	onProgress?.(`Pairing payload: ${payload.desktopName} at ${payload.host}`);
 	const client = await createPairingClient(payload, onProgress);
 	try {
-		onProgress?.("Completing pairing over SSH");
-		const result = await client.completePairing();
-		onProgress?.(`Paired as device ${result.deviceId}`);
+		onProgress?.("Verifying companion health");
+		const health = await client.health();
+		if (!health.ok) {
+			throw new Error("Companion health check failed");
+		}
+		onProgress?.(`Connected to ${health.desktopName}`);
 		return await upsertDesktopConnection({
-			desktopId: result.desktopId,
-			desktopName: result.desktopName,
-			hosts: prioritizeHosts(payload.hosts, client.connectedHost),
-			port: payload.port,
-			hostKeyFingerprint: payload.hostKeyFingerprint ?? "",
-			deviceId: result.deviceId,
-			deviceSecret: result.deviceSecret,
+			desktopId: health.desktopId || payload.desktopId,
+			desktopName: health.desktopName || payload.desktopName,
+			host: payload.host,
+			pat: payload.pat,
 			lastSyncedAt: null,
 		});
 	} finally {

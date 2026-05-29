@@ -2,13 +2,12 @@ import type { MobilePairingPayload } from "./types";
 
 type CompactPairingPayload = {
 	v?: number;
+	h?: string;
+	p?: string;
+	d?: string;
 	n?: string;
-	h?: string[];
-	p?: number;
-	u?: string;
-	s?: string;
-	e?: string;
-	k?: string;
+	i?: string;
+	s?: boolean;
 };
 
 export function normalizePairingPayload(input: unknown): MobilePairingPayload {
@@ -19,14 +18,13 @@ export function normalizePairingPayload(input: unknown): MobilePairingPayload {
 
 	const compact = input as CompactPairingPayload;
 	const payload = {
-		protocolVersion: compact.v,
+		v: compact.v,
+		host: compact.h,
+		pat: compact.p,
+		desktopId: compact.d,
 		desktopName: compact.n,
-		hosts: compact.h,
-		port: compact.p,
-		pairingUser: compact.u,
-		pairingSecret: compact.s,
-		expiresAt: compact.e,
-		hostKeyFingerprint: compact.k,
+		deviceId: compact.i,
+		stable: compact.s,
 	};
 	if (!isVerbosePairingPayload(payload)) {
 		throw new Error("Invalid pairing payload");
@@ -39,16 +37,13 @@ function isVerbosePairingPayload(
 ): input is MobilePairingPayload {
 	if (!isRecord(input)) return false;
 	return (
-		typeof input.protocolVersion === "number" &&
+		input.v === 1 &&
+		typeof input.host === "string" &&
+		typeof input.pat === "string" &&
+		typeof input.desktopId === "string" &&
 		typeof input.desktopName === "string" &&
-		Array.isArray(input.hosts) &&
-		input.hosts.every((host) => typeof host === "string") &&
-		typeof input.port === "number" &&
-		typeof input.pairingUser === "string" &&
-		typeof input.pairingSecret === "string" &&
-		typeof input.expiresAt === "string" &&
-		(input.hostKeyFingerprint === undefined ||
-			typeof input.hostKeyFingerprint === "string")
+		(input.deviceId === undefined || typeof input.deviceId === "string") &&
+		(input.stable === undefined || typeof input.stable === "boolean")
 	);
 }
 

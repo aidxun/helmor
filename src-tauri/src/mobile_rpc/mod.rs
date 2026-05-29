@@ -224,16 +224,20 @@ pub fn handle_rpc_request(request: RpcRequest, principal: AuthPrincipal) -> RpcR
     }
 }
 
-fn initialize() -> Result<Value> {
+pub fn initialize_result() -> Result<InitializeResult> {
     let identity = mobile_access::desktop_identity()?;
-    Ok(to_value(InitializeResult {
+    Ok(InitializeResult {
         protocol_version: PROTOCOL_VERSION,
         desktop_id: identity.desktop_id,
         desktop_name: identity.desktop_name,
-    }))
+    })
 }
 
-fn workspace_snapshot() -> Result<WorkspaceSnapshot> {
+fn initialize() -> Result<Value> {
+    initialize_result().map(to_value)
+}
+
+pub fn workspace_snapshot_result() -> Result<WorkspaceSnapshot> {
     let identity = mobile_access::desktop_identity()?;
     let groups = workspaces::list_workspace_groups()?
         .into_iter()
@@ -247,7 +251,13 @@ fn workspace_snapshot() -> Result<WorkspaceSnapshot> {
     })
 }
 
-fn session_thread_page(params: SessionThreadPageParams) -> Result<SessionThreadMessagesPage> {
+fn workspace_snapshot() -> Result<WorkspaceSnapshot> {
+    workspace_snapshot_result()
+}
+
+pub fn session_thread_page_result(
+    params: SessionThreadPageParams,
+) -> Result<SessionThreadMessagesPage> {
     let windowed =
         sessions::list_session_historical_records_windowed(&params.session_id, params.tail_limit)?;
     let messages = pipeline::MessagePipeline::convert_historical(&windowed.records);
@@ -257,7 +267,11 @@ fn session_thread_page(params: SessionThreadPageParams) -> Result<SessionThreadM
     })
 }
 
-fn create_backlog_task(params: BacklogCreateParams) -> Result<BacklogCreateResult> {
+fn session_thread_page(params: SessionThreadPageParams) -> Result<SessionThreadMessagesPage> {
+    session_thread_page_result(params)
+}
+
+pub fn create_backlog_task_result(params: BacklogCreateParams) -> Result<BacklogCreateResult> {
     let prompt = params.prompt.trim();
     if prompt.is_empty() {
         bail!("Prompt is required");
@@ -334,6 +348,10 @@ fn create_backlog_task(params: BacklogCreateParams) -> Result<BacklogCreateResul
         session_id: prepared.initial_session_id,
         status: WorkspaceStatus::Backlog,
     })
+}
+
+fn create_backlog_task(params: BacklogCreateParams) -> Result<BacklogCreateResult> {
+    create_backlog_task_result(params)
 }
 
 fn persist_session_config(session_id: &str, params: &BacklogCreateParams) -> Result<()> {

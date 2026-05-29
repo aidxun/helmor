@@ -36,9 +36,7 @@ export default function PairScreen() {
 				const payload = normalizePairingPayload(
 					decodePairingPayload<unknown>(encodedPayload),
 				);
-				addDetail(
-					`Decoded ${payload.desktopName}: ${payload.hosts.join(", ")}:${payload.port}`,
-				);
+				addDetail(`Decoded ${payload.desktopName}: ${payload.host}`);
 				await pairDesktop(payload, addDetail);
 				await reloadDesktopConnections();
 				if (cancelled) return;
@@ -119,12 +117,13 @@ function getPairScreenCopy(state: PairState) {
 		return {
 			title: "Connection failed",
 			description:
-				"Make sure Helmor Desktop is open and both devices are on the same network.",
+				"Make sure Helmor Desktop is open and Mobile Companion is enabled.",
 		};
 	}
 
 	return {
 		title: "Connecting to desktop",
-		description: "Setting up a secure local link. This usually takes a moment.",
+		description:
+			"Verifying the Cloudflare companion link. This usually takes a moment.",
 	};
 }

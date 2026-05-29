@@ -932,6 +932,17 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS paired_devices (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    pat_hash TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL DEFAULT 'viewOnly',
+    tool_policy TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen_at TEXT,
+    revoked_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS pending_cli_sends (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL,
@@ -1071,6 +1082,8 @@ CREATE INDEX IF NOT EXISTS idx_triage_candidate_open ON triage_candidate(source_
 CREATE INDEX IF NOT EXISTS idx_triage_candidate_source ON triage_candidate(source, source_time DESC);
 -- idx_workspaces_kind + idx_workspaces_triage_source are created in
 -- `run_migrations` (after the ALTERs on upgraded DBs).
+CREATE INDEX IF NOT EXISTS idx_paired_devices_pat_hash ON paired_devices(pat_hash);
+CREATE INDEX IF NOT EXISTS idx_paired_devices_revoked_at ON paired_devices(revoked_at);
 
 -- Triggers (use CREATE TRIGGER IF NOT EXISTS where supported, otherwise wrapped)
 CREATE TRIGGER IF NOT EXISTS update_repos_updated_at

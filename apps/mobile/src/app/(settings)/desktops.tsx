@@ -33,8 +33,8 @@ export default function DesktopsScreen() {
 						No desktops connected
 					</Text>
 					<Text className="pt-1 text-[14px] leading-5 text-muted-foreground">
-						Open Mobile Access in the desktop app, then scan the QR code with
-						the iPhone camera.
+						Open Mobile Companion in the desktop app, allocate a Cloudflare URL,
+						then scan the QR code with the iPhone camera.
 					</Text>
 				</View>
 			) : null}
@@ -52,13 +52,7 @@ export default function DesktopsScreen() {
 									{desktop.desktopName}
 								</Text>
 								<Text className="text-[13px] text-muted-foreground">
-									{desktop.hosts[0] ?? "unknown"}:{desktop.port}
-								</Text>
-								<Text
-									numberOfLines={1}
-									className="text-[12px] text-muted-foreground"
-								>
-									{desktop.hostKeyFingerprint}
+									{desktop.host}
 								</Text>
 							</View>
 							{isActive ? (

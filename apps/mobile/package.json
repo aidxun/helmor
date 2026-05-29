@@ -15,7 +15,6 @@
 	"dependencies": {
 		"@ai-sdk/anthropic": "^3.0.77",
 		"@ai-sdk/react": "^3.0.176",
-		"@dylankenneally/react-native-ssh-sftp": "1.7.0",
 		"@expo/config-plugins": "~56.0.8",
 		"@expo/ui": "~56.0.12",
 		"@helmor/thread-schema": "workspace:*",

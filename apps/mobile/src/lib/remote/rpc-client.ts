@@ -1,267 +1,132 @@
-import { base64UrlEncode } from "./codec";
 import type {
 	BacklogCreateRequest,
 	BacklogCreateResult,
-	JsonRpcResponse,
-	PairCompleteResult,
+	CompanionHealth,
 	SessionThreadMessagesPage,
 	SessionThreadPageRequest,
 	WorkspaceSessionSummary,
 	WorkspaceSnapshot,
 } from "./types";
 
-export type RemoteTransport = {
-	readonly connectedHost?: string;
-	executeRpcPayload(payload: string, method: string): Promise<string>;
-	close(): void;
-};
-
 export type RemoteProgress = (message: string) => void;
 
-const SSH_CONNECT_TIMEOUT_MS = 5000;
-
 export class DesktopRpcClient {
-	constructor(private readonly transport: RemoteTransport) {}
+	private readonly baseUrl: string;
 
-	get connectedHost(): string | undefined {
-		return this.transport.connectedHost;
+	constructor(
+		private readonly connection: {
+			host: string;
+			pat: string;
+		},
+	) {
+		this.baseUrl = normalizeBaseUrl(connection.host);
 	}
 
-	async initialize(): Promise<unknown> {
-		return this.call("initialize", {});
+	get connectedHost(): string {
+		return this.connection.host;
 	}
 
-	async completePairing(): Promise<PairCompleteResult> {
-		return this.call<PairCompleteResult>("pair.complete", {});
+	async health(): Promise<CompanionHealth> {
+		return this.request<CompanionHealth>("/v1/health");
+	}
+
+	async initialize(): Promise<CompanionHealth> {
+		return this.health();
 	}
 
 	async workspaceSnapshot(): Promise<WorkspaceSnapshot> {
-		return this.call<WorkspaceSnapshot>("workspace.snapshot", {});
+		return this.request<WorkspaceSnapshot>("/v1/workspaces");
 	}
 
 	async listWorkspaceSessions(
 		workspaceId: string,
 	): Promise<WorkspaceSessionSummary[]> {
-		return this.call<WorkspaceSessionSummary[]>("session.list", {
-			workspaceId,
-		});
+		const search = new URLSearchParams({ workspaceId });
+		return this.request<WorkspaceSessionSummary[]>(`/v1/sessions?${search}`);
 	}
 
 	async sessionThreadPage(
 		request: SessionThreadPageRequest,
 	): Promise<SessionThreadMessagesPage> {
-		return this.call<SessionThreadMessagesPage>("session.thread.page", request);
+		const search = new URLSearchParams();
+		if (request.tailLimit !== undefined && request.tailLimit !== null) {
+			search.set("tailLimit", String(request.tailLimit));
+		}
+		const suffix = search.toString() ? `?${search}` : "";
+		return this.request<SessionThreadMessagesPage>(
+			`/v1/sessions/${encodeURIComponent(request.sessionId)}/thread${suffix}`,
+		);
 	}
 
 	async markSessionRead(sessionId: string): Promise<void> {
-		await this.call("session.markRead", { sessionId });
+		await this.request(`/v1/sessions/${encodeURIComponent(sessionId)}/read`, {
+			method: "POST",
+		});
 	}
 
 	async createBacklogTask(
 		request: BacklogCreateRequest,
 	): Promise<BacklogCreateResult> {
-		return this.call<BacklogCreateResult>("backlog.create", request);
-	}
-
-	close() {
-		this.transport.close();
-	}
-
-	private async call<T>(method: string, params: unknown): Promise<T> {
-		const request = {
-			jsonrpc: "2.0",
-			id: Date.now(),
-			method,
-			params,
-		};
-		const raw = await this.transport.executeRpcPayload(
-			JSON.stringify(request),
-			method,
-		);
-		const response = JSON.parse(raw.trim()) as JsonRpcResponse<T>;
-		if ("error" in response && response.error) {
-			throw new Error(response.error.message);
-		}
-		return response.result;
-	}
-}
-
-type SshClient = {
-	execute(command: string): Promise<string>;
-	disconnect(): void;
-};
-
-export class SshRpcTransport implements RemoteTransport {
-	private constructor(
-		private readonly client: SshClient,
-		readonly connectedHost: string,
-	) {}
-
-	static async connect({
-		hosts,
-		port,
-		username,
-		password,
-		onProgress,
-	}: {
-		hosts: string[];
-		port: number;
-		username: string;
-		password: string;
-		onProgress?: RemoteProgress;
-	}): Promise<SshRpcTransport> {
-		const module = await import("@dylankenneally/react-native-ssh-sftp");
-		const candidates = normalizeHosts(hosts);
-		if (!candidates.length) {
-			throw new Error("Pairing payload did not include any desktop hosts");
-		}
-		const failures: string[] = [];
-		for (const host of candidates) {
-			try {
-				onProgress?.(`Trying ${host}:${port}`);
-				const client = await connectWithPasswordWithTimeout(
-					module.default,
-					host,
-					port,
-					username,
-					password,
-					SSH_CONNECT_TIMEOUT_MS,
-				);
-				onProgress?.(`SSH connected to ${host}:${port}`);
-				return new SshRpcTransport(client, host);
-			} catch (error) {
-				const message = errorMessage(error);
-				failures.push(`${host}:${port} - ${message}`);
-				onProgress?.(`SSH failed for ${host}:${port}: ${message}`);
-			}
-		}
-		throw new Error(
-			`Unable to connect to Helmor desktop. Tried ${failures.join("; ")}`,
-		);
-	}
-
-	executeRpcPayload(payload: string, method: string): Promise<string> {
-		console.info(`[mobile-rpc] ${method}`);
-		return this.client.execute(`helmor-mobile-rpc ${base64UrlEncode(payload)}`);
-	}
-
-	close() {
-		this.client.disconnect();
-	}
-}
-
-type SshClientConstructor = {
-	connectWithPassword(
-		host: string,
-		port: number,
-		username: string,
-		password: string,
-	): Promise<SshClient>;
-};
-
-async function connectWithPasswordWithTimeout(
-	sshClient: SshClientConstructor,
-	host: string,
-	port: number,
-	username: string,
-	password: string,
-	timeoutMs: number,
-): Promise<SshClient> {
-	let timedOut = false;
-	let timeout: ReturnType<typeof setTimeout> | null = null;
-	const connectPromise = sshClient
-		.connectWithPassword(host, port, username, password)
-		.then((client) => {
-			if (timedOut) {
-				client.disconnect();
-				throw new Error(`Connection timed out after ${timeoutMs}ms`);
-			}
-			return client;
+		return this.request<BacklogCreateResult>("/v1/backlog", {
+			method: "POST",
+			body: JSON.stringify(request),
 		});
-	void connectPromise.catch(() => {});
-
-	const timeoutPromise = new Promise<never>((_, reject) => {
-		timeout = setTimeout(() => {
-			timedOut = true;
-			reject(new Error(`Connection timed out after ${timeoutMs}ms`));
-		}, timeoutMs);
-	});
-
-	try {
-		return await Promise.race([connectPromise, timeoutPromise]);
-	} finally {
-		if (timeout) clearTimeout(timeout);
 	}
-}
 
-export function prioritizeHosts(
-	hosts: string[],
-	preferredHost?: string,
-): string[] {
-	const normalized = normalizeHosts(hosts);
-	if (!preferredHost) return normalized;
-	return [
-		preferredHost,
-		...normalized.filter((host) => host !== preferredHost),
-	];
-}
+	close() {}
 
-function normalizeHosts(hosts: string[]): string[] {
-	const seen = new Set<string>();
-	const normalized: string[] = [];
-	for (const host of hosts) {
-		const candidate = host.trim();
-		if (!candidate || seen.has(candidate)) continue;
-		seen.add(candidate);
-		normalized.push(candidate);
+	private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+		const response = await fetch(`${this.baseUrl}${path}`, {
+			...init,
+			headers: {
+				Accept: "application/json",
+				Authorization: `Bearer ${this.connection.pat}`,
+				"Content-Type": "application/json",
+				...init.headers,
+			},
+		});
+		if (!response.ok) {
+			throw new Error(await responseError(response));
+		}
+		if (response.status === 204) {
+			return undefined as T;
+		}
+		return (await response.json()) as T;
 	}
-	return normalized;
 }
 
 export async function createPairedDesktopClient(
 	connection: {
-		hosts: string[];
-		port: number;
-		deviceId: string;
-		deviceSecret: string;
+		host: string;
+		pat: string;
 	},
-	onProgress?: RemoteProgress,
+	_onProgress?: RemoteProgress,
 ): Promise<DesktopRpcClient> {
-	const transport = await SshRpcTransport.connect({
-		hosts: connection.hosts,
-		port: connection.port,
-		username: `device:${connection.deviceId}`,
-		password: connection.deviceSecret,
-		onProgress,
-	});
-	return new DesktopRpcClient(transport);
+	return new DesktopRpcClient(connection);
 }
 
 export async function createPairingClient(
 	pairing: {
-		hosts: string[];
-		port: number;
-		pairingUser: string;
-		pairingSecret: string;
+		host: string;
+		pat: string;
 	},
-	onProgress?: RemoteProgress,
+	_onProgress?: RemoteProgress,
 ): Promise<DesktopRpcClient> {
-	const transport = await SshRpcTransport.connect({
-		hosts: pairing.hosts,
-		port: pairing.port,
-		username: pairing.pairingUser,
-		password: pairing.pairingSecret,
-		onProgress,
-	});
-	return new DesktopRpcClient(transport);
+	return new DesktopRpcClient(pairing);
 }
 
-function errorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message;
-	if (typeof error === "string") return error;
-	try {
-		return JSON.stringify(error);
-	} catch {
-		return String(error);
+function normalizeBaseUrl(host: string): string {
+	const trimmed = host.trim().replace(/\/+$/, "");
+	if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+		return trimmed;
 	}
+	return `https://${trimmed}`;
+}
+
+async function responseError(response: Response): Promise<string> {
+	try {
+		const body = (await response.json()) as { error?: string };
+		if (body.error) return body.error;
+	} catch {}
+	return `Companion request failed with ${response.status}`;
 }

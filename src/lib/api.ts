@@ -1921,6 +1921,7 @@ export type UiMutationEvent =
 	| { type: "repositoryChanged"; repoId: string }
 	| { type: "repoRunActionsChanged"; repoId: string }
 	| { type: "settingsChanged"; key: string | null }
+	| { type: "pairedDevicesChanged" }
 	| {
 			type: "pendingCliSendQueued";
 			workspaceId: string;
@@ -4304,50 +4305,98 @@ export async function findExistingHelmorRepo(): Promise<ExistingHelmorRepo | nul
 }
 
 // ---------------------------------------------------------------------------
-// Mobile access
+// Mobile companion
 // ---------------------------------------------------------------------------
 
-export type MobilePairedDevice = {
-	deviceId: string;
-	deviceName: string;
+export type CompanionProvider = "helmorManaged" | "bringYourOwnCloudflare";
+
+export type CompanionPairedDevice = {
+	id: string;
+	label: string;
+	role: string;
+	toolPolicy: string | null;
 	createdAt: string;
 	lastSeenAt: string | null;
+	revokedAt: string | null;
 };
 
-export type MobileAccessStatus = {
-	running: boolean;
-	hosts: string[];
-	port: number | null;
-	hostKeyFingerprint: string | null;
-	pairedDevices: MobilePairedDevice[];
+export type CompanionStatus = {
+	serverRunning: boolean;
+	serverPort: number | null;
+	tunnelRunning: boolean;
+	provider: CompanionProvider;
+	activeTunnelProvider: CompanionProvider | null;
+	hostname: string | null;
+	byoCloudflareConfigured: boolean;
+	pairedDevices: CompanionPairedDevice[];
 };
 
-export type MobilePairingPayload = {
-	protocolVersion: number;
+export type CompanionPairingPayload = {
+	v: number;
+	host: string;
+	pat: string;
 	desktopId: string;
 	desktopName: string;
-	hosts: string[];
-	port: number;
-	pairingUser: string;
-	pairingSecret: string;
-	hostKeyFingerprint: string;
-	expiresAt: string;
+	deviceId: string;
+	stable: boolean;
 };
 
-export async function getMobileAccessStatus(): Promise<MobileAccessStatus> {
-	return invoke<MobileAccessStatus>("get_mobile_access_status");
+export type ByoCloudflareConfig = {
+	accountId: string;
+	zoneId: string;
+	apiToken: string;
+	hostname: string;
+	tunnelId?: string | null;
+	tunnelName?: string | null;
+	tunnelToken?: string | null;
+};
+
+export async function getCompanionStatus(): Promise<CompanionStatus> {
+	return invoke<CompanionStatus>("companion_get_status");
 }
 
-export async function createMobilePairing(): Promise<MobilePairingPayload> {
-	return invoke<MobilePairingPayload>("create_mobile_pairing");
+export async function enableCompanion(): Promise<CompanionStatus> {
+	return invoke<CompanionStatus>("companion_enable");
 }
 
-export async function stopMobileAccessServer(): Promise<void> {
-	await invoke("stop_mobile_access_server");
+export async function disableCompanion(): Promise<void> {
+	await invoke("companion_disable");
 }
 
-export async function revokeMobileDevice(deviceId: string): Promise<void> {
-	await invoke("revoke_mobile_device", { deviceId });
+export async function createCompanionPairing(): Promise<CompanionPairingPayload> {
+	return invoke<CompanionPairingPayload>("companion_create_pairing");
+}
+
+export async function revokeCompanionDevice(deviceId: string): Promise<void> {
+	await invoke("companion_revoke_device", { deviceId });
+}
+
+export async function forgetCompanionTunnel(): Promise<CompanionStatus> {
+	return invoke<CompanionStatus>("companion_forget_tunnel");
+}
+
+export async function saveByoCloudflareConfig(
+	config: ByoCloudflareConfig,
+): Promise<void> {
+	await invoke("companion_save_byo_cloudflare_config", { config });
+}
+
+export async function validateByoCloudflareConfig(
+	config: ByoCloudflareConfig,
+): Promise<void> {
+	await invoke("companion_validate_byo_cloudflare_config", { config });
+}
+
+export async function provisionByoCloudflare(
+	config: ByoCloudflareConfig,
+): Promise<CompanionStatus> {
+	return invoke<CompanionStatus>("companion_provision_byo_cloudflare", {
+		config,
+	});
+}
+
+export async function provisionHelmorManagedCompanion(): Promise<CompanionStatus> {
+	return invoke<CompanionStatus>("companion_provision_helmor_managed");
 }
 
 function describeInvokeError(error: unknown, fallback: string): string {

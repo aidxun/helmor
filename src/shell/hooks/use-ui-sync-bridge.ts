@@ -190,6 +190,11 @@ function handleUiMutation(
 				});
 			}
 			return;
+		case "pairedDevicesChanged":
+			void queryClient.invalidateQueries({
+				predicate: (query) => query.queryKey[0] === "companion",
+			});
+			return;
 		case "pendingCliSendQueued":
 			void options.processPendingCliSends();
 			return;

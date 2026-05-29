@@ -2,6 +2,7 @@ pub mod agents;
 pub mod cli;
 pub(crate) mod codex_config;
 pub(crate) mod commands;
+pub mod companion;
 pub mod data_dir;
 pub mod downloads;
 pub mod error;
@@ -188,6 +189,7 @@ pub fn run() {
         )))
         .manage(git_watcher::GitWatcherManager::new())
         .manage(workspace::scripts::ScriptProcessManager::new())
+        .manage(companion::CompanionManager::new())
         .manage(mobile_access::MobileAccessManager::new())
         .manage(ui_sync::UiSyncManager::new())
         .manage(triage::ActiveStatusStore::new())
@@ -649,6 +651,16 @@ pub fn run() {
             commands::mobile_access_commands::create_mobile_pairing,
             commands::mobile_access_commands::stop_mobile_access_server,
             commands::mobile_access_commands::revoke_mobile_device,
+            commands::companion_commands::companion_get_status,
+            commands::companion_commands::companion_enable,
+            commands::companion_commands::companion_disable,
+            commands::companion_commands::companion_create_pairing,
+            commands::companion_commands::companion_revoke_device,
+            commands::companion_commands::companion_forget_tunnel,
+            commands::companion_commands::companion_save_byo_cloudflare_config,
+            commands::companion_commands::companion_validate_byo_cloudflare_config,
+            commands::companion_commands::companion_provision_byo_cloudflare,
+            commands::companion_commands::companion_provision_helmor_managed,
             commands::system_commands::request_quit,
             commands::system_commands::dev_reset_all_data,
             commands::settings_commands::update_app_settings,

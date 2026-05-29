@@ -14,7 +14,6 @@ import {
 	type DesktopConnectionState,
 	getActiveDesktopConnection,
 	loadDesktopConnectionState,
-	prioritizeHosts,
 	removeDesktopConnection,
 	setActiveDesktopConnection,
 	upsertDesktopConnection,
@@ -156,7 +155,7 @@ export function WorkspaceProvider({
 			setDesktopState(
 				await upsertDesktopConnection({
 					...activeDesktop,
-					hosts: prioritizeHosts(activeDesktop.hosts, client.connectedHost),
+					host: client.connectedHost,
 					lastSyncedAt: snapshot.syncedAt,
 				}),
 			);

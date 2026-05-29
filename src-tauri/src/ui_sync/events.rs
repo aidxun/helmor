@@ -51,6 +51,7 @@ pub enum UiMutationEvent {
     SettingsChanged {
         key: Option<String>,
     },
+    PairedDevicesChanged,
     PendingCliSendQueued {
         workspace_id: String,
         session_id: String,

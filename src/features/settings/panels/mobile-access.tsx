@@ -9,12 +9,19 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import {
-	createMobilePairing,
-	getMobileAccessStatus,
-	type MobileAccessStatus,
-	type MobilePairingPayload,
-	revokeMobileDevice,
-	stopMobileAccessServer,
+	type ByoCloudflareConfig,
+	type CompanionPairingPayload,
+	type CompanionStatus,
+	createCompanionPairing,
+	disableCompanion,
+	enableCompanion,
+	forgetCompanionTunnel,
+	getCompanionStatus,
+	provisionByoCloudflare,
+	provisionHelmorManagedCompanion,
+	revokeCompanionDevice,
+	saveByoCloudflareConfig,
+	validateByoCloudflareConfig,
 } from "@/lib/api";
 import {
 	SettingsGroup,
@@ -23,15 +30,25 @@ import {
 } from "../components/settings-row";
 import { MobilePairingQr } from "./mobile-pairing-qr";
 
+const EMPTY_BYO_CONFIG: ByoCloudflareConfig = {
+	accountId: "",
+	zoneId: "",
+	apiToken: "",
+	hostname: "",
+};
+
 export function MobileAccessPanel() {
-	const [status, setStatus] = useState<MobileAccessStatus | null>(null);
-	const [pairing, setPairing] = useState<MobilePairingPayload | null>(null);
+	const [status, setStatus] = useState<CompanionStatus | null>(null);
+	const [pairing, setPairing] = useState<CompanionPairingPayload | null>(null);
+	const [byoConfig, setByoConfig] =
+		useState<ByoCloudflareConfig>(EMPTY_BYO_CONFIG);
 	const [error, setError] = useState<string | null>(null);
+	const [message, setMessage] = useState<string | null>(null);
 	const [isBusy, setIsBusy] = useState(false);
 	const [didCopyPairingUrl, setDidCopyPairingUrl] = useState(false);
 
 	const refresh = useCallback(async () => {
-		setStatus(await getMobileAccessStatus());
+		setStatus(await getCompanionStatus());
 	}, []);
 
 	useEffect(() => {
@@ -49,85 +66,58 @@ export function MobileAccessPanel() {
 		setDidCopyPairingUrl(false);
 	}, [pairingUrl]);
 
-	async function handleCreatePairing() {
+	async function runBusy(action: () => Promise<void>) {
 		setIsBusy(true);
 		setError(null);
+		setMessage(null);
 		try {
-			const next = await createMobilePairing();
-			setPairing(next);
-			await refresh();
+			await action();
 		} catch (err) {
 			setError(errorMessage(err));
 		} finally {
 			setIsBusy(false);
-		}
-	}
-
-	async function handleStop() {
-		setIsBusy(true);
-		setError(null);
-		try {
-			await stopMobileAccessServer();
-			setPairing(null);
-			await refresh();
-		} catch (err) {
-			setError(errorMessage(err));
-		} finally {
-			setIsBusy(false);
-		}
-	}
-
-	async function handleRevoke(deviceId: string) {
-		setIsBusy(true);
-		setError(null);
-		try {
-			await revokeMobileDevice(deviceId);
-			await refresh();
-		} catch (err) {
-			setError(errorMessage(err));
-		} finally {
-			setIsBusy(false);
-		}
-	}
-
-	async function handleCopyPairingUrl() {
-		if (!pairingUrl) return;
-		setError(null);
-		try {
-			await navigator.clipboard.writeText(pairingUrl);
-			setDidCopyPairingUrl(true);
-		} catch (err) {
-			setError(errorMessage(err));
 		}
 	}
 
 	return (
 		<SettingsGroup>
 			<SettingsRow
-				title="Mobile pairing"
-				description="Show a QR code that opens Helmor Mobile and pairs this desktop over the local network."
+				title="Mobile Companion"
+				description={
+					status?.hostname
+						? `Public URL: ${status.hostname}`
+						: "Allocate a Cloudflare hostname before pairing a phone."
+				}
 				align="start"
 			>
 				<div className="flex items-center gap-2">
 					<Button
 						type="button"
 						size="sm"
-						onClick={handleCreatePairing}
+						onClick={() =>
+							void runBusy(async () => {
+								setStatus(await enableCompanion());
+							})
+						}
 						disabled={isBusy}
 					>
-						Show QR
+						Enable
 					</Button>
-					{status?.running ? (
-						<Button
-							type="button"
-							size="sm"
-							variant="outline"
-							onClick={handleStop}
-							disabled={isBusy}
-						>
-							Stop
-						</Button>
-					) : null}
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
+						onClick={() =>
+							void runBusy(async () => {
+								await disableCompanion();
+								setPairing(null);
+								await refresh();
+							})
+						}
+						disabled={isBusy || !status?.serverRunning}
+					>
+						Disable
+					</Button>
 				</div>
 			</SettingsRow>
 
@@ -136,47 +126,166 @@ export function MobileAccessPanel() {
 					<SettingsNotice tone="error">{error}</SettingsNotice>
 				</SettingsRow>
 			) : null}
-
-			{pairing && pairingUrl ? (
-				<SettingsRow
-					title="Scan with iPhone camera"
-					description={
-						<>
-							Expires {formatDate(pairing.expiresAt)}. Host{" "}
-							{pairing.hosts[0] ?? "unknown"}:{pairing.port}
-						</>
-					}
-					align="start"
-				>
-					<div className="flex flex-col items-end gap-2">
-						<div className="rounded-lg bg-white p-3">
-							<QrCodeBoundary resetKey={pairingUrl}>
-								<MobilePairingQr value={pairingUrl} size={208} />
-							</QrCodeBoundary>
-						</div>
-						<Button
-							type="button"
-							size="sm"
-							variant="ghost"
-							onClick={() => void handleCopyPairingUrl()}
-						>
-							{didCopyPairingUrl ? "Copied" : "Copy link"}
-						</Button>
-					</div>
+			{message ? (
+				<SettingsRow title="Status">
+					<SettingsNotice>{message}</SettingsNotice>
 				</SettingsRow>
 			) : null}
 
 			<SettingsRow
-				title="Server"
+				title="Helmor-managed Cloudflare"
+				description="Default provider. Requires the Helmor Companion API to be configured."
+			>
+				<Button
+					type="button"
+					size="sm"
+					variant="outline"
+					onClick={() =>
+						void runBusy(async () => {
+							setStatus(await provisionHelmorManagedCompanion());
+						})
+					}
+					disabled={isBusy}
+				>
+					Allocate URL
+				</Button>
+			</SettingsRow>
+
+			<SettingsRow
+				title="Bring Your Own Cloudflare"
+				description="Use a hostname in a zone already served by Cloudflare DNS."
+				align="start"
+			>
+				<div className="flex w-[340px] flex-col gap-2">
+					<CompanionInput
+						placeholder="Account ID"
+						value={byoConfig.accountId}
+						onChange={(accountId) =>
+							setByoConfig((current) => ({ ...current, accountId }))
+						}
+					/>
+					<CompanionInput
+						placeholder="Zone ID"
+						value={byoConfig.zoneId}
+						onChange={(zoneId) =>
+							setByoConfig((current) => ({ ...current, zoneId }))
+						}
+					/>
+					<CompanionInput
+						placeholder="API token"
+						type="password"
+						value={byoConfig.apiToken}
+						onChange={(apiToken) =>
+							setByoConfig((current) => ({ ...current, apiToken }))
+						}
+					/>
+					<CompanionInput
+						placeholder="mobile.example.com"
+						value={byoConfig.hostname}
+						onChange={(hostname) =>
+							setByoConfig((current) => ({ ...current, hostname }))
+						}
+					/>
+					<div className="flex justify-end gap-2">
+						<Button
+							type="button"
+							size="sm"
+							variant="ghost"
+							onClick={() =>
+								void runBusy(async () => {
+									await validateByoCloudflareConfig(byoConfig);
+									await saveByoCloudflareConfig(byoConfig);
+									setMessage("BYO Cloudflare configuration saved.");
+									await refresh();
+								})
+							}
+							disabled={isBusy}
+						>
+							Validate
+						</Button>
+						<Button
+							type="button"
+							size="sm"
+							onClick={() =>
+								void runBusy(async () => {
+									setStatus(await provisionByoCloudflare(byoConfig));
+								})
+							}
+							disabled={isBusy}
+						>
+							Allocate URL
+						</Button>
+					</div>
+				</div>
+			</SettingsRow>
+
+			<SettingsRow
+				title="Pair phone"
 				description={
-					status?.running
-						? `Listening on ${status.hosts.join(", ")}:${status.port}`
-						: "Not running"
+					status?.hostname
+						? "Scan this QR code with Helmor Mobile."
+						: "Allocate a Cloudflare URL first."
+				}
+				align="start"
+			>
+				<div className="flex flex-col items-end gap-2">
+					<Button
+						type="button"
+						size="sm"
+						onClick={() =>
+							void runBusy(async () => {
+								setPairing(await createCompanionPairing());
+								await refresh();
+							})
+						}
+						disabled={isBusy || !status?.hostname}
+					>
+						Show QR
+					</Button>
+					{pairing && pairingUrl ? (
+						<div className="flex flex-col items-end gap-2">
+							<div className="rounded-lg bg-white p-3">
+								<QrCodeBoundary resetKey={pairingUrl}>
+									<MobilePairingQr value={pairingUrl} size={208} />
+								</QrCodeBoundary>
+							</div>
+							<Button
+								type="button"
+								size="sm"
+								variant="ghost"
+								onClick={() => void handleCopyPairingUrl(pairingUrl)}
+							>
+								{didCopyPairingUrl ? "Copied" : "Copy link"}
+							</Button>
+						</div>
+					) : null}
+				</div>
+			</SettingsRow>
+
+			<SettingsRow
+				title="Runtime"
+				description={
+					status?.serverRunning
+						? `Server 127.0.0.1:${status.serverPort}; tunnel ${
+								status.tunnelRunning ? "running" : "not running"
+							}`
+						: "Server not running"
 				}
 			>
-				<span className="text-small text-muted-foreground">
-					{status?.hostKeyFingerprint ?? "No host key"}
-				</span>
+				<Button
+					type="button"
+					size="sm"
+					variant="outline"
+					onClick={() =>
+						void runBusy(async () => {
+							setStatus(await forgetCompanionTunnel());
+							setPairing(null);
+						})
+					}
+					disabled={isBusy || !status?.hostname}
+				>
+					Forget URL
+				</Button>
 			</SettingsRow>
 
 			<SettingsRow
@@ -188,28 +297,35 @@ export function MobileAccessPanel() {
 				}
 				align="start"
 			>
-				<div className="flex min-w-[220px] flex-col gap-2">
+				<div className="flex min-w-[260px] flex-col gap-2">
 					{status?.pairedDevices.map((device) => (
 						<div
-							key={device.deviceId}
+							key={device.id}
 							className="flex items-center justify-between gap-3 rounded-md border border-border/50 px-3 py-2"
 						>
 							<div className="min-w-0">
 								<div className="truncate text-small font-medium text-foreground">
-									{device.deviceName}
+									{device.label}
 								</div>
 								<div className="truncate text-nano text-muted-foreground">
-									{device.lastSeenAt
-										? `Last seen ${formatDate(device.lastSeenAt)}`
-										: `Paired ${formatDate(device.createdAt)}`}
+									{device.revokedAt
+										? `Revoked ${formatDate(device.revokedAt)}`
+										: device.lastSeenAt
+											? `Last seen ${formatDate(device.lastSeenAt)}`
+											: `Paired ${formatDate(device.createdAt)}`}
 								</div>
 							</div>
 							<Button
 								type="button"
 								size="sm"
 								variant="ghost"
-								onClick={() => void handleRevoke(device.deviceId)}
-								disabled={isBusy}
+								onClick={() =>
+									void runBusy(async () => {
+										await revokeCompanionDevice(device.id);
+										await refresh();
+									})
+								}
+								disabled={isBusy || Boolean(device.revokedAt)}
 							>
 								Revoke
 							</Button>
@@ -218,6 +334,38 @@ export function MobileAccessPanel() {
 				</div>
 			</SettingsRow>
 		</SettingsGroup>
+	);
+
+	async function handleCopyPairingUrl(pairingUrl: string) {
+		setError(null);
+		try {
+			await navigator.clipboard.writeText(pairingUrl);
+			setDidCopyPairingUrl(true);
+		} catch (err) {
+			setError(errorMessage(err));
+		}
+	}
+}
+
+function CompanionInput({
+	value,
+	onChange,
+	placeholder,
+	type = "text",
+}: {
+	value: string;
+	onChange: (value: string) => void;
+	placeholder: string;
+	type?: "text" | "password";
+}) {
+	return (
+		<input
+			className="h-8 rounded-md border border-border bg-background px-2 text-small text-foreground outline-none focus:border-ring"
+			placeholder={placeholder}
+			type={type}
+			value={value}
+			onChange={(event) => onChange(event.currentTarget.value)}
+		/>
 	);
 }
 
@@ -278,15 +426,15 @@ function base64UrlEncode(value: string): string {
 		.replace(/=+$/g, "");
 }
 
-function compactPairingPayload(pairing: MobilePairingPayload) {
+function compactPairingPayload(pairing: CompanionPairingPayload) {
 	return {
-		v: pairing.protocolVersion,
+		v: pairing.v,
+		h: pairing.host,
+		p: pairing.pat,
+		d: pairing.desktopId,
 		n: pairing.desktopName,
-		h: pairing.hosts,
-		p: pairing.port,
-		u: pairing.pairingUser,
-		s: pairing.pairingSecret,
-		e: pairing.expiresAt,
+		i: pairing.deviceId,
+		s: pairing.stable,
 	};
 }
 

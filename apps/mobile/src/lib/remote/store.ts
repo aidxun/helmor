@@ -1,7 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import type { DesktopConnection, DesktopConnectionState } from "./types";
 
-const KEY = "helmor.mobile.desktopConnections.v1";
+const KEY = "helmor.mobile.desktopConnections.v2";
 
 const EMPTY_STATE: DesktopConnectionState = {
 	activeDesktopId: null,

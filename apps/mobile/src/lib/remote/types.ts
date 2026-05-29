@@ -4,11 +4,8 @@ import type { MobileWorkspaceGroup } from "@/features/workspaces/types";
 export type DesktopConnection = {
 	desktopId: string;
 	desktopName: string;
-	hosts: string[];
-	port: number;
-	hostKeyFingerprint: string;
-	deviceId: string;
-	deviceSecret: string;
+	host: string;
+	pat: string;
 	lastSyncedAt?: string | null;
 };
 
@@ -18,22 +15,20 @@ export type DesktopConnectionState = {
 };
 
 export type MobilePairingPayload = {
-	protocolVersion: number;
-	desktopId?: string;
-	desktopName: string;
-	hosts: string[];
-	port: number;
-	pairingUser: string;
-	pairingSecret: string;
-	hostKeyFingerprint?: string;
-	expiresAt: string;
-};
-
-export type PairCompleteResult = {
+	v: number;
+	host: string;
+	pat: string;
 	desktopId: string;
 	desktopName: string;
-	deviceId: string;
-	deviceSecret: string;
+	deviceId?: string;
+	stable?: boolean;
+};
+
+export type CompanionHealth = {
+	ok: boolean;
+	protocolVersion: number;
+	desktopId: string;
+	desktopName: string;
 };
 
 export type WorkspaceSnapshot = {
@@ -85,20 +80,3 @@ export type BacklogCreateResult = {
 	sessionId: string;
 	status: "backlog";
 };
-
-export type JsonRpcResponse<T> =
-	| {
-			jsonrpc: "2.0";
-			id?: string | number | null;
-			result: T;
-			error?: never;
-	  }
-	| {
-			jsonrpc: "2.0";
-			id?: string | number | null;
-			result?: never;
-			error: {
-				code: number;
-				message: string;
-			};
-	  };
