@@ -76,8 +76,10 @@ import { FileMentionPlugin } from "./editor/plugins/file-mention-plugin";
 import { HasContentPlugin } from "./editor/plugins/has-content-plugin";
 import { HistoryRecallPlugin } from "./editor/plugins/history-recall-plugin";
 import { PasteImagePlugin } from "./editor/plugins/paste-image-plugin";
+import { ShimmerKeywordPlugin } from "./editor/plugins/shimmer-keyword-plugin";
 import { SlashCommandPlugin } from "./editor/plugins/slash-command-plugin";
 import { SubmitPlugin } from "./editor/plugins/submit-plugin";
+import { ShimmerKeywordNode } from "./editor/shimmer-keyword-node";
 import { $extractComposerContent } from "./editor/utils";
 import { $appendComposerInsertItems } from "./editor-ops";
 import { FastModeLottieIcon } from "./fast-mode-lottie-icon";
@@ -159,6 +161,8 @@ type WorkspaceComposerProps = {
 	addDirCandidates?: readonly CandidateDirectory[];
 	/** Called when the user selects an entry from the /add-dir popup. */
 	onPickAddDir?: (entry: AddDirPickerEntry) => void;
+	/** Open the independent workflow-progress panel (the `/workflows` command). */
+	onOpenWorkflows?: () => void;
 	pendingUserInput?: PendingUserInput | null;
 	onUserInputResponse?: UserInputResponseHandler;
 	userInputResponsePending?: boolean;
@@ -213,6 +217,13 @@ type WorkspaceComposerProps = {
 	 *  composer doesn't have to re-render when the thread cache changes. */
 	getInputHistory?: () => readonly InputHistoryEntry[];
 };
+
+/**
+ * Composer keywords that get the inline shimmer cue (see `ShimmerKeywordPlugin`
+ * + the `composer-shimmer-keyword` CSS). Whole-word regex fragments, matched
+ * case-insensitively at word boundaries.
+ */
+const SHIMMER_KEYWORDS = ["workflows?", "ultrathink"] as const;
 
 const EMPTY_SLASH_COMMANDS: readonly SlashCommandEntry[] = [];
 const EMPTY_LINKED_DIRECTORIES: readonly string[] = [];
@@ -274,6 +285,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 	linkedDirectoriesDisabled = false,
 	addDirCandidates = EMPTY_CANDIDATE_DIRECTORIES,
 	onPickAddDir = noopPickAddDir,
+	onOpenWorkflows,
 	pendingUserInput = null,
 	onUserInputResponse = noopUserInputResponse,
 	userInputResponsePending = false,
@@ -473,6 +485,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 			FileBadgeNode,
 			CustomTagBadgeNode,
 			AddDirTriggerNode,
+			ShimmerKeywordNode,
 		],
 		onError: onEditorError,
 	}).current;
@@ -813,6 +826,17 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 								if (name === "add-dir" && editorRef.current) {
 									$insertAddDirTrigger(editorRef.current, nodeToReplace);
 								}
+								// `/workflows` opens the independent progress panel and
+								// is NEVER sent — drop the typed token so the composer
+								// returns to empty.
+								if (name === "workflows") {
+									if (nodeToReplace) {
+										editorRef.current?.update(() => {
+											nodeToReplace.remove();
+										});
+									}
+									onOpenWorkflows?.();
+								}
 							}}
 							popupAnchorRef={composerRootRef}
 						/>
@@ -854,6 +878,7 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 						) : null}
 						<EditablePlugin disabled={inputDisabled} />
 						<HasContentPlugin onChange={setHasContent} />
+						<ShimmerKeywordPlugin keywords={SHIMMER_KEYWORDS} />
 					</LexicalComposer>
 
 					{sendError ? (
@@ -927,6 +952,11 @@ export const WorkspaceComposer = memo(function WorkspaceComposer({
 																	{option.label}
 																</span>
 															</div>
+															{option.id === selectedModel?.id ? (
+																<span className="text-mini text-foreground">
+																	✓
+																</span>
+															) : null}
 														</DropdownMenuItem>
 													))}
 													{section.id === "claude" &&

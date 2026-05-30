@@ -1935,7 +1935,8 @@ export type UiMutationEvent =
 	| { type: "slackTokenInvalidated"; teamId: string }
 	| { type: "triageConfigChanged" }
 	| { type: "triageActiveStatusChanged" }
-	| { type: "triageWorkspaceCreated"; workspaceId: string };
+	| { type: "triageWorkspaceCreated"; workspaceId: string }
+	| { type: "fastModeUnavailable"; sessionId: string; reason: string };
 
 export type TriageConfig = {
 	enabled: boolean;
@@ -2202,7 +2203,6 @@ export async function listenGitRefsChanged(
 export async function subscribeUiMutations(
 	callback: (event: UiMutationEvent) => void,
 ): Promise<UnlistenFn> {
-	const { Channel } = await import("@tauri-apps/api/core");
 	const subscriptionId = crypto.randomUUID();
 	const onEvent = new Channel<UiMutationEvent>();
 	onEvent.onmessage = callback;
@@ -3112,6 +3112,32 @@ export type TodoListPart = {
 	id: string;
 	items: TodoItem[];
 };
+export type WorkflowAgentStatus = "running" | "done";
+export type WorkflowAgentRow = {
+	label: string;
+	status: WorkflowAgentStatus;
+	resultPreview?: string;
+	/** Phase grouping back-refs, for the `workflow -> phase -> agent` drill-down. */
+	phaseIndex?: number;
+	phaseTitle?: string;
+	/** Per-agent metrics surfaced in the agent detail view. */
+	model?: string;
+	tokens?: number;
+	toolCalls?: number;
+	durationMs?: number;
+};
+export type WorkflowStatus = "running" | "completed" | "failed" | "stopped";
+/** A Claude Code "Dynamic Workflow" run — the `Workflow` tool call plus its
+ *  aggregated `task_*` lifecycle, rendered as one evolving card. */
+export type WorkflowPart = {
+	type: "workflow";
+	id: string;
+	name: string;
+	status: WorkflowStatus;
+	agents?: WorkflowAgentRow[];
+	totalTokens?: number;
+	durationMs?: number;
+};
 export type ImageSource =
 	| { kind: "base64"; data: string }
 	| { kind: "url"; url: string }
@@ -3150,6 +3176,7 @@ export type MessagePart =
 	| ToolCallPart
 	| SystemNoticePart
 	| TodoListPart
+	| WorkflowPart
 	| ImagePart
 	| PromptSuggestionPart
 	| FileMentionPart
@@ -3512,7 +3539,6 @@ export async function startAgentMessageStream(
 	request: AgentSendRequest,
 	callback: (event: AgentStreamEvent) => void,
 ): Promise<void> {
-	const { Channel } = await import("@tauri-apps/api/core");
 	const onEvent = new Channel<AgentStreamEvent>();
 	onEvent.onmessage = (event) => callback(event);
 	await invoke("send_agent_message_stream", { request, onEvent });
