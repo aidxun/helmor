@@ -2,6 +2,7 @@ import type { ThreadMessageLike } from "@helmor/thread-schema";
 import type { Dispatch, SetStateAction } from "react";
 import type { StreamingStore } from "@/components/chat";
 import type { CompanionStreamEvent } from "@/lib/remote";
+import { reconcileAuthoritativeThreadMessages } from "./workspace-chat-message-state";
 import { getTextFromParts } from "./workspace-chat-message-utils";
 
 export function applyCompanionStreamEvent({
@@ -26,7 +27,10 @@ export function applyCompanionStreamEvent({
 	const agentEvent = event.event;
 	if (agentEvent.kind === "update") {
 		const messages = agentEvent.messages as ThreadMessageLike[];
-		setThreadMessages(messages);
+		setThreadMessages((previous) =>
+			reconcileAuthoritativeThreadMessages(previous, messages),
+		);
+		if (messages.length === 0) return;
 		const last = messages[messages.length - 1];
 		streamingStore.set(last?.streaming ? messageText(last) : "");
 		return;

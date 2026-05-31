@@ -4,6 +4,7 @@ import {
 	CircleDashed,
 	CircleDotDashed,
 	CircleX,
+	ClipboardList,
 	type LucideIcon,
 	MessageCircle,
 	MonitorUp,
@@ -18,6 +19,7 @@ import { useWorkspaces } from "./workspace-context";
 import { workspaceStatusLabel, workspaceSubtitle } from "./workspace-selectors";
 
 const GROUP_TONE_CLASS: Record<MobileWorkspaceGroup["tone"], string> = {
+	"ai-tasks": "text-workspace-status-review",
 	pinned: "text-workspace-status-neutral",
 	chats: "text-muted-foreground",
 	done: "text-workspace-status-done",
@@ -25,6 +27,7 @@ const GROUP_TONE_CLASS: Record<MobileWorkspaceGroup["tone"], string> = {
 	progress: "text-workspace-status-progress",
 	backlog: "text-workspace-status-backlog",
 	canceled: "text-workspace-status-canceled",
+	archived: "text-muted-foreground",
 };
 
 const STATUS_DOT_CLASS: Record<MobileWorkspaceRow["status"], string> = {
@@ -33,6 +36,7 @@ const STATUS_DOT_CLASS: Record<MobileWorkspaceRow["status"], string> = {
 	done: "bg-workspace-status-done",
 	backlog: "bg-workspace-status-backlog",
 	canceled: "bg-workspace-status-canceled",
+	archived: "bg-muted-foreground",
 };
 
 export function WorkspaceListSurface() {
@@ -136,6 +140,8 @@ function GroupIcon({ group }: { group: MobileWorkspaceGroup }) {
 			progress: CircleDashed,
 			backlog: Circle,
 			canceled: CircleX,
+			"ai-tasks": ClipboardList,
+			archived: CircleCheck,
 		};
 
 	return <Icon icon={iconByTone[group.tone] ?? Circle} className={className} />;

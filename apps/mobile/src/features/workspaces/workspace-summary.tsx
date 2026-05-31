@@ -25,6 +25,7 @@ const STATUS_PILL_CLASS: Record<MobileWorkspaceStatus, string> = {
 	done: "bg-workspace-status-done",
 	backlog: "bg-workspace-status-backlog",
 	canceled: "bg-workspace-status-canceled",
+	archived: "bg-muted-foreground",
 };
 
 export function WorkspaceSummarySurface() {

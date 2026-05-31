@@ -8,7 +8,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio_stream::Stream;
 
 use crate::{
@@ -58,7 +58,11 @@ pub(super) struct SendNewWorkspaceParams {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
 pub(super) enum SendWorkspaceTarget {
     Chat,
     Repo {
@@ -86,7 +90,14 @@ pub(super) async fn send_new_workspace_stream(
 ) -> ApiResult<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
     authenticate(&headers)?;
     let prompt = require_prompt(&payload.prompt)?;
+    let title_prompt = prompt.clone();
     let prepared = prepare_new_workspace_send(payload, prompt).await?;
+    seed_and_generate_mobile_session_title(
+        &app,
+        &prepared.started.workspace_id,
+        &prepared.started.session_id,
+        &title_prompt,
+    );
     crate::ui_sync::publish(&app, crate::ui_sync::UiMutationEvent::WorkspaceListChanged);
     crate::ui_sync::publish(
         &app,
@@ -108,6 +119,104 @@ fn require_prompt(prompt: &str) -> Result<String> {
         anyhow::bail!("Prompt is required");
     }
     Ok(trimmed.to_string())
+}
+
+fn seed_and_generate_mobile_session_title(
+    app: &AppHandle,
+    workspace_id: &str,
+    session_id: &str,
+    prompt: &str,
+) {
+    let title_seed = build_title_seed(prompt);
+    if title_seed != "Untitled" {
+        match crate::sessions::rename_session(session_id, &title_seed) {
+            Ok(()) => {
+                crate::ui_sync::publish(
+                    app,
+                    crate::ui_sync::UiMutationEvent::SessionListChanged {
+                        workspace_id: workspace_id.to_string(),
+                    },
+                );
+                crate::ui_sync::publish(
+                    app,
+                    crate::ui_sync::UiMutationEvent::WorkspaceChanged {
+                        workspace_id: workspace_id.to_string(),
+                    },
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    session_id,
+                    error = %error,
+                    "mobile send: failed to seed session title"
+                );
+            }
+        }
+    }
+
+    let app_for_title = app.clone();
+    let request = agents::GenerateSessionTitleRequest {
+        session_id: session_id.to_string(),
+        user_message: prompt.to_string(),
+        title_seed: Some(title_seed),
+    };
+    tauri::async_runtime::spawn(async move {
+        let sidecar = app_for_title.state::<crate::sidecar::ManagedSidecar>();
+        if let Err(error) =
+            agents::generate_session_title(app_for_title.clone(), sidecar, request).await
+        {
+            tracing::warn!(?error, "mobile send: session title generation failed");
+        }
+    });
+}
+
+fn build_title_seed(prompt: &str) -> String {
+    let normalized = prompt
+        .trim()
+        .lines()
+        .next()
+        .unwrap_or("")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if normalized.is_empty() {
+        return "Untitled".to_string();
+    }
+    if normalized.chars().count() <= 36 {
+        return normalized;
+    }
+
+    let mut seed = normalized.chars().take(33).collect::<String>();
+    seed = seed.trim_end().to_string();
+    seed.push_str("...");
+    seed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_send_target_accepts_mobile_camel_case_payload() {
+        let payload: SendNewWorkspaceParams = serde_json::from_value(serde_json::json!({
+            "prompt": "fix this",
+            "target": {
+                "kind": "repo",
+                "repoId": "repo-1",
+                "mode": "worktree"
+            }
+        }))
+        .expect("mobile repo target should deserialize");
+
+        match payload.target {
+            SendWorkspaceTarget::Repo { repo_id, mode } => {
+                assert_eq!(repo_id, "repo-1");
+                assert_eq!(mode, WorkspaceMode::Worktree);
+            }
+            SendWorkspaceTarget::Chat => panic!("expected repo target"),
+        }
+    }
 }
 
 fn prepare_existing_session_send(

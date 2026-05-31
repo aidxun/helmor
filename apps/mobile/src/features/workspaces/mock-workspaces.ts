@@ -2,6 +2,12 @@ import type { MobileWorkspaceGroup } from "./types";
 
 export const MOCK_WORKSPACE_GROUPS: MobileWorkspaceGroup[] = [
 	{
+		id: "ai-tasks",
+		label: "Proposed tasks",
+		tone: "ai-tasks",
+		rows: [],
+	},
+	{
 		id: "pinned",
 		label: "Pinned",
 		tone: "pinned",
@@ -234,6 +240,39 @@ export const MOCK_WORKSPACE_GROUPS: MobileWorkspaceGroup[] = [
 				updatedAt: "2026-05-16T15:30:00.000Z",
 				summary:
 					"An earlier navigation experiment kept for history but no longer part of the active mobile direction.",
+			},
+		],
+	},
+	{
+		id: "archived",
+		label: "Archived",
+		tone: "archived",
+		rows: [
+			{
+				id: "ws-archived",
+				title: "Archived workspace",
+				directoryName: "archived-workspace",
+				repoId: "repo-helmor",
+				repoName: "helmor",
+				repoInitials: "HM",
+				state: "archived",
+				mode: "worktree",
+				status: "done",
+				branch: "archived-workspace",
+				activeSessionId: "session-archived",
+				activeSessionTitle: "Archived session",
+				activeSessionAgentType: "codex",
+				activeSessionStatus: "completed",
+				primarySessionId: "session-archived",
+				primarySessionTitle: "Archived session",
+				primarySessionAgentType: "codex",
+				sessionCount: 1,
+				messageCount: 18,
+				workspaceUnread: 0,
+				unreadSessionCount: 0,
+				hasUnread: false,
+				updatedAt: "2026-05-14T13:10:00.000Z",
+				summary: "Archived workspace retained for mobile grouping coverage.",
 			},
 		],
 	},

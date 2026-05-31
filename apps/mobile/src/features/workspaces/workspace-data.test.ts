@@ -15,10 +15,11 @@ describe("mobile workspace mock data", () => {
 		expect(getWorkspaceSummary(null).title).toBe("No workspace selected");
 	});
 
-	test("keeps desktop sidebar bucket order while hiding empty groups", () => {
+	test("keeps desktop sidebar bucket order without dropping empty groups", () => {
 		const visibleGroups = getVisibleWorkspaceGroups(MOCK_WORKSPACE_GROUPS);
 
 		expect(visibleGroups.map((group) => group.id)).toEqual([
+			"ai-tasks",
 			"pinned",
 			"chats",
 			"done",
@@ -26,8 +27,8 @@ describe("mobile workspace mock data", () => {
 			"progress",
 			"backlog",
 			"canceled",
+			"archived",
 		]);
-		expect(visibleGroups.every((group) => group.rows.length > 0)).toBe(true);
 	});
 
 	test("uses the first visible workspace as the default selection", () => {
@@ -48,5 +49,12 @@ describe("mobile workspace mock data", () => {
 			"helmor / agent-streaming-ui",
 		);
 		expect(getWorkspaceSummary(workspace).statusLabel).toBe("In review");
+	});
+
+	test("can select an archived workspace", () => {
+		const workspace = getWorkspaceById(MOCK_WORKSPACE_GROUPS, "ws-archived");
+
+		expect(workspace?.state).toBe("archived");
+		expect(getWorkspaceSummary(workspace).stateLabel).toBe("Archived");
 	});
 });

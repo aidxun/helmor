@@ -11,7 +11,10 @@ use crate::{
     git_watcher, settings,
 };
 
-use super::lifecycle::{execute_archive_plan, prepare_archive_plan, ArchivePreparedPlan};
+use super::{
+    lifecycle::{execute_archive_plan, prepare_archive_plan, ArchivePreparedPlan},
+    projection_sync::{self, WorkspaceProjectionChange},
+};
 
 pub const ARCHIVE_EXECUTION_FAILED_EVENT: &str = "archive-execution-failed";
 pub const ARCHIVE_EXECUTION_SUCCEEDED_EVENT: &str = "archive-execution-succeeded";
@@ -209,7 +212,10 @@ pub fn start_archive_workspace<R: Runtime>(
         match result {
             Ok(Ok(_)) => {
                 let sync_started = std::time::Instant::now();
-                git_watcher::notify_workspace_changed(&app_handle);
+                projection_sync::publish_after_git_sync(
+                    &app_handle,
+                    WorkspaceProjectionChange::workspace(workspace_id.clone()),
+                );
                 tracing::debug!(
                     workspace_id,
                     elapsed_ms = sync_started.elapsed().as_millis(),

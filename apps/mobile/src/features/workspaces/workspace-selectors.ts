@@ -7,6 +7,7 @@ import type {
 } from "./types";
 
 const GROUP_ORDER: MobileWorkspaceGroupId[] = [
+	"ai-tasks",
 	"pinned",
 	"chats",
 	"done",
@@ -14,6 +15,7 @@ const GROUP_ORDER: MobileWorkspaceGroupId[] = [
 	"progress",
 	"backlog",
 	"canceled",
+	"archived",
 ];
 
 const STATUS_LABELS: Record<MobileWorkspaceRow["status"], string> = {
@@ -22,6 +24,7 @@ const STATUS_LABELS: Record<MobileWorkspaceRow["status"], string> = {
 	review: "In review",
 	backlog: "Backlog",
 	canceled: "Canceled",
+	archived: "Archived",
 };
 
 const STATE_LABELS: Record<MobileWorkspaceRow["state"], string> = {
@@ -42,11 +45,9 @@ const groupRank = new Map(GROUP_ORDER.map((id, index) => [id, index] as const));
 export function getVisibleWorkspaceGroups(
 	groups: MobileWorkspaceGroup[],
 ): MobileWorkspaceGroup[] {
-	return [...groups]
-		.filter((group) => group.rows.length > 0)
-		.sort((left, right) => {
-			return (groupRank.get(left.id) ?? 999) - (groupRank.get(right.id) ?? 999);
-		});
+	return [...groups].sort((left, right) => {
+		return (groupRank.get(left.id) ?? 999) - (groupRank.get(right.id) ?? 999);
+	});
 }
 
 export function flattenWorkspaceGroups(

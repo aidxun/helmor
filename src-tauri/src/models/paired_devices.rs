@@ -71,6 +71,7 @@ pub fn list_devices() -> Result<Vec<PairedDevice>> {
             r#"
             SELECT id, label, role, tool_policy, created_at, last_seen_at, revoked_at
             FROM paired_devices
+            WHERE revoked_at IS NULL
             ORDER BY created_at DESC
             "#,
         )
@@ -183,5 +184,6 @@ mod tests {
 
         revoke_device(&pairing.device.id).unwrap();
         assert!(authenticate_pat(&pairing.pat).is_err());
+        assert!(list_devices().unwrap().is_empty());
     }
 }

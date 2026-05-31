@@ -239,10 +239,19 @@ fn initialize() -> Result<Value> {
 
 pub fn workspace_snapshot_result() -> Result<WorkspaceSnapshot> {
     let identity = mobile_access::desktop_identity()?;
-    let groups = workspaces::list_workspace_groups()?
+    let mut groups = workspaces::list_workspace_groups()?
         .into_iter()
         .map(map_workspace_group)
-        .collect();
+        .collect::<Vec<_>>();
+    groups.push(MobileWorkspaceGroup {
+        id: "archived".to_string(),
+        label: "Archived".to_string(),
+        tone: "archived".to_string(),
+        rows: workspaces::list_archived_workspaces()?
+            .into_iter()
+            .map(map_archived_workspace_row)
+            .collect(),
+    });
     Ok(WorkspaceSnapshot {
         protocol_version: PROTOCOL_VERSION,
         desktop_id: identity.desktop_id,
@@ -448,6 +457,44 @@ fn map_workspace_row(row: workspaces::WorkspaceSidebarRow) -> MobileWorkspaceRow
     }
 }
 
+fn map_archived_workspace_row(summary: workspaces::WorkspaceSummary) -> MobileWorkspaceRow {
+    let title = summary.title.clone();
+    let summary_text = if summary.mode == WorkspaceMode::Chat {
+        "Archived chat workspace".to_string()
+    } else if let Some(branch) = summary.branch.as_deref() {
+        format!("{} / {branch}", summary.repo_name)
+    } else {
+        summary.repo_name.clone()
+    };
+
+    MobileWorkspaceRow {
+        id: summary.id,
+        title,
+        directory_name: summary.directory_name,
+        repo_id: summary.repo_id,
+        repo_name: summary.repo_name,
+        repo_initials: summary.repo_initials,
+        state: summary.state,
+        mode: summary.mode,
+        status: summary.status,
+        branch: summary.branch,
+        active_session_id: summary.active_session_id,
+        active_session_title: summary.active_session_title,
+        active_session_agent_type: summary.active_session_agent_type,
+        active_session_status: summary.active_session_status,
+        primary_session_id: summary.primary_session_id,
+        primary_session_title: summary.primary_session_title,
+        primary_session_agent_type: summary.primary_session_agent_type,
+        pinned_at: summary.pinned_at,
+        session_count: summary.session_count,
+        message_count: summary.message_count,
+        workspace_unread: summary.workspace_unread,
+        unread_session_count: summary.unread_session_count,
+        has_unread: summary.has_unread,
+        updated_at: summary.updated_at,
+        summary: summary_text,
+    }
+}
 fn mobile_workspace_title(row: &workspaces::WorkspaceSidebarRow) -> String {
     match row.mode {
         WorkspaceMode::Local | WorkspaceMode::Chat => row.title.clone(),

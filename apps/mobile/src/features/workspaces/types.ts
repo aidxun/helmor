@@ -11,16 +11,19 @@ export type MobileWorkspaceStatus =
 	| "done"
 	| "review"
 	| "backlog"
-	| "canceled";
+	| "canceled"
+	| "archived";
 
 export type MobileWorkspaceGroupId =
+	| "ai-tasks"
 	| "pinned"
 	| "chats"
 	| "done"
 	| "review"
 	| "progress"
 	| "backlog"
-	| "canceled";
+	| "canceled"
+	| "archived";
 
 export type MobileWorkspaceRow = {
 	id: string;

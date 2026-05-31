@@ -1,18 +1,28 @@
 use tauri::{AppHandle, Manager};
 
 use crate::{
-    db, git_watcher, workspace_state::WorkspaceState, workspace_status::WorkspaceStatus, workspaces,
+    db, git_watcher,
+    workspace::projection_sync::{self, WorkspaceProjectionChange},
+    workspace_state::WorkspaceState,
+    workspace_status::WorkspaceStatus,
+    workspaces,
 };
 
 use super::common::{run_blocking, CmdResult};
 
 fn notify_workspace_changed_in_background(app: AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        let _ = tauri::async_runtime::spawn_blocking(move || {
-            git_watcher::notify_workspace_changed(&app);
-        })
-        .await;
-    });
+    projection_sync::publish_with_git_sync_in_background(app, WorkspaceProjectionChange::List);
+}
+
+fn publish_workspace_projection_changed(app: &AppHandle, workspace_id: &str) {
+    projection_sync::publish(app, WorkspaceProjectionChange::workspace(workspace_id));
+}
+
+fn publish_workspace_projection_after_git_sync(app: &AppHandle, workspace_id: &str) {
+    projection_sync::publish_after_git_sync(
+        app,
+        WorkspaceProjectionChange::workspace(workspace_id),
+    );
 }
 
 /// Phase 1: fast (<20ms) preparation. Inserts the DB row in `initializing`
@@ -148,7 +158,8 @@ pub async fn create_and_checkout_branch(repo_id: String, branch: String) -> CmdR
         crate::git_ops::ensure_git_repository(&repo_root)?;
         crate::git_ops::create_and_checkout_branch(&repo_root, &branch)
     })
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Current local repo HEAD branch name. Used by the start page as
@@ -240,12 +251,13 @@ pub async fn create_workspace_from_repo(
 /// setup script is configured but the workspace was created with that state).
 #[tauri::command]
 pub async fn complete_workspace_setup(app: AppHandle, workspace_id: String) -> CmdResult<()> {
+    let changed_workspace_id = workspace_id.clone();
     run_blocking(move || {
         let ts = crate::models::db::current_timestamp()?;
         crate::models::workspaces::update_workspace_state(&workspace_id, WorkspaceState::Ready, &ts)
     })
     .await?;
-    git_watcher::notify_workspace_changed(&app);
+    publish_workspace_projection_after_git_sync(&app, &changed_workspace_id);
     Ok(())
 }
 
@@ -265,23 +277,39 @@ pub async fn get_workspace(workspace_id: String) -> CmdResult<workspaces::Worksp
 }
 
 #[tauri::command]
-pub async fn mark_workspace_unread(workspace_id: String) -> CmdResult<()> {
-    run_blocking(move || workspaces::mark_workspace_unread(&workspace_id)).await
+pub async fn mark_workspace_unread(app: AppHandle, workspace_id: String) -> CmdResult<()> {
+    let changed_workspace_id = workspace_id.clone();
+    run_blocking(move || workspaces::mark_workspace_unread(&workspace_id)).await?;
+    publish_workspace_projection_changed(&app, &changed_workspace_id);
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn pin_workspace(workspace_id: String) -> CmdResult<()> {
-    run_blocking(move || workspaces::pin_workspace(&workspace_id)).await
+pub async fn pin_workspace(app: AppHandle, workspace_id: String) -> CmdResult<()> {
+    let changed_workspace_id = workspace_id.clone();
+    run_blocking(move || workspaces::pin_workspace(&workspace_id)).await?;
+    publish_workspace_projection_changed(&app, &changed_workspace_id);
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn unpin_workspace(workspace_id: String) -> CmdResult<()> {
-    run_blocking(move || workspaces::unpin_workspace(&workspace_id)).await
+pub async fn unpin_workspace(app: AppHandle, workspace_id: String) -> CmdResult<()> {
+    let changed_workspace_id = workspace_id.clone();
+    run_blocking(move || workspaces::unpin_workspace(&workspace_id)).await?;
+    publish_workspace_projection_changed(&app, &changed_workspace_id);
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn set_workspace_status(workspace_id: String, status: WorkspaceStatus) -> CmdResult<()> {
-    run_blocking(move || workspaces::set_workspace_status(&workspace_id, status)).await
+pub async fn set_workspace_status(
+    app: AppHandle,
+    workspace_id: String,
+    status: WorkspaceStatus,
+) -> CmdResult<()> {
+    let changed_workspace_id = workspace_id.clone();
+    run_blocking(move || workspaces::set_workspace_status(&workspace_id, status)).await?;
+    publish_workspace_projection_changed(&app, &changed_workspace_id);
+    Ok(())
 }
 
 /// Sidebar drag-and-drop entry point. `target_group_id` is a sidebar group
@@ -292,10 +320,12 @@ pub async fn set_workspace_status(workspace_id: String, status: WorkspaceStatus)
 /// back to a full-group rebalance when the sparse gap runs out.
 #[tauri::command]
 pub async fn move_workspace_in_sidebar(
+    app: AppHandle,
     workspace_id: String,
     target_group_id: String,
     before_workspace_id: Option<String>,
 ) -> CmdResult<()> {
+    let changed_workspace_id = workspace_id.clone();
     run_blocking(move || {
         workspaces::move_workspace_in_sidebar(
             &workspace_id,
@@ -303,7 +333,9 @@ pub async fn move_workspace_in_sidebar(
             before_workspace_id.as_deref(),
         )
     })
-    .await
+    .await?;
+    publish_workspace_projection_changed(&app, &changed_workspace_id);
+    Ok(())
 }
 
 /// `/add-dir` feature: list the extra directories the user has linked to
@@ -327,7 +359,7 @@ pub async fn set_workspace_linked_directories(
         workspaces::set_workspace_linked_directories(&workspace_id_clone, directories)
     })
     .await?;
-    git_watcher::notify_workspace_changed(&app);
+    publish_workspace_projection_after_git_sync(&app, &workspace_id);
     Ok(result)
 }
 
@@ -361,8 +393,9 @@ pub async fn rename_workspace_branch(
 ) -> CmdResult<()> {
     let ws_lock = db::workspace_fs_mutation_lock(&workspace_id);
     let _lock = ws_lock.lock().await;
+    let changed_workspace_id = workspace_id.clone();
     run_blocking(move || workspaces::rename_workspace_branch(&workspace_id, &new_branch)).await?;
-    git_watcher::notify_workspace_changed(&app);
+    publish_workspace_projection_after_git_sync(&app, &changed_workspace_id);
     Ok(())
 }
 
@@ -374,11 +407,12 @@ pub async fn update_intended_target_branch(
 ) -> CmdResult<workspaces::UpdateIntendedTargetBranchResponse> {
     let ws_lock = db::workspace_fs_mutation_lock(&workspace_id);
     let _lock = ws_lock.lock().await;
+    let changed_workspace_id = workspace_id.clone();
     let result = run_blocking(move || {
         workspaces::update_intended_target_branch(&workspace_id, &target_branch)
     })
     .await?;
-    git_watcher::notify_workspace_changed(&app);
+    publish_workspace_projection_after_git_sync(&app, &changed_workspace_id);
     Ok(result)
 }
 
@@ -426,10 +460,11 @@ pub async fn continue_workspace_from_target_branch(
 ) -> CmdResult<workspaces::ContinueWorkspaceResponse> {
     let ws_lock = db::workspace_fs_mutation_lock(&workspace_id);
     let _lock = ws_lock.lock().await;
+    let changed_workspace_id = workspace_id.clone();
     let result =
         run_blocking(move || workspaces::continue_workspace_from_target_branch(&workspace_id))
             .await?;
-    git_watcher::notify_workspace_changed(&app);
+    publish_workspace_projection_after_git_sync(&app, &changed_workspace_id);
     Ok(result)
 }
 
@@ -441,11 +476,12 @@ pub async fn restore_workspace(
 ) -> CmdResult<workspaces::RestoreWorkspaceResponse> {
     let ws_lock = db::workspace_fs_mutation_lock(&workspace_id);
     let _lock = ws_lock.lock().await;
+    let changed_workspace_id = workspace_id.clone();
     let result = run_blocking(move || {
         workspaces::restore_workspace_impl(&workspace_id, target_branch_override.as_deref())
     })
     .await?;
-    git_watcher::notify_workspace_changed(&app);
+    publish_workspace_projection_after_git_sync(&app, &changed_workspace_id);
     Ok(result)
 }
 
@@ -494,7 +530,8 @@ pub async fn permanently_delete_workspace(app: AppHandle, workspace_id: String) 
     let _lock = ws_lock.lock().await;
     let manager = app.state::<git_watcher::GitWatcherManager>();
     manager.unwatch(&workspace_id);
+    let changed_workspace_id = workspace_id.clone();
     run_blocking(move || workspaces::permanently_delete_workspace(&workspace_id)).await?;
-    git_watcher::notify_workspace_changed(&app);
+    publish_workspace_projection_after_git_sync(&app, &changed_workspace_id);
     Ok(())
 }

@@ -1,5 +1,11 @@
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	loadCachedWorkspaceSelection,
+	loadCachedWorkspaceSnapshot,
+	writeCachedWorkspaceSelection,
+	writeCachedWorkspaceSnapshot,
+} from "@/lib/local-cache";
 import {
 	type BacklogCreateRequest,
 	createPairedDesktopClient,
@@ -57,6 +63,10 @@ export function WorkspaceProvider({
 	const [threadRefreshVersion, setThreadRefreshVersion] = useState(0);
 	const [selectedSessionIdsByWorkspace, setSelectedSessionIdsByWorkspace] =
 		useState<Record<string, string>>({});
+	const refreshRequestId = useRef(0);
+	const workspaceRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(
+		null,
+	);
 	const activeDesktop = useMemo(
 		() => getActiveDesktopConnection(desktopState),
 		[desktopState],
@@ -117,6 +127,12 @@ export function WorkspaceProvider({
 
 	const refreshWorkspaces = useCallback(async () => {
 		if (!activeDesktop) return;
+		if (workspaceRefreshTimer.current) {
+			clearTimeout(workspaceRefreshTimer.current);
+			workspaceRefreshTimer.current = null;
+		}
+		const requestId = refreshRequestId.current + 1;
+		refreshRequestId.current = requestId;
 		setSyncStatus("syncing");
 		setSyncError(null);
 		let client: Awaited<ReturnType<typeof createPairedDesktopClient>> | null =
@@ -125,8 +141,14 @@ export function WorkspaceProvider({
 			client = await createPairedDesktopClient(activeDesktop);
 			const snapshot = await client.workspaceSnapshot();
 			const repoOptions = await client.listRepositories();
+			if (requestId !== refreshRequestId.current) return;
 			setGroups(snapshot.groups);
 			setRepositories(repoOptions);
+			void writeCachedWorkspaceSnapshot({
+				desktopId: activeDesktop.desktopId,
+				snapshot,
+				repositories: repoOptions,
+			}).catch(() => {});
 			setDesktopState(
 				await upsertDesktopConnection({
 					...activeDesktop,
@@ -136,6 +158,7 @@ export function WorkspaceProvider({
 			);
 			setSyncStatus("idle");
 		} catch (error) {
+			if (requestId !== refreshRequestId.current) return;
 			setSyncStatus("error");
 			setSyncError(errorMessage(error));
 		} finally {
@@ -143,13 +166,36 @@ export function WorkspaceProvider({
 		}
 	}, [activeDesktop]);
 
+	const refreshWorkspacesSoon = useCallback(() => {
+		if (workspaceRefreshTimer.current) {
+			clearTimeout(workspaceRefreshTimer.current);
+		}
+		workspaceRefreshTimer.current = setTimeout(() => {
+			workspaceRefreshTimer.current = null;
+			void refreshWorkspaces();
+		}, 900);
+	}, [refreshWorkspaces]);
+
 	const handleRemoteMutation = useCallback(
 		(event: UiMutationEvent) =>
-			handleWorkspaceRemoteMutation(event, refreshWorkspaces, () => {
-				setThreadRefreshVersion((version) => version + 1);
-			}),
-		[refreshWorkspaces],
+			handleWorkspaceRemoteMutation(
+				event,
+				refreshWorkspaces,
+				refreshWorkspacesSoon,
+				() => {
+					setThreadRefreshVersion((version) => version + 1);
+				},
+			),
+		[refreshWorkspaces, refreshWorkspacesSoon],
 	);
+
+	useEffect(() => {
+		return () => {
+			if (workspaceRefreshTimer.current) {
+				clearTimeout(workspaceRefreshTimer.current);
+			}
+		};
+	}, []);
 
 	const createBacklogTask = useCallback(
 		async (request: BacklogCreateRequest) => {
@@ -169,6 +215,10 @@ export function WorkspaceProvider({
 
 	useEffect(() => {
 		if (!activeDesktop) {
+			if (workspaceRefreshTimer.current) {
+				clearTimeout(workspaceRefreshTimer.current);
+				workspaceRefreshTimer.current = null;
+			}
 			setGroups([]);
 			setRepositories([]);
 			setSelectedWorkspaceId(null);
@@ -177,7 +227,34 @@ export function WorkspaceProvider({
 			setSyncError(null);
 			return;
 		}
-		void refreshWorkspaces();
+
+		let canceled = false;
+		void (async () => {
+			try {
+				const [snapshot, selection] = await Promise.all([
+					loadCachedWorkspaceSnapshot(activeDesktop.desktopId),
+					loadCachedWorkspaceSelection(activeDesktop.desktopId),
+				]);
+				if (canceled) return;
+				if (snapshot) {
+					setGroups(snapshot.groups);
+					setRepositories(snapshot.repositories);
+				}
+				if (selection) {
+					setSelectedWorkspaceId(selection.selectedWorkspaceId);
+					setSelectedSessionIdsByWorkspace(
+						selection.selectedSessionIdsByWorkspace,
+					);
+				}
+			} catch {
+				// Cache failures should not block a fresh desktop sync.
+			}
+			if (!canceled) void refreshWorkspaces();
+		})();
+
+		return () => {
+			canceled = true;
+		};
 	}, [activeDesktopId]);
 
 	useRemoteMutationStream({
@@ -198,9 +275,16 @@ export function WorkspaceProvider({
 			if (getWorkspaceById(groups, workspaceId)) {
 				setNewWorkspaceDraftKey(null);
 				setSelectedWorkspaceId(workspaceId);
+				if (activeDesktopId) {
+					void writeCachedWorkspaceSelection({
+						desktopId: activeDesktopId,
+						selectedWorkspaceId: workspaceId,
+						selectedSessionIdsByWorkspace,
+					}).catch(() => {});
+				}
 			}
 		},
-		[groups],
+		[activeDesktopId, groups, selectedSessionIdsByWorkspace],
 	);
 
 	const startNewWorkspace = useCallback(() => {
@@ -213,24 +297,44 @@ export function WorkspaceProvider({
 		(workspaceId: string, sessionId: string) => {
 			setNewWorkspaceDraftKey(null);
 			setSelectedWorkspaceId(workspaceId);
-			setSelectedSessionIdsByWorkspace((previous) => ({
-				...previous,
-				[workspaceId]: sessionId,
-			}));
+			setSelectedSessionIdsByWorkspace((previous) => {
+				const next = {
+					...previous,
+					[workspaceId]: sessionId,
+				};
+				if (activeDesktopId) {
+					void writeCachedWorkspaceSelection({
+						desktopId: activeDesktopId,
+						selectedWorkspaceId: workspaceId,
+						selectedSessionIdsByWorkspace: next,
+					}).catch(() => {});
+				}
+				return next;
+			});
 		},
-		[],
+		[activeDesktopId],
 	);
 
 	const selectWorkspaceSession = useCallback(
 		(sessionId: string) => {
 			if (!selectedWorkspace) return;
 			if (!sessionTabs.some((tab) => tab.id === sessionId)) return;
-			setSelectedSessionIdsByWorkspace((previous) => ({
-				...previous,
-				[selectedWorkspace.id]: sessionId,
-			}));
+			setSelectedSessionIdsByWorkspace((previous) => {
+				const next = {
+					...previous,
+					[selectedWorkspace.id]: sessionId,
+				};
+				if (activeDesktopId) {
+					void writeCachedWorkspaceSelection({
+						desktopId: activeDesktopId,
+						selectedWorkspaceId: selectedWorkspace.id,
+						selectedSessionIdsByWorkspace: next,
+					}).catch(() => {});
+				}
+				return next;
+			});
 		},
-		[selectedWorkspace, sessionTabs],
+		[activeDesktopId, selectedWorkspace, sessionTabs],
 	);
 
 	const value = useMemo(

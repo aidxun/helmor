@@ -2,6 +2,7 @@ import type { ToolCallPart } from "@helmor/thread-schema";
 import {
 	Bot,
 	Check,
+	ChevronDown,
 	CircleAlert,
 	LoaderCircle,
 	Sparkles,
@@ -34,27 +35,29 @@ export const SubAgentSpawnGroup = memo(function SubAgentSpawnGroup({
 	const live = parts.some((part) =>
 		isLiveStatus(String(part.args.status ?? "")),
 	);
-	const [open, setOpen] = useState(live || parts.length === 1);
+	const [open, setOpen] = useState(false);
 
 	if (parts.length === 0) return null;
 	if (parts.length === 1) return <SpawnAgentRow part={parts[0]!} />;
 
 	return (
-		<View className="my-1">
+		<View className="my-0.5">
 			<Pressable
 				onPress={() => setOpen((value) => !value)}
-				className="flex-row items-center gap-1.5 py-1"
+				className="flex-row items-center gap-1.5 py-0.5"
 			>
 				<Icon icon={Sparkles} className="h-3.5 w-3.5 text-muted-foreground" />
-				<Text className="text-sm font-medium text-muted-foreground">
+				<Text className="flex-1 text-xs font-medium text-muted-foreground">
 					Spawned {parts.length} agents
 				</Text>
-				<Text className="text-xs text-muted-foreground/60">
-					{open ? "Hide" : "Show"}
-				</Text>
+				{live ? <StatusIcon status="in_progress" isError={false} /> : null}
+				<Icon
+					icon={ChevronDown}
+					className={`h-3.5 w-3.5 text-muted-foreground ${open ? "" : "-rotate-90"}`}
+				/>
 			</Pressable>
 			{open ? (
-				<View className="ml-1 border-l border-border/50 pl-3">
+				<View className="ml-1 border-l border-border/50 pl-2">
 					{parts.map((part) => (
 						<SpawnAgentRow key={part.toolCallId} part={part} nested />
 					))}
@@ -97,28 +100,31 @@ function SpawnAgentRow({
 	const prompt = typeof part.args.prompt === "string" ? part.args.prompt : null;
 
 	return (
-		<View className={nested ? "py-1" : "my-1"}>
+		<View className={nested ? "py-0.5" : "my-0.5"}>
 			<Pressable
 				disabled={!prompt}
 				onPress={() => setOpen((value) => !value)}
-				className="flex-row flex-wrap items-center gap-x-1.5 gap-y-0"
+				className="flex-row flex-wrap items-center gap-x-1.5 gap-y-0 py-0.5"
 			>
 				<Icon icon={Bot} className="h-3.5 w-3.5 text-muted-foreground" />
-				<Text className="text-sm text-muted-foreground">Created</Text>
-				<Text className="text-sm font-medium text-muted-foreground">
+				<Text className="text-xs text-muted-foreground">Created</Text>
+				<Text className="text-xs font-medium text-muted-foreground">
 					{label}
 				</Text>
 				{target?.role ? (
-					<Text className="text-sm text-muted-foreground/70">
+					<Text className="text-xs text-muted-foreground/70">
 						({target.role})
 					</Text>
 				) : null}
+				{prompt ? (
+					<Icon
+						icon={ChevronDown}
+						className={`h-3 w-3 text-muted-foreground/70 ${open ? "" : "-rotate-90"}`}
+					/>
+				) : null}
 			</Pressable>
-			{prompt ? (
-				<Text
-					numberOfLines={open ? undefined : 2}
-					className="ml-5 mt-1 rounded-lg bg-muted/50 px-2.5 py-1.5 text-sm leading-5 text-muted-foreground"
-				>
+			{prompt && open ? (
+				<Text className="ml-5 mt-0.5 rounded-md bg-muted/45 px-2 py-1.5 text-xs leading-4 text-muted-foreground">
 					{prompt}
 				</Text>
 			) : null}
@@ -142,43 +148,49 @@ function SubAgentWaitRow({ part }: { part: ToolCallPart }) {
 	const hasBodies = states.some((state) => state.message?.trim());
 
 	return (
-		<View className="my-1">
+		<View className="my-0.5">
 			<Pressable
 				disabled={!hasBodies}
 				onPress={() => setOpen((value) => !value)}
-				className="flex-row items-center gap-1.5 py-1"
+				className="flex-row items-center gap-1.5 py-0.5"
 			>
 				<Icon icon={Sparkles} className="h-3.5 w-3.5 text-muted-foreground" />
-				<Text className="text-sm font-medium text-muted-foreground">
+				<Text className="flex-1 text-xs font-medium text-muted-foreground">
 					{headline}
 				</Text>
 				<StatusIcon status={status} isError={part.isError === true} />
+				{hasBodies ? (
+					<Icon
+						icon={ChevronDown}
+						className={`h-3.5 w-3.5 text-muted-foreground ${open ? "" : "-rotate-90"}`}
+					/>
+				) : null}
 			</Pressable>
 			{open && hasBodies ? (
-				<View className="ml-1 border-l border-border/50 pl-3">
+				<View className="ml-1 border-l border-border/50 pl-2">
 					{states.map((state) => (
-						<View key={state.threadId} className="py-1">
+						<View key={state.threadId} className="py-0.5">
 							<View className="flex-row flex-wrap items-center gap-x-1.5">
 								<Icon
 									icon={Bot}
 									className="h-3.5 w-3.5 text-muted-foreground/70"
 								/>
-								<Text className="text-sm font-medium text-muted-foreground">
+								<Text className="text-xs font-medium text-muted-foreground">
 									{state.nickname ?? "Sub-agent"}
 								</Text>
 								{state.role ? (
-									<Text className="text-sm text-muted-foreground/60">
+									<Text className="text-xs text-muted-foreground/60">
 										({state.role})
 									</Text>
 								) : null}
 								{state.status ? (
-									<Text className="text-sm text-muted-foreground/60">
+									<Text className="text-xs text-muted-foreground/60">
 										- {state.status}
 									</Text>
 								) : null}
 							</View>
 							{state.message ? (
-								<Text className="ml-5 mt-1 rounded-lg bg-muted/50 px-2.5 py-1.5 text-sm leading-5 text-muted-foreground">
+								<Text className="ml-5 mt-0.5 rounded-md bg-muted/45 px-2 py-1.5 text-xs leading-4 text-muted-foreground">
 									{state.message}
 								</Text>
 							) : null}
@@ -204,11 +216,11 @@ function SubAgentMiscRow({ part }: { part: ToolCallPart }) {
 	const status = String(part.args.status ?? "completed");
 
 	return (
-		<View className="my-1 flex-row flex-wrap items-center gap-x-1.5">
+		<View className="my-0.5 flex-row flex-wrap items-center gap-x-1.5 py-0.5">
 			<Icon icon={Bot} className="h-3.5 w-3.5 text-muted-foreground" />
-			<Text className="text-sm font-medium text-muted-foreground">{verb}</Text>
+			<Text className="text-xs font-medium text-muted-foreground">{verb}</Text>
 			{target ? (
-				<Text className="text-sm text-muted-foreground">
+				<Text className="text-xs text-muted-foreground">
 					{target.nickname ?? "Sub-agent"}
 				</Text>
 			) : null}

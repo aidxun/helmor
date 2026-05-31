@@ -10,6 +10,9 @@
 		"apps/*",
 		"packages/*"
 	],
+	"overrides": {
+		"@tauri-apps/api": "2.11.0"
+	},
 	"scripts": {
 		"changeset": "changeset",
 		"dev": "bun run dev:prepare && tauri dev",
@@ -84,10 +87,10 @@
 		"@tanstack/react-query": "^5.96.2",
 		"@tanstack/react-query-persist-client": "^5.97.0",
 		"@tanstack/react-virtual": "^3.13.23",
-		"@tauri-apps/api": "2.10.1",
-		"@tauri-apps/plugin-dialog": "2.6.0",
+		"@tauri-apps/api": "2.11.0",
+		"@tauri-apps/plugin-dialog": "2.7.1",
 		"@tauri-apps/plugin-notification": "^2.3.3",
-		"@tauri-apps/plugin-opener": "2.5.3",
+		"@tauri-apps/plugin-opener": "2.5.4",
 		"@testing-library/user-event": "14.6.1",
 		"@xterm/addon-fit": "^0.11.0",
 		"@xterm/addon-webgl": "^0.19.0",
@@ -132,7 +135,7 @@
 		"@storybook/addon-vitest": "^10.3.5",
 		"@storybook/react-vite": "^10.3.5",
 		"@tailwindcss/vite": "4.2.2",
-		"@tauri-apps/cli": "2.10.1",
+		"@tauri-apps/cli": "2.11.2",
 		"@testing-library/jest-dom": "6.9.1",
 		"@testing-library/react": "16.3.2",
 		"@types/qrcode": "1.5.6",

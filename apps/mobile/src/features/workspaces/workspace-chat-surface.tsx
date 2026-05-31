@@ -107,13 +107,9 @@ function WorkspaceChatContent({
 		},
 		[refreshWorkspaces, selectCreatedWorkspace],
 	);
-	const handleNewWorkspaceStarted = useCallback(
-		(workspaceId: string, sessionId: string) => {
-			selectCreatedWorkspace(workspaceId, sessionId);
-			void refreshWorkspaces();
-		},
-		[refreshWorkspaces, selectCreatedWorkspace],
-	);
+	const handleNewWorkspaceStarted = useCallback(() => {
+		void refreshWorkspaces();
+	}, [refreshWorkspaces]);
 	const newWorkspaceChat = useNewWorkspaceThreadChat({
 		activeDesktop,
 		target: newWorkspaceTarget,

@@ -2,12 +2,24 @@ import {
 	DEFAULT_SESSION_THREAD_TAIL_LIMIT,
 	type ThreadMessageLike,
 } from "@helmor/thread-schema";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+	type SetStateAction,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { type ChatContextValue, createStreamingStore } from "@/components/chat";
+import {
+	loadCachedThreadMessages,
+	writeCachedThreadMessages,
+} from "@/lib/local-cache";
 import {
 	createPairedDesktopClient,
 	type DesktopConnection,
 } from "@/lib/remote";
+import { reconcileAuthoritativeThreadMessages } from "./workspace-chat-message-state";
 import {
 	textThreadMessage,
 	threadToChatMessage,
@@ -84,10 +96,64 @@ export function useDesktopThreadChat({
 	const [loading, setLoading] = useState(false);
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [error, setError] = useState<Error | null>(null);
+	const cacheWriteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const loadedSessionId = useRef<string | null>(null);
 	const streamingStore = useMemo(() => createStreamingStore(), []);
+	const desktopId = activeDesktop?.desktopId ?? null;
+	const desktopHost = activeDesktop?.host ?? null;
+	const desktopPat = activeDesktop?.pat ?? null;
+
+	const cacheThreadMessages = useCallback(
+		(messages: ThreadMessageLike[], delay = 250) => {
+			if (!desktopId || !sessionId) return;
+			if (cacheWriteTimer.current) clearTimeout(cacheWriteTimer.current);
+			cacheWriteTimer.current = setTimeout(() => {
+				void writeCachedThreadMessages({
+					desktopId,
+					sessionId,
+					messages,
+				}).catch(() => {});
+			}, delay);
+		},
+		[desktopId, sessionId],
+	);
+
+	const setThreadMessagesWithCache = useCallback(
+		(value: SetStateAction<ThreadMessageLike[]>) => {
+			setThreadMessages((previous) => {
+				const next =
+					typeof value === "function"
+						? (value as (state: ThreadMessageLike[]) => ThreadMessageLike[])(
+								previous,
+							)
+						: value;
+				cacheThreadMessages(next);
+				return next;
+			});
+		},
+		[cacheThreadMessages],
+	);
+
+	const setThreadMessagesFromServer = useCallback(
+		(messages: ThreadMessageLike[]) => {
+			setThreadMessages((previous) => {
+				const next = reconcileAuthoritativeThreadMessages(previous, messages);
+				if (messages.length > 0) cacheThreadMessages(next);
+				return next;
+			});
+		},
+		[cacheThreadMessages],
+	);
+
+	useEffect(() => {
+		return () => {
+			if (cacheWriteTimer.current) clearTimeout(cacheWriteTimer.current);
+		};
+	}, []);
 
 	useEffect(() => {
 		if (!enabled || !activeDesktop || !sessionId) {
+			loadedSessionId.current = null;
 			setThreadMessages([]);
 			setLoading(false);
 			setError(null);
@@ -102,13 +168,20 @@ export function useDesktopThreadChat({
 		setError(null);
 		void (async () => {
 			try {
+				const cached = await loadCachedThreadMessages(
+					activeDesktop.desktopId,
+					sessionId,
+				);
+				if (!canceled && cached) {
+					setThreadMessages(cached.messages);
+				}
 				client = await createPairedDesktopClient(activeDesktop);
 				const page = await client.sessionThreadPage({
 					sessionId,
 					tailLimit: DEFAULT_SESSION_THREAD_TAIL_LIMIT,
 				});
 				if (canceled) return;
-				setThreadMessages(page.messages);
+				setThreadMessagesFromServer(page.messages);
 				try {
 					await client.markSessionRead(sessionId);
 				} catch {
@@ -126,7 +199,15 @@ export function useDesktopThreadChat({
 			canceled = true;
 			client?.close();
 		};
-	}, [activeDesktop, enabled, refreshVersion, sessionId]);
+	}, [
+		desktopHost,
+		desktopId,
+		desktopPat,
+		enabled,
+		refreshVersion,
+		sessionId,
+		setThreadMessagesFromServer,
+	]);
 
 	const messages = useMemo(
 		() => threadMessages.map(threadToChatMessage),
@@ -142,7 +223,7 @@ export function useDesktopThreadChat({
 		setError(null);
 		setIsGenerating(true);
 		streamingStore.set("");
-		setThreadMessages((previous) => [
+		setThreadMessagesWithCache((previous) => [
 			...previous,
 			textThreadMessage({
 				id: `mobile:${startedAt}:user`,
@@ -165,7 +246,7 @@ export function useDesktopThreadChat({
 				await client.sendSessionMessageStream(sessionId, { prompt }, (event) =>
 					applyCompanionStreamEvent({
 						event,
-						setThreadMessages,
+						setThreadMessages: setThreadMessagesWithCache,
 						streamingStore,
 						setError,
 						setIsGenerating,
@@ -175,7 +256,7 @@ export function useDesktopThreadChat({
 					sessionId,
 					tailLimit: DEFAULT_SESSION_THREAD_TAIL_LIMIT,
 				});
-				setThreadMessages(page.messages);
+				setThreadMessagesFromServer(page.messages);
 			} catch (sendError) {
 				setError(asError(sendError));
 				try {
@@ -183,7 +264,9 @@ export function useDesktopThreadChat({
 						sessionId,
 						tailLimit: DEFAULT_SESSION_THREAD_TAIL_LIMIT,
 					});
-					if (page) setThreadMessages(page.messages);
+					if (page) {
+						setThreadMessagesFromServer(page.messages);
+					}
 				} catch {}
 			} finally {
 				setIsGenerating(false);
@@ -191,7 +274,15 @@ export function useDesktopThreadChat({
 				client?.close();
 			}
 		})();
-	}, [activeDesktop, input, isGenerating, sessionId, streamingStore]);
+	}, [
+		activeDesktop,
+		input,
+		isGenerating,
+		sessionId,
+		setThreadMessagesFromServer,
+		setThreadMessagesWithCache,
+		streamingStore,
+	]);
 
 	return {
 		messages,

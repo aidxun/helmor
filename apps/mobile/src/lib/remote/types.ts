@@ -151,10 +151,30 @@ export type UiMutationEvent =
 	| { type: "sessionMessagesAppended"; sessionId: string }
 	| { type: "contextUsageChanged"; sessionId: string }
 	| { type: "codexGoalChanged"; sessionId: string }
+	| { type: "workspaceFilesChanged"; workspaceId: string }
+	| { type: "workspaceGitStateChanged"; workspaceId: string }
+	| { type: "workspaceForgeChanged"; workspaceId: string }
+	| { type: "workspaceChangeRequestChanged"; workspaceId: string }
 	| { type: "activeStreamsChanged" }
 	| { type: "repositoryListChanged" }
 	| { type: "repositoryChanged"; repoId: string }
+	| { type: "repoRunActionsChanged"; repoId: string }
 	| { type: "settingsChanged"; key?: string | null }
+	| { type: "pairedDevicesChanged" }
+	| {
+			type: "pendingCliSendQueued";
+			workspaceId: string;
+			sessionId: string;
+			prompt: string;
+			modelId: string | null;
+			permissionMode: string | null;
+	  }
+	| { type: "slackWorkspacesChanged" }
+	| { type: "slackTokenInvalidated"; teamId: string }
+	| { type: "triageConfigChanged" }
+	| { type: "triageActiveStatusChanged" }
+	| { type: "triageWorkspaceCreated"; workspaceId: string }
+	| { type: "fastModeUnavailable"; sessionId: string; reason: string }
 	| { type: string; [key: string]: unknown };
 
 export type UiMutationEnvelope = {

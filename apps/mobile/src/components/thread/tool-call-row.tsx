@@ -34,39 +34,35 @@ export const ToolCallRow = memo(function ToolCallRow({
 		!!part.children?.length;
 
 	return (
-		<View className="my-1">
+		<View className="my-0.5">
 			<Pressable
 				disabled={!hasDetails}
 				onPress={() => setOpen((value) => !value)}
-				className="flex-row items-center gap-2 rounded-lg bg-muted/35 px-2.5 py-2"
+				className="flex-row items-center gap-1.5 rounded-md bg-muted/25 px-2 py-1.5"
 			>
 				<ToolIcon kind={info.kind} isError={part.isError === true} />
-				<View className="min-w-0 flex-1">
-					<View className="flex-row items-center gap-1.5">
-						<Text
-							className="text-sm font-medium text-foreground"
-							numberOfLines={1}
-						>
-							{info.action}
-						</Text>
-						<StatusGlyph part={part} />
-					</View>
-					<ToolSubtitle part={part} />
-				</View>
+				<Text
+					className="min-w-0 flex-1 text-xs font-medium text-foreground"
+					numberOfLines={1}
+				>
+					{info.action}
+				</Text>
+				<StatusGlyph part={part} />
 				{info.diffAdd || info.diffDel ? (
-					<Text className="text-xs text-muted-foreground">
+					<Text className="text-[11px] text-muted-foreground">
 						+{info.diffAdd ?? 0} -{info.diffDel ?? 0}
 					</Text>
 				) : null}
 				{hasDetails ? (
 					<Icon
 						icon={ChevronDown}
-						className={`h-4 w-4 text-muted-foreground ${open ? "" : "-rotate-90"}`}
+						className={`h-3.5 w-3.5 text-muted-foreground ${open ? "" : "-rotate-90"}`}
 					/>
 				) : null}
 			</Pressable>
 			{open && !compact ? (
-				<View className="ml-3 border-l border-border/50 pl-3 pt-2">
+				<View className="ml-2 border-l border-border/50 pl-2 pt-1">
+					<ToolDetails info={info} />
 					{info.fullCommand ? (
 						<CodePreview label="Command" text={info.fullCommand} />
 					) : null}
@@ -108,16 +104,16 @@ export const CollapsedToolGroup = memo(function CollapsedToolGroup({
 }: {
 	group: CollapsedGroupPart;
 }) {
-	const [open, setOpen] = useState(true);
+	const [open, setOpen] = useState(false);
 	return (
-		<View className="my-1">
+		<View className="my-0.5">
 			<Pressable
 				onPress={() => setOpen((value) => !value)}
-				className="flex-row items-center gap-2 rounded-lg bg-muted/35 px-2.5 py-2"
+				className="flex-row items-center gap-1.5 rounded-md bg-muted/25 px-2 py-1.5"
 			>
 				<GroupIcon category={group.category} />
 				<Text
-					className="flex-1 text-sm font-medium text-foreground"
+					className="flex-1 text-xs font-medium text-foreground"
 					numberOfLines={1}
 				>
 					{group.summary}
@@ -130,12 +126,12 @@ export const CollapsedToolGroup = memo(function CollapsedToolGroup({
 				) : (
 					<Icon icon={Check} className="h-3.5 w-3.5 text-emerald-500" />
 				)}
-				<Text className="text-xs text-muted-foreground">
+				<Text className="text-[11px] text-muted-foreground">
 					{group.tools.length} tools
 				</Text>
 			</Pressable>
 			{open ? (
-				<View className="ml-3 border-l border-border/50 pl-3 pt-1">
+				<View className="ml-2 border-l border-border/50 pl-2 pt-1">
 					{group.tools.map((tool) => (
 						<ToolCallRow key={tool.toolCallId} part={tool} compact />
 					))}
@@ -145,14 +141,26 @@ export const CollapsedToolGroup = memo(function CollapsedToolGroup({
 	);
 });
 
-function ToolSubtitle({ part }: { part: ToolCallPart }) {
-	const info = getMobileToolInfo(part);
-	const text = info.file ?? info.command ?? info.detail ?? info.body;
-	if (!text) return null;
+function ToolDetails({ info }: { info: ReturnType<typeof getMobileToolInfo> }) {
+	const details = [
+		info.file ? `File: ${info.file}` : null,
+		!info.fullCommand && info.command ? `Command: ${info.command}` : null,
+		info.detail ?? null,
+		info.body ?? null,
+	].filter((detail): detail is string => Boolean(detail));
+	if (!details.length) return null;
 	return (
-		<Text className="mt-0.5 text-xs text-muted-foreground" numberOfLines={1}>
-			{text}
-		</Text>
+		<View className="mb-1.5 gap-0.5">
+			{details.map((detail) => (
+				<Text
+					key={detail}
+					className="text-[11px] leading-4 text-muted-foreground"
+					numberOfLines={3}
+				>
+					{detail}
+				</Text>
+			))}
+		</View>
 	);
 }
 
@@ -164,31 +172,37 @@ function ToolIcon({
 	isError: boolean;
 }) {
 	if (isError)
-		return <Icon icon={CircleAlert} className="h-4 w-4 text-destructive" />;
+		return <Icon icon={CircleAlert} className="h-3.5 w-3.5 text-destructive" />;
 	if (kind === "shell")
-		return <Icon icon={Terminal} className="h-4 w-4 text-muted-foreground" />;
+		return (
+			<Icon icon={Terminal} className="h-3.5 w-3.5 text-muted-foreground" />
+		);
 	if (kind === "search" || kind === "web") {
-		return <Icon icon={Search} className="h-4 w-4 text-muted-foreground" />;
+		return <Icon icon={Search} className="h-3.5 w-3.5 text-muted-foreground" />;
 	}
 	if (kind === "mcp")
-		return <Icon icon={Plug} className="h-4 w-4 text-muted-foreground" />;
+		return <Icon icon={Plug} className="h-3.5 w-3.5 text-muted-foreground" />;
 	if (kind === "file" || kind === "edit") {
-		return <Icon icon={FileText} className="h-4 w-4 text-muted-foreground" />;
+		return (
+			<Icon icon={FileText} className="h-3.5 w-3.5 text-muted-foreground" />
+		);
 	}
 	if (kind === "prompt" || kind === "plan") {
-		return <Icon icon={Code2} className="h-4 w-4 text-muted-foreground" />;
+		return <Icon icon={Code2} className="h-3.5 w-3.5 text-muted-foreground" />;
 	}
-	return <Icon icon={Wrench} className="h-4 w-4 text-muted-foreground" />;
+	return <Icon icon={Wrench} className="h-3.5 w-3.5 text-muted-foreground" />;
 }
 
 function GroupIcon({ category }: { category: CollapsedGroupPart["category"] }) {
 	if (category === "shell") {
-		return <Icon icon={Terminal} className="h-4 w-4 text-muted-foreground" />;
+		return (
+			<Icon icon={Terminal} className="h-3.5 w-3.5 text-muted-foreground" />
+		);
 	}
 	if (category === "search") {
-		return <Icon icon={Search} className="h-4 w-4 text-muted-foreground" />;
+		return <Icon icon={Search} className="h-3.5 w-3.5 text-muted-foreground" />;
 	}
-	return <Icon icon={FileText} className="h-4 w-4 text-muted-foreground" />;
+	return <Icon icon={FileText} className="h-3.5 w-3.5 text-muted-foreground" />;
 }
 
 function StatusGlyph({ part }: { part: ToolCallPart }) {
@@ -211,11 +225,14 @@ function StatusGlyph({ part }: { part: ToolCallPart }) {
 
 function CodePreview({ label, text }: { label: string; text: string }) {
 	return (
-		<View className="mb-2 rounded-lg bg-muted/50 px-2.5 py-2">
-			<Text className="mb-1 text-xs font-medium text-muted-foreground">
+		<View className="mb-1.5 rounded-md bg-muted/45 px-2 py-1.5">
+			<Text className="mb-1 text-[11px] font-medium text-muted-foreground">
 				{label}
 			</Text>
-			<Text selectable className="font-mono text-xs leading-5 text-foreground">
+			<Text
+				selectable
+				className="font-mono text-[11px] leading-4 text-foreground"
+			>
 				{text}
 			</Text>
 		</View>

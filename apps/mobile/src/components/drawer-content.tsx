@@ -8,6 +8,7 @@ import {
 	CircleDashed,
 	CircleDotDashed,
 	CircleX,
+	ClipboardList,
 	GitBranch,
 	Laptop,
 	type LucideIcon,
@@ -45,6 +46,7 @@ type DrawerContextValue = {
 };
 
 const GROUP_TONE_CLASS: Record<MobileWorkspaceGroup["tone"], string> = {
+	"ai-tasks": "text-workspace-status-review",
 	pinned: "text-workspace-status-neutral",
 	chats: "text-foreground",
 	done: "text-workspace-status-done",
@@ -52,6 +54,7 @@ const GROUP_TONE_CLASS: Record<MobileWorkspaceGroup["tone"], string> = {
 	progress: "text-workspace-status-progress",
 	backlog: "text-workspace-status-backlog",
 	canceled: "text-workspace-status-canceled",
+	archived: "text-muted-foreground",
 };
 
 const DrawerContext = createContext<DrawerContextValue | null>(null);
@@ -174,6 +177,8 @@ function DrawerGroupIcon({ group }: { group: MobileWorkspaceGroup }) {
 			progress: CircleDashed,
 			backlog: Circle,
 			canceled: CircleX,
+			"ai-tasks": ClipboardList,
+			archived: CircleCheck,
 		};
 	const icon = iconByTone[group.tone] ?? Circle;
 
