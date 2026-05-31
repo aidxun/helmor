@@ -8,7 +8,11 @@ import {
 	createPairedDesktopClient,
 	type DesktopConnection,
 } from "@/lib/remote";
-import { threadToChatMessage } from "./workspace-chat-message-utils";
+import {
+	textThreadMessage,
+	threadToChatMessage,
+} from "./workspace-chat-message-utils";
+import { applyCompanionStreamEvent } from "./workspace-chat-stream-events";
 
 export type ThreadChatState = ChatContextValue & {
 	threadMessages: ThreadMessageLike[];
@@ -76,6 +80,7 @@ export function useDesktopThreadChat({
 	const [input, setInput] = useState("");
 	const [threadMessages, setThreadMessages] = useState<ThreadMessageLike[]>([]);
 	const [loading, setLoading] = useState(false);
+	const [isGenerating, setIsGenerating] = useState(false);
 	const [error, setError] = useState<Error | null>(null);
 	const streamingStore = useMemo(() => createStreamingStore(), []);
 
@@ -128,15 +133,70 @@ export function useDesktopThreadChat({
 
 	const onSend = useCallback(() => {
 		if (!input.trim()) return;
-		setError(new Error("Sending from mobile is not connected yet."));
-	}, [input]);
+		if (!activeDesktop || !sessionId || isGenerating) return;
+		const prompt = input.trim();
+		const startedAt = Date.now();
+		setInput("");
+		setError(null);
+		setIsGenerating(true);
+		streamingStore.set("");
+		setThreadMessages((previous) => [
+			...previous,
+			textThreadMessage({
+				id: `mobile:${startedAt}:user`,
+				role: "user",
+				text: prompt,
+			}),
+			textThreadMessage({
+				id: `mobile:${startedAt}:assistant`,
+				role: "assistant",
+				text: "",
+				streaming: true,
+			}),
+		]);
+
+		let client: Awaited<ReturnType<typeof createPairedDesktopClient>> | null =
+			null;
+		void (async () => {
+			try {
+				client = await createPairedDesktopClient(activeDesktop);
+				await client.sendSessionMessageStream(sessionId, { prompt }, (event) =>
+					applyCompanionStreamEvent({
+						event,
+						setThreadMessages,
+						streamingStore,
+						setError,
+						setIsGenerating,
+					}),
+				);
+				const page = await client.sessionThreadPage({
+					sessionId,
+					tailLimit: DEFAULT_SESSION_THREAD_TAIL_LIMIT,
+				});
+				setThreadMessages(page.messages);
+			} catch (sendError) {
+				setError(asError(sendError));
+				try {
+					const page = await client?.sessionThreadPage({
+						sessionId,
+						tailLimit: DEFAULT_SESSION_THREAD_TAIL_LIMIT,
+					});
+					if (page) setThreadMessages(page.messages);
+				} catch {}
+			} finally {
+				setIsGenerating(false);
+				streamingStore.set("");
+				client?.close();
+			}
+		})();
+	}, [activeDesktop, input, isGenerating, sessionId, streamingStore]);
 
 	return {
 		messages,
 		threadMessages,
 		input,
 		setInput,
-		isGenerating: false,
+		isGenerating,
 		onSend,
 		streamingStore,
 		error,

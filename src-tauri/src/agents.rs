@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -27,6 +28,7 @@ pub use self::queries::{
     SlashCommandEntry, SlashCommandsResponse,
 };
 pub use self::slash_commands::SlashCommandCache;
+pub(crate) use self::streaming::AgentEventSink;
 pub use self::streaming::{
     abort_all_active_streams_blocking, bridge_aborted_event, bridge_done_event, bridge_error_event,
     bridge_permission_request_event, bridge_user_input_request_event, build_send_message_params,
@@ -219,8 +221,17 @@ pub async fn list_cursor_models(
 pub async fn send_agent_message_stream(
     app: AppHandle,
     sidecar: tauri::State<'_, crate::sidecar::ManagedSidecar>,
-    mut request: AgentSendRequest,
+    request: AgentSendRequest,
     on_event: Channel<AgentStreamEvent>,
+) -> CmdResult<()> {
+    send_agent_message_with_sink(app, &sidecar, request, Arc::new(on_event))
+}
+
+pub(crate) fn send_agent_message_with_sink(
+    app: AppHandle,
+    sidecar: &crate::sidecar::ManagedSidecar,
+    mut request: AgentSendRequest,
+    on_event: Arc<dyn AgentEventSink>,
 ) -> CmdResult<()> {
     let prompt = request.prompt.trim().to_string();
     if prompt.is_empty() {
@@ -268,7 +279,7 @@ pub async fn send_agent_message_stream(
     let send_result = stream_via_sidecar(
         app.clone(),
         on_event,
-        &sidecar,
+        sidecar,
         &active_streams,
         &stream_id,
         &model,

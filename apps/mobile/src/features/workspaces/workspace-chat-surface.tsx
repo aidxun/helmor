@@ -5,6 +5,7 @@ import {
 import { Link } from "expo-router";
 import { Plus } from "lucide-react-native";
 import { useCallback, useEffect } from "react";
+import { View } from "react-native";
 import {
 	ChatProvider,
 	Conversation,
@@ -25,6 +26,8 @@ import {
 	useWorkspaceFallbackSession,
 } from "./workspace-chat-hooks";
 import { useWorkspaces } from "./workspace-context";
+import { useNewWorkspaceThreadChat } from "./workspace-new-chat-hooks";
+import { NewWorkspaceControls } from "./workspace-new-task-controls";
 
 const USE_MOCK = process.env.EXPO_PUBLIC_MOCK_AI !== "0";
 
@@ -66,6 +69,11 @@ function WorkspaceChatContent({
 		selectedWorkspaceSessionTab,
 		selectedWorkspaceSummary,
 		isNewWorkspaceDraft,
+		newWorkspaceTarget,
+		repositories,
+		setNewWorkspaceTarget,
+		selectCreatedWorkspace,
+		refreshWorkspaces,
 	} = useWorkspaces();
 	const needsFallbackSession = Boolean(
 		activeDesktop &&
@@ -90,13 +98,29 @@ function WorkspaceChatContent({
 			activeDesktop && effectiveSessionId && !isNewWorkspaceDraft,
 		),
 	});
+	const handleNewWorkspaceCompleted = useCallback(
+		async (workspaceId: string, sessionId: string) => {
+			await refreshWorkspaces();
+			selectCreatedWorkspace(workspaceId, sessionId);
+		},
+		[refreshWorkspaces, selectCreatedWorkspace],
+	);
+	const newWorkspaceChat = useNewWorkspaceThreadChat({
+		activeDesktop,
+		target: newWorkspaceTarget,
+		enabled: Boolean(activeDesktop && isNewWorkspaceDraft),
+		onStarted: () => {},
+		onCompleted: handleNewWorkspaceCompleted,
+	});
 	const mockChat = useMockChatState();
 	const aiChat = useAIChatState();
 	const chat = selectChatState({
 		desktopChat,
+		newWorkspaceChat,
 		mockChat,
 		aiChat,
 		hasDesktopWorkspace,
+		isNewWorkspaceDraft,
 	});
 	const chatLoading = fallbackSession.loading || chat.loading;
 
@@ -123,26 +147,35 @@ function WorkspaceChatContent({
 				estimatedItemSize={128}
 				onScrolledFromTopChange={onScrolledFromTopChange}
 				emptyState={
-					<ConversationEmptyState
-						title={
-							chatLoading
-								? "Loading session"
-								: isNewWorkspaceDraft
-									? "New workspace"
-									: (selectedWorkspaceSessionTab?.title ??
-										selectedWorkspace?.title ??
-										"Helmor")
-						}
-						description={
-							chatLoading
-								? "Fetching messages from your desktop."
-								: isNewWorkspaceDraft
-									? "Start with a prompt to create a workspace"
-									: selectedWorkspace
-										? selectedWorkspaceSummary.subtitle
-										: "Select a workspace from the drawer"
-						}
-					/>
+					<View className="gap-4">
+						{isNewWorkspaceDraft && (
+							<NewWorkspaceControls
+								repositories={repositories}
+								target={newWorkspaceTarget}
+								onChangeTarget={setNewWorkspaceTarget}
+							/>
+						)}
+						<ConversationEmptyState
+							title={
+								chatLoading
+									? "Loading session"
+									: isNewWorkspaceDraft
+										? "New workspace"
+										: (selectedWorkspaceSessionTab?.title ??
+											selectedWorkspace?.title ??
+											"Helmor")
+							}
+							description={
+								chatLoading
+									? "Fetching messages from your desktop."
+									: isNewWorkspaceDraft
+										? "Choose chat or a repository, then send a prompt"
+										: selectedWorkspace
+											? selectedWorkspaceSummary.subtitle
+											: "Select a workspace from the drawer"
+							}
+						/>
+					</View>
 				}
 			>
 				<ConversationScrollButton />
@@ -164,15 +197,20 @@ function WorkspaceChatContent({
 
 function selectChatState({
 	desktopChat,
+	newWorkspaceChat,
 	mockChat,
 	aiChat,
 	hasDesktopWorkspace,
+	isNewWorkspaceDraft,
 }: {
 	desktopChat: ThreadChatState;
+	newWorkspaceChat: ThreadChatState;
 	mockChat: ThreadChatState;
 	aiChat: ThreadChatState;
 	hasDesktopWorkspace: boolean;
+	isNewWorkspaceDraft: boolean;
 }): ThreadChatState {
+	if (isNewWorkspaceDraft) return newWorkspaceChat;
 	if (hasDesktopWorkspace) return desktopChat;
 	return USE_MOCK ? mockChat : aiChat;
 }

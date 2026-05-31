@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::companion::{
     ByoCloudflareConfig, CompanionManager, CompanionPairingPayload, CompanionStatus,
@@ -14,8 +14,11 @@ pub async fn companion_get_status(
 }
 
 #[tauri::command]
-pub async fn companion_enable(manager: State<'_, CompanionManager>) -> CmdResult<CompanionStatus> {
-    Ok(manager.enable().await?)
+pub async fn companion_enable(
+    app: AppHandle,
+    manager: State<'_, CompanionManager>,
+) -> CmdResult<CompanionStatus> {
+    Ok(manager.enable(&app).await?)
 }
 
 #[tauri::command]
@@ -26,9 +29,10 @@ pub async fn companion_disable(manager: State<'_, CompanionManager>) -> CmdResul
 
 #[tauri::command]
 pub async fn companion_create_pairing(
+    app: AppHandle,
     manager: State<'_, CompanionManager>,
 ) -> CmdResult<CompanionPairingPayload> {
-    Ok(manager.create_pairing().await?)
+    Ok(manager.create_pairing(&app).await?)
 }
 
 #[tauri::command]
@@ -67,15 +71,17 @@ pub async fn companion_validate_byo_cloudflare_config(
 
 #[tauri::command]
 pub async fn companion_provision_byo_cloudflare(
+    app: AppHandle,
     manager: State<'_, CompanionManager>,
     config: ByoCloudflareConfig,
 ) -> CmdResult<CompanionStatus> {
-    Ok(manager.provision_byo_cloudflare(config).await?)
+    Ok(manager.provision_byo_cloudflare(&app, config).await?)
 }
 
 #[tauri::command]
 pub async fn companion_provision_helmor_managed(
+    app: AppHandle,
     manager: State<'_, CompanionManager>,
 ) -> CmdResult<CompanionStatus> {
-    Ok(manager.provision_helmor_managed().await?)
+    Ok(manager.provision_helmor_managed(&app).await?)
 }

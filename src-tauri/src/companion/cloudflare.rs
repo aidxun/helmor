@@ -55,6 +55,11 @@ struct CreateTunnelResult {
     token: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct DnsRecordResult {
+    id: String,
+}
+
 pub async fn provision_byo_cloudflare(
     mut config: ByoCloudflareConfig,
     local_port: u16,
@@ -164,20 +169,19 @@ async fn create_dns_record(
     config: &ByoCloudflareConfig,
     tunnel_id: &str,
 ) -> Result<()> {
+    if let Some(record) = find_dns_record(client, config).await? {
+        update_dns_record(client, config, &record.id, tunnel_id).await?;
+        return Ok(());
+    }
+
     let url = format!(
         "https://api.cloudflare.com/client/v4/zones/{}/dns_records",
         config.zone_id
     );
-    let body = serde_json::json!({
-        "type": "CNAME",
-        "proxied": true,
-        "name": config.hostname,
-        "content": format!("{tunnel_id}.cfargotunnel.com"),
-    });
     let envelope = client
         .post(url)
         .bearer_auth(&config.api_token)
-        .json(&body)
+        .json(&dns_record_body(config, tunnel_id))
         .send()
         .await
         .context("Failed to create Cloudflare DNS record")?
@@ -186,6 +190,61 @@ async fn create_dns_record(
         .context("Failed to parse Cloudflare DNS response")?;
     let _ = unwrap_cloudflare(envelope, "create Cloudflare DNS record")?;
     Ok(())
+}
+
+async fn find_dns_record(
+    client: &Client,
+    config: &ByoCloudflareConfig,
+) -> Result<Option<DnsRecordResult>> {
+    let url = format!(
+        "https://api.cloudflare.com/client/v4/zones/{}/dns_records",
+        config.zone_id
+    );
+    let envelope = client
+        .get(url)
+        .bearer_auth(&config.api_token)
+        .query(&[("name", config.hostname.as_str()), ("per_page", "1")])
+        .send()
+        .await
+        .context("Failed to query Cloudflare DNS records")?
+        .json::<CloudflareEnvelope<Vec<DnsRecordResult>>>()
+        .await
+        .context("Failed to parse Cloudflare DNS query response")?;
+    let records = unwrap_cloudflare(envelope, "query Cloudflare DNS records")?;
+    Ok(records.into_iter().next())
+}
+
+async fn update_dns_record(
+    client: &Client,
+    config: &ByoCloudflareConfig,
+    dns_record_id: &str,
+    tunnel_id: &str,
+) -> Result<()> {
+    let url = format!(
+        "https://api.cloudflare.com/client/v4/zones/{}/dns_records/{}",
+        config.zone_id, dns_record_id
+    );
+    let envelope = client
+        .patch(url)
+        .bearer_auth(&config.api_token)
+        .json(&dns_record_body(config, tunnel_id))
+        .send()
+        .await
+        .context("Failed to update Cloudflare DNS record")?
+        .json::<CloudflareEnvelope<serde_json::Value>>()
+        .await
+        .context("Failed to parse Cloudflare DNS update response")?;
+    let _ = unwrap_cloudflare(envelope, "update Cloudflare DNS record")?;
+    Ok(())
+}
+
+fn dns_record_body(config: &ByoCloudflareConfig, tunnel_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "CNAME",
+        "proxied": true,
+        "name": config.hostname,
+        "content": format!("{tunnel_id}.cfargotunnel.com"),
+    })
 }
 
 fn unwrap_cloudflare<T>(envelope: CloudflareEnvelope<T>, action: &str) -> Result<T> {

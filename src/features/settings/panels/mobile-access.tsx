@@ -23,6 +23,7 @@ import {
 	saveByoCloudflareConfig,
 	validateByoCloudflareConfig,
 } from "@/lib/api";
+import { extractError } from "@/lib/errors";
 import {
 	SettingsGroup,
 	SettingsNotice,
@@ -37,15 +38,21 @@ const EMPTY_BYO_CONFIG: ByoCloudflareConfig = {
 	hostname: "",
 };
 
+type StatusMessage = {
+	tone: "info" | "ok" | "warn" | "error";
+	text: string;
+};
+
 export function MobileAccessPanel() {
 	const [status, setStatus] = useState<CompanionStatus | null>(null);
 	const [pairing, setPairing] = useState<CompanionPairingPayload | null>(null);
 	const [byoConfig, setByoConfig] =
 		useState<ByoCloudflareConfig>(EMPTY_BYO_CONFIG);
 	const [error, setError] = useState<string | null>(null);
-	const [message, setMessage] = useState<string | null>(null);
+	const [message, setMessage] = useState<StatusMessage | null>(null);
 	const [isBusy, setIsBusy] = useState(false);
 	const [didCopyPairingUrl, setDidCopyPairingUrl] = useState(false);
+	const isByoConfigComplete = isCompleteByoConfig(byoConfig);
 
 	const refresh = useCallback(async () => {
 		setStatus(await getCompanionStatus());
@@ -128,13 +135,13 @@ export function MobileAccessPanel() {
 			) : null}
 			{message ? (
 				<SettingsRow title="Status">
-					<SettingsNotice>{message}</SettingsNotice>
+					<SettingsNotice tone={message.tone}>{message.text}</SettingsNotice>
 				</SettingsRow>
 			) : null}
 
 			<SettingsRow
 				title="Helmor-managed Cloudflare"
-				description="Default provider. Requires the Helmor Companion API to be configured."
+				description="Uses Helmor's hosted companion registry when it is configured. Use Bring Your Own Cloudflare for a personal domain."
 			>
 				<Button
 					type="button"
@@ -153,7 +160,7 @@ export function MobileAccessPanel() {
 
 			<SettingsRow
 				title="Bring Your Own Cloudflare"
-				description="Use a hostname in a zone already served by Cloudflare DNS."
+				description="Creates a Cloudflare Tunnel and a proxied DNS record for a hostname in your own zone."
 				align="start"
 			>
 				<div className="flex w-[340px] flex-col gap-2">
@@ -180,12 +187,17 @@ export function MobileAccessPanel() {
 						}
 					/>
 					<CompanionInput
-						placeholder="mobile.example.com"
+						placeholder="mobile.originspark.cloud"
 						value={byoConfig.hostname}
 						onChange={(hostname) =>
 							setByoConfig((current) => ({ ...current, hostname }))
 						}
 					/>
+					<p className="text-nano leading-snug text-muted-foreground">
+						Save config only checks the fields locally. Create tunnel calls
+						Cloudflare, writes DNS, starts the local server, and runs
+						cloudflared.
+					</p>
 					<div className="flex justify-end gap-2">
 						<Button
 							type="button"
@@ -195,13 +207,16 @@ export function MobileAccessPanel() {
 								void runBusy(async () => {
 									await validateByoCloudflareConfig(byoConfig);
 									await saveByoCloudflareConfig(byoConfig);
-									setMessage("BYO Cloudflare configuration saved.");
+									setMessage({
+										tone: "ok",
+										text: "Cloudflare settings saved locally. Use Create tunnel to allocate the public URL.",
+									});
 									await refresh();
 								})
 							}
-							disabled={isBusy}
+							disabled={isBusy || !isByoConfigComplete}
 						>
-							Validate
+							Save config
 						</Button>
 						<Button
 							type="button"
@@ -209,11 +224,15 @@ export function MobileAccessPanel() {
 							onClick={() =>
 								void runBusy(async () => {
 									setStatus(await provisionByoCloudflare(byoConfig));
+									setMessage({
+										tone: "ok",
+										text: `Cloudflare tunnel is ready at ${byoConfig.hostname}.`,
+									});
 								})
 							}
-							disabled={isBusy}
+							disabled={isBusy || !isByoConfigComplete}
 						>
-							Allocate URL
+							Create tunnel
 						</Button>
 					</div>
 				</div>
@@ -476,6 +495,14 @@ function formatDate(value: string): string {
 }
 
 function errorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message;
-	return String(error);
+	return extractError(error, "Mobile companion action failed").message;
+}
+
+function isCompleteByoConfig(config: ByoCloudflareConfig): boolean {
+	return Boolean(
+		config.accountId.trim() &&
+			config.zoneId.trim() &&
+			config.apiToken.trim() &&
+			config.hostname.trim(),
+	);
 }

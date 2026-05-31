@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::Serialize;
 use tauri::async_runtime::Mutex;
+use tauri::AppHandle;
 use tokio::{net::TcpListener, sync::oneshot};
 
 use super::{
@@ -80,8 +81,8 @@ impl CompanionManager {
         })
     }
 
-    pub async fn enable(&self) -> Result<CompanionStatus> {
-        let port = self.ensure_server().await?;
+    pub async fn enable(&self, app: &AppHandle) -> Result<CompanionStatus> {
+        let port = self.ensure_server(app).await?;
         if let Some(tunnel) = config::load_active_tunnel()? {
             self.sync_tunnel_origin(&tunnel, port).await?;
             self.start_cloudflared(&tunnel).await?;
@@ -101,8 +102,8 @@ impl CompanionManager {
         }
     }
 
-    pub async fn create_pairing(&self) -> Result<CompanionPairingPayload> {
-        let _ = self.ensure_server().await?;
+    pub async fn create_pairing(&self, app: &AppHandle) -> Result<CompanionPairingPayload> {
+        let _ = self.ensure_server(app).await?;
         let tunnel = config::load_active_tunnel()?
             .context("Allocate a Cloudflare hostname before pairing")?;
         let identity = mobile_rpc::initialize_result()?;
@@ -156,9 +157,10 @@ impl CompanionManager {
 
     pub async fn provision_byo_cloudflare(
         &self,
+        app: &AppHandle,
         byo_config: ByoCloudflareConfig,
     ) -> Result<CompanionStatus> {
-        let port = self.ensure_server().await?;
+        let port = self.ensure_server(app).await?;
         let (byo_config, active_tunnel) =
             cloudflare::provision_byo_cloudflare(byo_config, port).await?;
         config::save_provider(CompanionProvider::BringYourOwnCloudflare)?;
@@ -168,8 +170,8 @@ impl CompanionManager {
         self.status().await
     }
 
-    pub async fn provision_helmor_managed(&self) -> Result<CompanionStatus> {
-        let port = self.ensure_server().await?;
+    pub async fn provision_helmor_managed(&self, app: &AppHandle) -> Result<CompanionStatus> {
+        let port = self.ensure_server(app).await?;
         let active_tunnel = registry::provision_helmor_managed(port).await?;
         config::save_provider(CompanionProvider::HelmorManaged)?;
         config::save_active_tunnel(&active_tunnel)?;
@@ -177,7 +179,7 @@ impl CompanionManager {
         self.status().await
     }
 
-    async fn ensure_server(&self) -> Result<u16> {
+    async fn ensure_server(&self, app: &AppHandle) -> Result<u16> {
         let mut state = self.state.lock().await;
         if let Some(server) = state.server.as_ref() {
             return Ok(server.port);
@@ -191,11 +193,12 @@ impl CompanionManager {
             .context("Failed to read companion server address")?
             .port();
         let (tx, rx) = oneshot::channel::<()>();
+        let app = app.clone();
         tauri::async_runtime::spawn(async move {
             let shutdown = async {
                 let _ = rx.await;
             };
-            if let Err(error) = axum::serve(listener, routes::router())
+            if let Err(error) = axum::serve(listener, routes::router(app))
                 .with_graceful_shutdown(shutdown)
                 .await
             {

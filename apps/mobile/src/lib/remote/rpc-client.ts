@@ -2,6 +2,10 @@ import type {
 	BacklogCreateRequest,
 	BacklogCreateResult,
 	CompanionHealth,
+	CompanionStreamEvent,
+	MobileRepositoryOption,
+	SendMessageStreamRequest,
+	SendNewWorkspaceStreamRequest,
 	SessionThreadMessagesPage,
 	SessionThreadPageRequest,
 	WorkspaceSessionSummary,
@@ -36,6 +40,10 @@ export class DesktopRpcClient {
 
 	async workspaceSnapshot(): Promise<WorkspaceSnapshot> {
 		return this.request<WorkspaceSnapshot>("/v1/workspaces");
+	}
+
+	async listRepositories(): Promise<MobileRepositoryOption[]> {
+		return this.request<MobileRepositoryOption[]>("/v1/repositories");
 	}
 
 	async listWorkspaceSessions(
@@ -73,6 +81,25 @@ export class DesktopRpcClient {
 		});
 	}
 
+	async sendSessionMessageStream(
+		sessionId: string,
+		request: SendMessageStreamRequest,
+		onEvent: (event: CompanionStreamEvent) => void,
+	): Promise<void> {
+		await this.streamRequest(
+			`/v1/sessions/${encodeURIComponent(sessionId)}/send/stream`,
+			request,
+			onEvent,
+		);
+	}
+
+	async sendNewWorkspaceStream(
+		request: SendNewWorkspaceStreamRequest,
+		onEvent: (event: CompanionStreamEvent) => void,
+	): Promise<void> {
+		await this.streamRequest("/v1/workspaces/send/stream", request, onEvent);
+	}
+
 	close() {}
 
 	private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -92,6 +119,43 @@ export class DesktopRpcClient {
 			return undefined as T;
 		}
 		return (await response.json()) as T;
+	}
+
+	private async streamRequest(
+		path: string,
+		body: unknown,
+		onEvent: (event: CompanionStreamEvent) => void,
+	): Promise<void> {
+		const response = await fetch(`${this.baseUrl}${path}`, {
+			method: "POST",
+			headers: {
+				Accept: "text/event-stream",
+				Authorization: `Bearer ${this.connection.pat}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(body),
+		});
+		if (!response.ok) {
+			throw new Error(await responseError(response));
+		}
+
+		const parser = createSseParser(onEvent);
+		const stream = response.body;
+		if (stream && "getReader" in stream) {
+			const reader = stream.getReader();
+			const decoder = new TextDecoder();
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				parser.push(decoder.decode(value, { stream: true }));
+			}
+			parser.push(decoder.decode());
+			parser.flush();
+			return;
+		}
+
+		parser.push(await response.text());
+		parser.flush();
 	}
 }
 
@@ -129,4 +193,53 @@ async function responseError(response: Response): Promise<string> {
 		if (body.error) return body.error;
 	} catch {}
 	return `Companion request failed with ${response.status}`;
+}
+
+function createSseParser(onEvent: (event: CompanionStreamEvent) => void) {
+	let buffer = "";
+	let dataLines: string[] = [];
+
+	function emit() {
+		if (dataLines.length === 0) return;
+		const data = dataLines.join("\n");
+		dataLines = [];
+		try {
+			onEvent(JSON.parse(data) as CompanionStreamEvent);
+		} catch (error) {
+			onEvent({
+				kind: "error",
+				message:
+					error instanceof Error
+						? error.message
+						: "Failed to parse stream event",
+			});
+		}
+	}
+
+	function processLine(line: string) {
+		if (line === "") {
+			emit();
+			return;
+		}
+		if (line.startsWith(":")) return;
+		if (line.startsWith("data:")) {
+			dataLines.push(line.slice(5).trimStart());
+		}
+	}
+
+	return {
+		push(chunk: string) {
+			buffer += chunk;
+			const lines = buffer.split(/\r?\n/);
+			buffer = lines.pop() ?? "";
+			for (const line of lines) processLine(line);
+		},
+		flush() {
+			if (buffer) {
+				processLine(buffer);
+				buffer = "";
+			}
+			emit();
+		},
+	};
 }

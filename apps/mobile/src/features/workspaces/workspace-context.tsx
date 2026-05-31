@@ -14,9 +14,11 @@ import {
 	type DesktopConnectionState,
 	getActiveDesktopConnection,
 	loadDesktopConnectionState,
+	type MobileRepositoryOption,
 	removeDesktopConnection,
 	setActiveDesktopConnection,
 	upsertDesktopConnection,
+	type WorkspaceSendTarget,
 } from "@/lib/remote";
 import type {
 	MobileWorkspaceGroup,
@@ -44,11 +46,15 @@ type WorkspaceContextValue = {
 	selectedWorkspaceSummary: MobileWorkspaceSummary;
 	isNewWorkspaceDraft: boolean;
 	newWorkspaceDraftKey: string | null;
+	newWorkspaceTarget: WorkspaceSendTarget;
+	repositories: MobileRepositoryOption[];
 	sessionTabs: MobileWorkspaceSessionTab[];
 	selectedWorkspaceSessionId: string | null;
 	selectedWorkspaceSessionTab: MobileWorkspaceSessionTab | null;
 	selectWorkspace: (workspaceId: string) => void;
 	startNewWorkspace: () => void;
+	setNewWorkspaceTarget: (target: WorkspaceSendTarget) => void;
+	selectCreatedWorkspace: (workspaceId: string, sessionId: string) => void;
 	selectWorkspaceSession: (sessionId: string) => void;
 	refreshWorkspaces: () => Promise<void>;
 	createBacklogTask: (request: BacklogCreateRequest) => Promise<void>;
@@ -83,6 +89,11 @@ export function WorkspaceProvider({
 	const [newWorkspaceDraftKey, setNewWorkspaceDraftKey] = useState<
 		string | null
 	>(null);
+	const [newWorkspaceTarget, setNewWorkspaceTarget] =
+		useState<WorkspaceSendTarget>({ kind: "chat" });
+	const [repositories, setRepositories] = useState<MobileRepositoryOption[]>(
+		[],
+	);
 	const [selectedSessionIdsByWorkspace, setSelectedSessionIdsByWorkspace] =
 		useState<Record<string, string>>({});
 	const activeDesktop = useMemo(
@@ -125,6 +136,7 @@ export function WorkspaceProvider({
 		setDesktopState(nextState);
 		if (!getActiveDesktopConnection(nextState)) {
 			setGroups([]);
+			setRepositories([]);
 			setSelectedWorkspaceId(null);
 			setNewWorkspaceDraftKey(null);
 			setSyncStatus("idle");
@@ -151,7 +163,9 @@ export function WorkspaceProvider({
 		try {
 			client = await createPairedDesktopClient(activeDesktop);
 			const snapshot = await client.workspaceSnapshot();
+			const repoOptions = await client.listRepositories();
 			setGroups(snapshot.groups);
+			setRepositories(repoOptions);
 			setDesktopState(
 				await upsertDesktopConnection({
 					...activeDesktop,
@@ -187,6 +201,7 @@ export function WorkspaceProvider({
 	useEffect(() => {
 		if (!activeDesktop) {
 			setGroups([]);
+			setRepositories([]);
 			setSelectedWorkspaceId(null);
 			setNewWorkspaceDraftKey(null);
 			setSyncStatus("idle");
@@ -217,7 +232,20 @@ export function WorkspaceProvider({
 	const startNewWorkspace = useCallback(() => {
 		setSelectedWorkspaceId(null);
 		setNewWorkspaceDraftKey(`new-workspace:${Date.now()}`);
+		setNewWorkspaceTarget({ kind: "chat" });
 	}, []);
+
+	const selectCreatedWorkspace = useCallback(
+		(workspaceId: string, sessionId: string) => {
+			setNewWorkspaceDraftKey(null);
+			setSelectedWorkspaceId(workspaceId);
+			setSelectedSessionIdsByWorkspace((previous) => ({
+				...previous,
+				[workspaceId]: sessionId,
+			}));
+		},
+		[],
+	);
 
 	const selectWorkspaceSession = useCallback(
 		(sessionId: string) => {
@@ -244,11 +272,15 @@ export function WorkspaceProvider({
 			selectedWorkspaceSummary,
 			isNewWorkspaceDraft,
 			newWorkspaceDraftKey,
+			newWorkspaceTarget,
+			repositories,
 			sessionTabs,
 			selectedWorkspaceSessionId,
 			selectedWorkspaceSessionTab,
 			selectWorkspace,
 			startNewWorkspace,
+			setNewWorkspaceTarget,
+			selectCreatedWorkspace,
 			selectWorkspaceSession,
 			refreshWorkspaces,
 			createBacklogTask,
@@ -268,11 +300,14 @@ export function WorkspaceProvider({
 			selectedWorkspaceSummary,
 			isNewWorkspaceDraft,
 			newWorkspaceDraftKey,
+			newWorkspaceTarget,
+			repositories,
 			sessionTabs,
 			selectedWorkspaceSessionId,
 			selectedWorkspaceSessionTab,
 			selectWorkspace,
 			startNewWorkspace,
+			selectCreatedWorkspace,
 			selectWorkspaceSession,
 			refreshWorkspaces,
 			createBacklogTask,

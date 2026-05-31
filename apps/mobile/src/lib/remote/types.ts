@@ -38,6 +38,16 @@ export type WorkspaceSnapshot = {
 	groups: MobileWorkspaceGroup[];
 };
 
+export type MobileRepositoryOption = {
+	id: string;
+	name: string;
+	remote?: string | null;
+	remoteUrl?: string | null;
+	defaultBranch?: string | null;
+	repoIconSrc?: string | null;
+	repoInitials?: string | null;
+};
+
 export type WorkspaceSessionSummary = {
 	id: string;
 	workspaceId: string;
@@ -80,3 +90,56 @@ export type BacklogCreateResult = {
 	sessionId: string;
 	status: "backlog";
 };
+
+export type AgentStreamEvent =
+	| { kind: "update"; messages: ThreadMessageLike[] }
+	| { kind: "streamingPartial"; message: ThreadMessageLike }
+	| {
+			kind: "done";
+			provider: string;
+			modelId: string;
+			resolvedModel: string;
+			sessionId?: string | null;
+			workingDirectory: string;
+			persisted: boolean;
+	  }
+	| {
+			kind: "aborted";
+			reason: string;
+			provider: string;
+			modelId: string;
+			resolvedModel: string;
+			sessionId?: string | null;
+			workingDirectory: string;
+			persisted: boolean;
+	  }
+	| { kind: "error"; message: string; persisted: boolean; internal: boolean }
+	| { kind: string; [key: string]: unknown };
+
+export type WorkspaceSendTarget =
+	| { kind: "chat" }
+	| { kind: "repo"; repoId: string; mode: "worktree" | "local" };
+
+export type SendMessageStreamRequest = {
+	prompt: string;
+	modelId?: string | null;
+	effortLevel?: string | null;
+	permissionMode?: string | null;
+	fastMode?: boolean | null;
+};
+
+export type SendNewWorkspaceStreamRequest = SendMessageStreamRequest & {
+	target: WorkspaceSendTarget;
+};
+
+export type SendStreamStarted = {
+	workspaceId: string;
+	sessionId: string;
+	mode: "chat" | "worktree" | "local";
+	repoId?: string | null;
+};
+
+export type CompanionStreamEvent =
+	| ({ kind: "started" } & SendStreamStarted)
+	| { kind: "agent"; event: AgentStreamEvent }
+	| { kind: "error"; message: string };

@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::sync::mpsc::RecvTimeoutError;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Maximum time we wait between sidecar events before declaring the sidecar
@@ -24,6 +25,7 @@ mod workflow_persist;
 #[cfg(test)]
 mod event_loop_tests;
 
+pub(crate) use actions::AgentEventSink;
 pub(crate) use active_streams::ActiveStreamHandle;
 pub use active_streams::{abort_all_active_streams_blocking, ActiveStreamSummary, ActiveStreams};
 pub use bridges::{
@@ -38,7 +40,7 @@ use session_id::should_adopt_provider_session_id;
 
 use rusqlite::params;
 use serde_json::{json, Value};
-use tauri::{ipc::Channel, AppHandle, Manager};
+use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use crate::pipeline::types::{
@@ -54,7 +56,7 @@ use super::{
 #[allow(clippy::too_many_arguments)]
 pub(super) fn stream_via_sidecar(
     app: AppHandle,
-    on_event: Channel<AgentStreamEvent>,
+    on_event: Arc<dyn AgentEventSink>,
     sidecar: &crate::sidecar::ManagedSidecar,
     active_streams: &ActiveStreams,
     stream_id: &str,
@@ -347,7 +349,7 @@ pub(super) fn stream_via_sidecar(
         // (e.g., `permissionModeChanged`) mirror the change back into
         // the legacy local vars until those readers migrate too.
         let apply_ctx = actions::ApplyContext {
-            on_event: &on_event,
+            on_event: on_event.as_ref(),
             app: &app,
         };
         let mut turn_session = state::TurnSession::new(state::TurnContext {
@@ -903,7 +905,7 @@ pub(super) fn stream_via_sidecar(
                         // event arrived first). The frontend still gets
                         // the bare PlanCaptured marker so its overlay
                         // doesn't get stuck waiting on it.
-                        let _ = on_event.send(AgentStreamEvent::PlanCaptured {});
+                        on_event.send_event(AgentStreamEvent::PlanCaptured {});
                     }
                 }
                 "userInputRequest" => {

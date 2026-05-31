@@ -12,19 +12,34 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use tauri::AppHandle;
 use tokio_stream::{self as stream, Stream};
 
-use crate::{mobile_rpc, models::paired_devices, models::sessions};
+use crate::{
+    companion::send::{send_new_workspace_stream, send_session_stream},
+    mobile_rpc,
+    models::{paired_devices, repos, sessions},
+};
 
-pub fn router() -> Router {
+pub fn router(app: AppHandle) -> Router {
     Router::new()
         .route("/v1/health", get(health))
+        .route("/v1/repositories", get(repositories))
         .route("/v1/workspaces", get(workspaces))
+        .route(
+            "/v1/workspaces/send/stream",
+            post(send_new_workspace_stream),
+        )
         .route("/v1/sessions", get(sessions_for_workspace))
         .route("/v1/sessions/{session_id}/thread", get(session_thread))
         .route("/v1/sessions/{session_id}/read", post(mark_session_read))
+        .route(
+            "/v1/sessions/{session_id}/send/stream",
+            post(send_session_stream),
+        )
         .route("/v1/backlog", post(create_backlog))
         .route("/v1/stream", get(stream_events))
+        .with_state(app)
 }
 
 #[derive(Debug, Serialize)]
@@ -64,6 +79,11 @@ async fn workspaces(headers: HeaderMap) -> ApiResult<Json<mobile_rpc::WorkspaceS
     Ok(Json(
         mobile_rpc::workspace_snapshot_result().map_err(ApiError::from)?,
     ))
+}
+
+async fn repositories(headers: HeaderMap) -> ApiResult<Json<Vec<repos::RepositoryCreateOption>>> {
+    authenticate(&headers)?;
+    Ok(Json(repos::list_repositories().map_err(ApiError::from)?))
 }
 
 async fn sessions_for_workspace(
@@ -119,7 +139,7 @@ async fn stream_events(
     ))
 }
 
-fn authenticate(headers: &HeaderMap) -> Result<paired_devices::AuthenticatedDevice> {
+pub(super) fn authenticate(headers: &HeaderMap) -> Result<paired_devices::AuthenticatedDevice> {
     paired_devices::authenticate_bearer(
         headers
             .get(axum::http::header::AUTHORIZATION)
@@ -127,9 +147,9 @@ fn authenticate(headers: &HeaderMap) -> Result<paired_devices::AuthenticatedDevi
     )
 }
 
-type ApiResult<T> = std::result::Result<T, ApiError>;
+pub(super) type ApiResult<T> = std::result::Result<T, ApiError>;
 
-struct ApiError(anyhow::Error);
+pub(super) struct ApiError(anyhow::Error);
 
 impl From<anyhow::Error> for ApiError {
     fn from(error: anyhow::Error) -> Self {
