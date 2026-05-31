@@ -1,31 +1,27 @@
 import type React from "react";
-import {
-	createContext,
-	use,
-	useCallback,
-	useEffect,
-	useMemo,
-	useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
 	type BacklogCreateRequest,
 	createPairedDesktopClient,
-	type DesktopConnection,
 	type DesktopConnectionState,
 	getActiveDesktopConnection,
 	loadDesktopConnectionState,
 	type MobileRepositoryOption,
 	removeDesktopConnection,
 	setActiveDesktopConnection,
+	type UiMutationEvent,
 	upsertDesktopConnection,
 	type WorkspaceSendTarget,
 } from "@/lib/remote";
-import type {
-	MobileWorkspaceGroup,
-	MobileWorkspaceRow,
-	MobileWorkspaceSessionTab,
-	MobileWorkspaceSummary,
-} from "./types";
+import type { MobileWorkspaceGroup } from "./types";
+import { useRemoteMutationStream } from "./use-remote-mutation-stream";
+import {
+	EMPTY_DESKTOP_STATE,
+	useWorkspaces,
+	WorkspaceContext,
+	type WorkspaceContextValue,
+} from "./workspace-context-core";
+import { handleWorkspaceRemoteMutation } from "./workspace-remote-mutations";
 import {
 	getDefaultWorkspaceId,
 	getVisibleWorkspaceGroups,
@@ -33,42 +29,6 @@ import {
 	getWorkspaceSessionTabs,
 	getWorkspaceSummary,
 } from "./workspace-selectors";
-
-type WorkspaceContextValue = {
-	groups: MobileWorkspaceGroup[];
-	visibleGroups: MobileWorkspaceGroup[];
-	desktopState: DesktopConnectionState;
-	activeDesktop: DesktopConnection | null;
-	syncStatus: "idle" | "syncing" | "error";
-	syncError: string | null;
-	selectedWorkspaceId: string | null;
-	selectedWorkspace: MobileWorkspaceRow | null;
-	selectedWorkspaceSummary: MobileWorkspaceSummary;
-	isNewWorkspaceDraft: boolean;
-	newWorkspaceDraftKey: string | null;
-	newWorkspaceTarget: WorkspaceSendTarget;
-	repositories: MobileRepositoryOption[];
-	sessionTabs: MobileWorkspaceSessionTab[];
-	selectedWorkspaceSessionId: string | null;
-	selectedWorkspaceSessionTab: MobileWorkspaceSessionTab | null;
-	selectWorkspace: (workspaceId: string) => void;
-	startNewWorkspace: () => void;
-	setNewWorkspaceTarget: (target: WorkspaceSendTarget) => void;
-	selectCreatedWorkspace: (workspaceId: string, sessionId: string) => void;
-	selectWorkspaceSession: (sessionId: string) => void;
-	refreshWorkspaces: () => Promise<void>;
-	createBacklogTask: (request: BacklogCreateRequest) => Promise<void>;
-	reloadDesktopConnections: () => Promise<void>;
-	setActiveDesktop: (desktopId: string) => Promise<void>;
-	removeDesktop: (desktopId: string) => Promise<void>;
-};
-
-const EMPTY_DESKTOP_STATE: DesktopConnectionState = {
-	activeDesktopId: null,
-	connections: [],
-};
-
-const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
 export function WorkspaceProvider({
 	children,
@@ -94,6 +54,7 @@ export function WorkspaceProvider({
 	const [repositories, setRepositories] = useState<MobileRepositoryOption[]>(
 		[],
 	);
+	const [threadRefreshVersion, setThreadRefreshVersion] = useState(0);
 	const [selectedSessionIdsByWorkspace, setSelectedSessionIdsByWorkspace] =
 		useState<Record<string, string>>({});
 	const activeDesktop = useMemo(
@@ -182,6 +143,14 @@ export function WorkspaceProvider({
 		}
 	}, [activeDesktop]);
 
+	const handleRemoteMutation = useCallback(
+		(event: UiMutationEvent) =>
+			handleWorkspaceRemoteMutation(event, refreshWorkspaces, () => {
+				setThreadRefreshVersion((version) => version + 1);
+			}),
+		[refreshWorkspaces],
+	);
+
 	const createBacklogTask = useCallback(
 		async (request: BacklogCreateRequest) => {
 			if (!activeDesktop) {
@@ -210,6 +179,11 @@ export function WorkspaceProvider({
 		}
 		void refreshWorkspaces();
 	}, [activeDesktopId]);
+
+	useRemoteMutationStream({
+		activeDesktop,
+		onMutation: handleRemoteMutation,
+	});
 
 	const setActiveDesktop = useCallback(async (desktopId: string) => {
 		setDesktopState(await setActiveDesktopConnection(desktopId));
@@ -277,6 +251,7 @@ export function WorkspaceProvider({
 			sessionTabs,
 			selectedWorkspaceSessionId,
 			selectedWorkspaceSessionTab,
+			threadRefreshVersion,
 			selectWorkspace,
 			startNewWorkspace,
 			setNewWorkspaceTarget,
@@ -305,6 +280,7 @@ export function WorkspaceProvider({
 			sessionTabs,
 			selectedWorkspaceSessionId,
 			selectedWorkspaceSessionTab,
+			threadRefreshVersion,
 			selectWorkspace,
 			startNewWorkspace,
 			selectCreatedWorkspace,
@@ -325,10 +301,4 @@ function errorMessage(error: unknown): string {
 	return String(error);
 }
 
-export function useWorkspaces() {
-	const context = use(WorkspaceContext);
-	if (!context) {
-		throw new Error("useWorkspaces must be used within a WorkspaceProvider");
-	}
-	return context;
-}
+export { useWorkspaces };

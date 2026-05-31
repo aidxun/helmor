@@ -2,7 +2,7 @@ use std::{convert::Infallible, time::Duration};
 
 use anyhow::Result;
 use axum::{
-    extract::{Path, Query},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -12,13 +12,15 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
-use tokio_stream::{self as stream, Stream};
+use tauri::{AppHandle, Manager};
+use tokio_stream::{wrappers::UnboundedReceiverStream, Stream, StreamExt};
+use uuid::Uuid;
 
 use crate::{
     companion::send::{send_new_workspace_stream, send_session_stream},
     mobile_rpc,
     models::{paired_devices, repos, sessions},
+    ui_sync::{UiMutationEnvelope, UiSyncManager},
 };
 
 pub fn router(app: AppHandle) -> Router {
@@ -38,7 +40,7 @@ pub fn router(app: AppHandle) -> Router {
             post(send_session_stream),
         )
         .route("/v1/backlog", post(create_backlog))
-        .route("/v1/stream", get(stream_events))
+        .route("/v1/stream", get(ui_mutation_stream))
         .with_state(app)
 }
 
@@ -127,11 +129,27 @@ async fn create_backlog(
     ))
 }
 
-async fn stream_events(
+async fn ui_mutation_stream(
+    State(app): State<AppHandle>,
     headers: HeaderMap,
 ) -> ApiResult<Sse<impl Stream<Item = std::result::Result<Event, Infallible>>>> {
     authenticate(&headers)?;
-    let events = stream::iter([Ok(Event::default().event("hello").data(r#"{"ok":true}"#))]);
+    let manager = app.state::<UiSyncManager>();
+    let receiver = manager.subscribe_sse(format!("mobile-companion:{}", Uuid::new_v4()));
+    let events = UnboundedReceiverStream::new(receiver).map(|event| {
+        Ok(Event::default().event("mutation").data(
+            serde_json::to_string(&UiMutationEnvelope::new(event)).unwrap_or_else(|error| {
+                serde_json::json!({
+                    "version": UiMutationEnvelope::VERSION,
+                    "event": {
+                        "type": "settingsChanged",
+                        "key": format!("companion-stream-serialization-error:{error}")
+                    }
+                })
+                .to_string()
+            }),
+        ))
+    });
     Ok(Sse::new(events).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(15))

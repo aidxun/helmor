@@ -1,4 +1,4 @@
-import { Pressable, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 
 type RepositoryOption = {
 	id: string;
@@ -32,7 +32,7 @@ export function NewWorkspaceControls({
 	};
 
 	return (
-		<View className="mx-6 gap-3 rounded-2xl border border-border bg-card/70 p-3">
+		<View className="w-full max-w-[360px] gap-3 rounded-2xl border border-border bg-card/70 p-3">
 			<View className="flex-row gap-2">
 				<SegmentButton
 					label="Chat"
@@ -48,7 +48,11 @@ export function NewWorkspaceControls({
 			</View>
 			{target.kind === "repo" ? (
 				<View className="gap-3">
-					<View className="max-h-40 gap-2">
+					<ScrollView
+						className="max-h-40"
+						contentContainerClassName="gap-2"
+						showsVerticalScrollIndicator={false}
+					>
 						{repositories.map((repo) => (
 							<Pressable
 								key={repo.id}
@@ -92,7 +96,7 @@ export function NewWorkspaceControls({
 								</View>
 							</Pressable>
 						))}
-					</View>
+					</ScrollView>
 					<View className="flex-row gap-2">
 						<SegmentButton
 							label="Worktree"

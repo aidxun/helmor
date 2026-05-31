@@ -87,6 +87,13 @@ pub(super) async fn send_new_workspace_stream(
     authenticate(&headers)?;
     let prompt = require_prompt(&payload.prompt)?;
     let prepared = prepare_new_workspace_send(payload, prompt).await?;
+    crate::ui_sync::publish(&app, crate::ui_sync::UiMutationEvent::WorkspaceListChanged);
+    crate::ui_sync::publish(
+        &app,
+        crate::ui_sync::UiMutationEvent::SessionListChanged {
+            workspace_id: prepared.started.workspace_id.clone(),
+        },
+    );
     Ok(agent_sse_stream(app, prepared.started, prepared.request))
 }
 
@@ -212,8 +219,6 @@ async fn prepare_new_workspace_send(
                 prepared.workspace_id
             )
         })?;
-    let _ =
-        crate::ui_sync::notify_running_app(crate::ui_sync::UiMutationEvent::WorkspaceListChanged);
     let model_id = payload
         .model_id
         .or_else(load_default_model_id)

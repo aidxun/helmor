@@ -113,6 +113,7 @@ export function Conversation({
 	// -- Layout bookkeeping --------------------------------------------------
 
 	const [composerOffsetHeight, setComposerOffsetHeight] = useState(68);
+	const [viewportHeight, setViewportHeight] = useState(0);
 	const composerHeight = useSharedValue(68);
 	const scrollViewHeight = useSharedValue(0);
 	const totalContentHeight = useSharedValue(0);
@@ -144,7 +145,9 @@ export function Conversation({
 	// -- Callbacks -----------------------------------------------------------
 
 	const onScrollViewLayout = useCallback((e: LayoutChangeEvent) => {
-		scrollViewHeight.value = e.nativeEvent.layout.height;
+		const height = e.nativeEvent.layout.height;
+		scrollViewHeight.value = height;
+		setViewportHeight(height);
 	}, []);
 
 	const onScroll = useCallback(
@@ -261,6 +264,7 @@ export function Conversation({
 								paddingHorizontal: 16,
 								paddingTop: 16,
 								paddingBottom: 16,
+								flexGrow: data.length ? undefined : 1,
 							}}
 							keyboardDismissMode="interactive"
 							automaticallyAdjustsScrollIndicatorInsets={false}
@@ -270,11 +274,19 @@ export function Conversation({
 							onScroll={onScroll}
 							scrollEventThrottle={16}
 							onContentSizeChange={onContentSizeChange}
-							ListFooterComponent={
-								<Animated.View style={footerSpacerStyle}>
-									{!data.length && emptyState}
-								</Animated.View>
+							ListEmptyComponent={
+								emptyState ? (
+									<View
+										style={{
+											minHeight: Math.max(240, viewportHeight - 32),
+											justifyContent: "center",
+										}}
+									>
+										{emptyState}
+									</View>
+								) : undefined
 							}
+							ListFooterComponent={<Animated.View style={footerSpacerStyle} />}
 						/>
 					</KeyboardGestureArea>
 
@@ -337,7 +349,7 @@ export function ConversationEmptyState({
 	icon?: string;
 }) {
 	return (
-		<View className="flex-1 justify-center items-center gap-2">
+		<View className="items-center justify-center gap-2">
 			<SymbolImage name={icon} size={48} className="text-muted-foreground" />
 			<Text className="text-xl font-semibold text-foreground">{title}</Text>
 			{description && (

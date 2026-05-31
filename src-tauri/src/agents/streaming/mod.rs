@@ -327,6 +327,7 @@ pub(super) fn stream_via_sidecar(
                     {
                         Ok(()) => {
                             tracing::debug!(rid = %rid, "User message persisted to DB");
+                            publish_session_messages_appended(&app, &ctx.helmor_session_id);
                             exchange_ctx = Some(ctx);
                         }
                         Err(error) => {
@@ -611,7 +612,13 @@ pub(super) fn stream_via_sidecar(
                                     pipeline_state.accumulator.turn_at(persisted_turn_count),
                                     &model_str,
                                 ) {
-                                    Ok(_) => persisted_turn_count += 1,
+                                    Ok(_) => {
+                                        persisted_turn_count += 1;
+                                        publish_session_messages_appended(
+                                            &app,
+                                            &ctx.helmor_session_id,
+                                        );
+                                    }
                                     Err(error) => {
                                         tracing::error!(
                                             turn = persisted_turn_count,
@@ -646,7 +653,12 @@ pub(super) fn stream_via_sidecar(
                                     &resolved_model,
                                     BAD_RESUME_USER_MESSAGE,
                                 ) {
-                                    Ok(_) => {}
+                                    Ok(_) => {
+                                        publish_session_messages_appended(
+                                            &app,
+                                            &ctx.helmor_session_id,
+                                        );
+                                    }
                                     Err(error) => {
                                         tracing::error!(
                                             rid = %rid,
@@ -661,7 +673,13 @@ pub(super) fn stream_via_sidecar(
                                     effort_copy.as_deref(),
                                     turn_session.ctx.permission_mode.as_deref(),
                                 ) {
-                                    Ok(_) => persisted = true,
+                                    Ok(_) => {
+                                        persisted = true;
+                                        publish_session_metadata_changed(
+                                            &app,
+                                            &ctx.helmor_session_id,
+                                        );
+                                    }
                                     Err(error) => {
                                         tracing::error!(
                                             rid = %rid,
@@ -677,7 +695,13 @@ pub(super) fn stream_via_sidecar(
                                     effort_copy.as_deref(),
                                     turn_session.ctx.permission_mode.as_deref(),
                                 ) {
-                                    Ok(_) => persisted = true,
+                                    Ok(_) => {
+                                        persisted = true;
+                                        publish_session_metadata_changed(
+                                            &app,
+                                            &ctx.helmor_session_id,
+                                        );
+                                    }
                                     Err(error) => {
                                         tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
                                     }
@@ -696,7 +720,17 @@ pub(super) fn stream_via_sidecar(
                                     status,
                                     preassigned,
                                 ) {
-                                    Ok(_) => persisted = true,
+                                    Ok(_) => {
+                                        persisted = true;
+                                        publish_session_messages_appended(
+                                            &app,
+                                            &ctx.helmor_session_id,
+                                        );
+                                        publish_session_metadata_changed(
+                                            &app,
+                                            &ctx.helmor_session_id,
+                                        );
+                                    }
                                     Err(error) => {
                                         tracing::error!(rid = %rid, "Failed to finalize exchange: {error}");
                                     }
@@ -845,7 +879,13 @@ pub(super) fn stream_via_sidecar(
                                     pipeline_state.accumulator.turn_at(persisted_turn_count),
                                     &model_str,
                                 ) {
-                                    Ok(_) => persisted_turn_count += 1,
+                                    Ok(_) => {
+                                        persisted_turn_count += 1;
+                                        publish_session_messages_appended(
+                                            &app,
+                                            &ctx.helmor_session_id,
+                                        );
+                                    }
                                     Err(error) => {
                                         tracing::error!(
                                             turn = persisted_turn_count,
@@ -862,15 +902,20 @@ pub(super) fn stream_via_sidecar(
                         let persisted_metadata = if let (Some(ctx), Some(conn)) =
                             (exchange_ctx.as_ref(), writer.as_ref())
                         {
-                            persist_exit_plan_message(
+                            match persist_exit_plan_message(
                                 conn,
                                 ctx,
                                 &resolved_model,
                                 &tool_use_id,
                                 "ExitPlanMode",
                                 &tool_input,
-                            )
-                            .ok()
+                            ) {
+                                Ok(metadata) => {
+                                    publish_session_messages_appended(&app, &ctx.helmor_session_id);
+                                    Some(metadata)
+                                }
+                                Err(_) => None,
+                            }
                         } else {
                             None
                         };
@@ -956,7 +1001,13 @@ pub(super) fn stream_via_sidecar(
                                     pipeline_state.accumulator.turn_at(persisted_turn_count),
                                     &model_str,
                                 ) {
-                                    Ok(_) => persisted_turn_count += 1,
+                                    Ok(_) => {
+                                        persisted_turn_count += 1;
+                                        publish_session_messages_appended(
+                                            &app,
+                                            &ctx.helmor_session_id,
+                                        );
+                                    }
                                     Err(error) => {
                                         tracing::error!(
                                             turn = persisted_turn_count,
@@ -1076,7 +1127,10 @@ pub(super) fn stream_via_sidecar(
                             .unwrap_or_else(|| model_copy.cli_model.to_string());
 
                         match persist_error_message(conn, ctx, &resolved_model, &message) {
-                            Ok(_) => persisted = true,
+                            Ok(_) => {
+                                persisted = true;
+                                publish_session_messages_appended(&app, &ctx.helmor_session_id);
+                            }
                             Err(error) => {
                                 tracing::error!(rid = %rid, "Failed to persist error message: {error}");
                             }
@@ -1090,6 +1144,8 @@ pub(super) fn stream_via_sidecar(
                             turn_session.ctx.permission_mode.as_deref(),
                         ) {
                             tracing::error!(rid = %rid, "Failed to finalize error exchange: {error}");
+                        } else {
+                            publish_session_metadata_changed(&app, &ctx.helmor_session_id);
                         }
                     }
 
@@ -1167,6 +1223,10 @@ pub(super) fn stream_via_sidecar(
                                     ) {
                                         Ok(_) => {
                                             persisted_turn_count += 1;
+                                            publish_session_messages_appended(
+                                                &app,
+                                                &ctx.helmor_session_id,
+                                            );
                                         }
                                         Err(error) => {
                                             tracing::error!(
@@ -1217,6 +1277,41 @@ pub(super) fn stream_via_sidecar(
     });
 
     Ok(())
+}
+
+fn publish_session_messages_appended(app: &AppHandle, session_id: &str) {
+    crate::ui_sync::publish(
+        app,
+        crate::ui_sync::UiMutationEvent::SessionMessagesAppended {
+            session_id: session_id.to_string(),
+        },
+    );
+}
+
+fn publish_session_metadata_changed(app: &AppHandle, session_id: &str) {
+    let workspace_id = crate::models::db::read_conn().ok().and_then(|conn| {
+        conn.query_row(
+            "SELECT workspace_id FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+    });
+
+    if let Some(workspace_id) = workspace_id {
+        crate::ui_sync::publish(
+            app,
+            crate::ui_sync::UiMutationEvent::SessionListChanged {
+                workspace_id: workspace_id.clone(),
+            },
+        );
+        crate::ui_sync::publish(
+            app,
+            crate::ui_sync::UiMutationEvent::WorkspaceChanged { workspace_id },
+        );
+    } else {
+        crate::ui_sync::publish(app, crate::ui_sync::UiMutationEvent::WorkspaceListChanged);
+    }
 }
 
 #[cfg(target_os = "macos")]

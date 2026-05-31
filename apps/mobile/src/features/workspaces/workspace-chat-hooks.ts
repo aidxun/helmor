@@ -72,10 +72,12 @@ export function useDesktopThreadChat({
 	activeDesktop,
 	sessionId,
 	enabled,
+	refreshVersion,
 }: {
 	activeDesktop: DesktopConnection | null;
 	sessionId: string | null;
 	enabled: boolean;
+	refreshVersion?: number;
 }): ThreadChatState {
 	const [input, setInput] = useState("");
 	const [threadMessages, setThreadMessages] = useState<ThreadMessageLike[]>([]);
@@ -124,7 +126,7 @@ export function useDesktopThreadChat({
 			canceled = true;
 			client?.close();
 		};
-	}, [activeDesktop, enabled, sessionId]);
+	}, [activeDesktop, enabled, refreshVersion, sessionId]);
 
 	const messages = useMemo(
 		() => threadMessages.map(threadToChatMessage),

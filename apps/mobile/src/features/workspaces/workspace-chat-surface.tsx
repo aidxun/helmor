@@ -74,6 +74,7 @@ function WorkspaceChatContent({
 		setNewWorkspaceTarget,
 		selectCreatedWorkspace,
 		refreshWorkspaces,
+		threadRefreshVersion,
 	} = useWorkspaces();
 	const needsFallbackSession = Boolean(
 		activeDesktop &&
@@ -94,6 +95,7 @@ function WorkspaceChatContent({
 	const desktopChat = useDesktopThreadChat({
 		activeDesktop,
 		sessionId: effectiveSessionId,
+		refreshVersion: threadRefreshVersion,
 		enabled: Boolean(
 			activeDesktop && effectiveSessionId && !isNewWorkspaceDraft,
 		),
@@ -105,11 +107,18 @@ function WorkspaceChatContent({
 		},
 		[refreshWorkspaces, selectCreatedWorkspace],
 	);
+	const handleNewWorkspaceStarted = useCallback(
+		(workspaceId: string, sessionId: string) => {
+			selectCreatedWorkspace(workspaceId, sessionId);
+			void refreshWorkspaces();
+		},
+		[refreshWorkspaces, selectCreatedWorkspace],
+	);
 	const newWorkspaceChat = useNewWorkspaceThreadChat({
 		activeDesktop,
 		target: newWorkspaceTarget,
 		enabled: Boolean(activeDesktop && isNewWorkspaceDraft),
-		onStarted: () => {},
+		onStarted: handleNewWorkspaceStarted,
 		onCompleted: handleNewWorkspaceCompleted,
 	});
 	const mockChat = useMockChatState();
@@ -147,14 +156,7 @@ function WorkspaceChatContent({
 				estimatedItemSize={128}
 				onScrolledFromTopChange={onScrolledFromTopChange}
 				emptyState={
-					<View className="gap-4">
-						{isNewWorkspaceDraft && (
-							<NewWorkspaceControls
-								repositories={repositories}
-								target={newWorkspaceTarget}
-								onChangeTarget={setNewWorkspaceTarget}
-							/>
-						)}
+					<View className="w-full items-center justify-center gap-6">
 						<ConversationEmptyState
 							title={
 								chatLoading
@@ -175,6 +177,13 @@ function WorkspaceChatContent({
 											: "Select a workspace from the drawer"
 							}
 						/>
+						{isNewWorkspaceDraft && (
+							<NewWorkspaceControls
+								repositories={repositories}
+								target={newWorkspaceTarget}
+								onChangeTarget={setNewWorkspaceTarget}
+							/>
+						)}
 					</View>
 				}
 			>

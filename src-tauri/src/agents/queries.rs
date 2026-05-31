@@ -253,9 +253,10 @@ pub async fn generate_session_title(
             tauri::async_runtime::spawn_blocking({
                 let rid = request_id;
                 let session_id_for_logs = session_id_for_task;
+                let app_for_task = app.clone();
                 move || {
                     let sidecar_state: tauri::State<'_, crate::sidecar::ManagedSidecar> =
-                        app.state();
+                        app_for_task.state();
                     let mut title: Option<String> = None;
                     let mut branch_name: Option<String> = None;
 
@@ -361,6 +362,7 @@ pub async fn generate_session_title(
                 crate::sessions::rename_session(&session_id, title)
                     .map_err(|e| anyhow::anyhow!("Failed to rename session: {e}"))?;
                 title_renamed = true;
+                publish_session_title_changed(&app, &session_id);
                 tracing::debug!(
                     session_id = %session_id,
                     title,
@@ -493,6 +495,30 @@ pub async fn generate_session_title(
         branch_renamed,
         skipped: false,
     })
+}
+
+fn publish_session_title_changed(app: &AppHandle, session_id: &str) {
+    let workspace_id = crate::models::db::read_conn().ok().and_then(|conn| {
+        conn.query_row(
+            "SELECT workspace_id FROM sessions WHERE id = ?1",
+            [session_id],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+    });
+
+    if let Some(workspace_id) = workspace_id {
+        crate::ui_sync::publish(
+            app,
+            crate::ui_sync::UiMutationEvent::SessionListChanged {
+                workspace_id: workspace_id.clone(),
+            },
+        );
+        crate::ui_sync::publish(
+            app,
+            crate::ui_sync::UiMutationEvent::WorkspaceChanged { workspace_id },
+        );
+    }
 }
 
 /// If `base` already exists as a local branch, try `base-2`, `base-3`, …

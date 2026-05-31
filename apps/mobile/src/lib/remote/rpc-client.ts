@@ -8,6 +8,7 @@ import type {
 	SendNewWorkspaceStreamRequest,
 	SessionThreadMessagesPage,
 	SessionThreadPageRequest,
+	UiMutationEnvelope,
 	WorkspaceSessionSummary,
 	WorkspaceSnapshot,
 } from "./types";
@@ -86,10 +87,11 @@ export class DesktopRpcClient {
 		request: SendMessageStreamRequest,
 		onEvent: (event: CompanionStreamEvent) => void,
 	): Promise<void> {
-		await this.streamRequest(
+		await this.streamRequest<CompanionStreamEvent>(
 			`/v1/sessions/${encodeURIComponent(sessionId)}/send/stream`,
 			request,
 			onEvent,
+			{ parseErrorEvent: companionParseErrorEvent },
 		);
 	}
 
@@ -97,7 +99,23 @@ export class DesktopRpcClient {
 		request: SendNewWorkspaceStreamRequest,
 		onEvent: (event: CompanionStreamEvent) => void,
 	): Promise<void> {
-		await this.streamRequest("/v1/workspaces/send/stream", request, onEvent);
+		await this.streamRequest<CompanionStreamEvent>(
+			"/v1/workspaces/send/stream",
+			request,
+			onEvent,
+			{ parseErrorEvent: companionParseErrorEvent },
+		);
+	}
+
+	async streamUiMutations(
+		onEvent: (event: UiMutationEnvelope) => void,
+		signal?: AbortSignal,
+	): Promise<void> {
+		await this.streamRequest<UiMutationEnvelope>("/v1/stream", null, onEvent, {
+			method: "GET",
+			accept: "text/event-stream",
+			signal,
+		});
 	}
 
 	close() {}
@@ -121,25 +139,32 @@ export class DesktopRpcClient {
 		return (await response.json()) as T;
 	}
 
-	private async streamRequest(
+	private async streamRequest<T>(
 		path: string,
-		body: unknown,
-		onEvent: (event: CompanionStreamEvent) => void,
+		body: unknown | null,
+		onEvent: (event: T) => void,
+		options: {
+			method?: "GET" | "POST";
+			accept?: string;
+			signal?: AbortSignal;
+			parseErrorEvent?: (message: string) => T;
+		} = {},
 	): Promise<void> {
 		const response = await fetch(`${this.baseUrl}${path}`, {
-			method: "POST",
+			method: options.method ?? "POST",
 			headers: {
-				Accept: "text/event-stream",
+				Accept: options.accept ?? "text/event-stream",
 				Authorization: `Bearer ${this.connection.pat}`,
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify(body),
+			body: body === null ? undefined : JSON.stringify(body),
+			signal: options.signal,
 		});
 		if (!response.ok) {
 			throw new Error(await responseError(response));
 		}
 
-		const parser = createSseParser(onEvent);
+		const parser = createSseParser(onEvent, options.parseErrorEvent);
 		const stream = response.body;
 		if (stream && "getReader" in stream) {
 			const reader = stream.getReader();
@@ -195,7 +220,10 @@ async function responseError(response: Response): Promise<string> {
 	return `Companion request failed with ${response.status}`;
 }
 
-function createSseParser(onEvent: (event: CompanionStreamEvent) => void) {
+function createSseParser<T>(
+	onEvent: (event: T) => void,
+	parseErrorEvent?: (message: string) => T,
+) {
 	let buffer = "";
 	let dataLines: string[] = [];
 
@@ -204,15 +232,12 @@ function createSseParser(onEvent: (event: CompanionStreamEvent) => void) {
 		const data = dataLines.join("\n");
 		dataLines = [];
 		try {
-			onEvent(JSON.parse(data) as CompanionStreamEvent);
+			onEvent(JSON.parse(data) as T);
 		} catch (error) {
-			onEvent({
-				kind: "error",
-				message:
-					error instanceof Error
-						? error.message
-						: "Failed to parse stream event",
-			});
+			const message =
+				error instanceof Error ? error.message : "Failed to parse stream event";
+			if (!parseErrorEvent) throw error;
+			onEvent(parseErrorEvent(message));
 		}
 	}
 
@@ -241,5 +266,12 @@ function createSseParser(onEvent: (event: CompanionStreamEvent) => void) {
 			}
 			emit();
 		},
+	};
+}
+
+function companionParseErrorEvent(message: string): CompanionStreamEvent {
+	return {
+		kind: "error",
+		message,
 	};
 }

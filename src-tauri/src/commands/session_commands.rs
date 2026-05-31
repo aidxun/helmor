@@ -1,8 +1,9 @@
 use anyhow::Context;
+use tauri::AppHandle;
 
 use crate::{
     agents::{self, ActionKind},
-    db, pipeline, sessions,
+    db, pipeline, sessions, ui_sync,
 };
 
 use super::common::{run_blocking, CmdResult};
@@ -66,8 +67,24 @@ pub async fn create_session(
 }
 
 #[tauri::command]
-pub async fn rename_session(session_id: String, title: String) -> CmdResult<()> {
-    run_blocking(move || sessions::rename_session(&session_id, &title)).await
+pub async fn rename_session(app: AppHandle, session_id: String, title: String) -> CmdResult<()> {
+    let workspace_id = run_blocking(move || {
+        let workspace_id = session_workspace_id(&session_id)?;
+        sessions::rename_session(&session_id, &title)?;
+        Ok(workspace_id)
+    })
+    .await?;
+    ui_sync::publish(
+        &app,
+        ui_sync::UiMutationEvent::SessionListChanged {
+            workspace_id: workspace_id.clone(),
+        },
+    );
+    ui_sync::publish(
+        &app,
+        ui_sync::UiMutationEvent::WorkspaceChanged { workspace_id },
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -90,6 +107,16 @@ pub async fn list_hidden_sessions(
     workspace_id: String,
 ) -> CmdResult<Vec<sessions::WorkspaceSessionSummary>> {
     run_blocking(move || sessions::list_hidden_sessions(&workspace_id)).await
+}
+
+fn session_workspace_id(session_id: &str) -> anyhow::Result<String> {
+    let conn = db::read_conn()?;
+    conn.query_row(
+        "SELECT workspace_id FROM sessions WHERE id = ?1",
+        [session_id],
+        |row| row.get(0),
+    )
+    .with_context(|| format!("Failed to load workspace for session {session_id}"))
 }
 
 #[tauri::command]

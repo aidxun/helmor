@@ -143,3 +143,21 @@ export type CompanionStreamEvent =
 	| ({ kind: "started" } & SendStreamStarted)
 	| { kind: "agent"; event: AgentStreamEvent }
 	| { kind: "error"; message: string };
+
+export type UiMutationEvent =
+	| { type: "workspaceListChanged" }
+	| { type: "workspaceChanged"; workspaceId: string }
+	| { type: "sessionListChanged"; workspaceId: string }
+	| { type: "sessionMessagesAppended"; sessionId: string }
+	| { type: "contextUsageChanged"; sessionId: string }
+	| { type: "codexGoalChanged"; sessionId: string }
+	| { type: "activeStreamsChanged" }
+	| { type: "repositoryListChanged" }
+	| { type: "repositoryChanged"; repoId: string }
+	| { type: "settingsChanged"; key?: string | null }
+	| { type: string; [key: string]: unknown };
+
+export type UiMutationEnvelope = {
+	version: number;
+	event: UiMutationEvent;
+};
