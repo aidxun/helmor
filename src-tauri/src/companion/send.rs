@@ -193,32 +193,6 @@ fn build_title_seed(prompt: &str) -> String {
     seed
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn repo_send_target_accepts_mobile_camel_case_payload() {
-        let payload: SendNewWorkspaceParams = serde_json::from_value(serde_json::json!({
-            "prompt": "fix this",
-            "target": {
-                "kind": "repo",
-                "repoId": "repo-1",
-                "mode": "worktree"
-            }
-        }))
-        .expect("mobile repo target should deserialize");
-
-        match payload.target {
-            SendWorkspaceTarget::Repo { repo_id, mode } => {
-                assert_eq!(repo_id, "repo-1");
-                assert_eq!(mode, WorkspaceMode::Worktree);
-            }
-            SendWorkspaceTarget::Chat => panic!("expected repo target"),
-        }
-    }
-}
-
 fn prepare_existing_session_send(
     session_id: &str,
     payload: SendMessageParams,
@@ -358,4 +332,30 @@ async fn prepare_new_workspace_send(
             images: None,
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_send_target_accepts_mobile_camel_case_payload() {
+        let payload: SendNewWorkspaceParams = serde_json::from_value(serde_json::json!({
+            "prompt": "fix this",
+            "target": {
+                "kind": "repo",
+                "repoId": "repo-1",
+                "mode": "worktree"
+            }
+        }))
+        .expect("mobile repo target should deserialize");
+
+        match payload.target {
+            SendWorkspaceTarget::Repo { repo_id, mode } => {
+                assert_eq!(repo_id, "repo-1");
+                assert_eq!(mode, WorkspaceMode::Worktree);
+            }
+            SendWorkspaceTarget::Chat => panic!("expected repo target"),
+        }
+    }
 }

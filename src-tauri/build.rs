@@ -8,6 +8,7 @@ const UPDATER_PUBKEY_KEY: &str = "HELMOR_UPDATER_PUBKEY";
 
 fn main() {
     ensure_external_bin_placeholders();
+    ensure_mobile_web_placeholder();
 
     println!("cargo:rerun-if-changed=build.rs");
     for key in [
@@ -31,6 +32,21 @@ fn main() {
     }
 
     tauri_build::build();
+}
+
+fn ensure_mobile_web_placeholder() {
+    let manifest_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR should be set"));
+    let Some(repo_root) = manifest_dir.parent() else {
+        return;
+    };
+    let mobile_dir = repo_root.join("dist").join("mobile");
+    let index = mobile_dir.join("index.html");
+    if index.exists() {
+        return;
+    }
+    let _ = fs::create_dir_all(&mobile_dir);
+    let _ = fs::write(index, "<!doctype html><title>Helmor Mobile</title>\n");
 }
 
 fn ensure_external_bin_placeholders() {

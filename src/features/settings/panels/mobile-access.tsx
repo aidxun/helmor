@@ -52,6 +52,7 @@ export function MobileAccessPanel() {
 	const [message, setMessage] = useState<StatusMessage | null>(null);
 	const [isBusy, setIsBusy] = useState(false);
 	const [didCopyPairingUrl, setDidCopyPairingUrl] = useState(false);
+	const [didCopyWebUrl, setDidCopyWebUrl] = useState(false);
 	const isByoConfigComplete = isCompleteByoConfig(byoConfig);
 
 	const refresh = useCallback(async () => {
@@ -68,9 +69,17 @@ export function MobileAccessPanel() {
 			base64UrlEncode(JSON.stringify(compactPairingPayload(pairing))),
 		)}`;
 	}, [pairing]);
+	const pairingWebUrl = useMemo(() => {
+		if (!pairing) return null;
+		const host = normalizeCompanionHost(pairing.host);
+		return `${host}/mobile/#p=${encodeURIComponent(
+			base64UrlEncode(JSON.stringify(compactPairingPayload(pairing))),
+		)}`;
+	}, [pairing]);
 
 	useEffect(() => {
 		setDidCopyPairingUrl(false);
+		setDidCopyWebUrl(false);
 	}, [pairingUrl]);
 
 	async function runBusy(action: () => Promise<void>) {
@@ -261,21 +270,24 @@ export function MobileAccessPanel() {
 					>
 						Show QR
 					</Button>
-					{pairing && pairingUrl ? (
-						<div className="flex flex-col items-end gap-2">
-							<div className="rounded-lg bg-white p-3">
-								<QrCodeBoundary resetKey={pairingUrl}>
-									<MobilePairingQr value={pairingUrl} size={208} />
-								</QrCodeBoundary>
-							</div>
-							<Button
-								type="button"
-								size="sm"
-								variant="ghost"
-								onClick={() => void handleCopyPairingUrl(pairingUrl)}
-							>
-								{didCopyPairingUrl ? "Copied" : "Copy link"}
-							</Button>
+					{pairing && pairingUrl && pairingWebUrl ? (
+						<div className="grid grid-cols-2 gap-3">
+							<PairingQrCard
+								label="Mobile app"
+								value={pairingUrl}
+								copied={didCopyPairingUrl}
+								onCopy={() =>
+									void handleCopyPairingUrl(pairingUrl, setDidCopyPairingUrl)
+								}
+							/>
+							<PairingQrCard
+								label="Mobile web"
+								value={pairingWebUrl}
+								copied={didCopyWebUrl}
+								onCopy={() =>
+									void handleCopyPairingUrl(pairingWebUrl, setDidCopyWebUrl)
+								}
+							/>
 						</div>
 					) : null}
 				</div>
@@ -355,15 +367,44 @@ export function MobileAccessPanel() {
 		</SettingsGroup>
 	);
 
-	async function handleCopyPairingUrl(pairingUrl: string) {
+	async function handleCopyPairingUrl(
+		pairingUrl: string,
+		setCopied: (copied: boolean) => void,
+	) {
 		setError(null);
 		try {
 			await navigator.clipboard.writeText(pairingUrl);
-			setDidCopyPairingUrl(true);
+			setCopied(true);
 		} catch (err) {
 			setError(errorMessage(err));
 		}
 	}
+}
+
+function PairingQrCard({
+	label,
+	value,
+	copied,
+	onCopy,
+}: {
+	label: string;
+	value: string;
+	copied: boolean;
+	onCopy: () => void;
+}) {
+	return (
+		<div className="flex flex-col items-center gap-2">
+			<div className="text-nano font-medium text-muted-foreground">{label}</div>
+			<div className="rounded-lg bg-white p-3">
+				<QrCodeBoundary resetKey={value}>
+					<MobilePairingQr value={value} size={184} />
+				</QrCodeBoundary>
+			</div>
+			<Button type="button" size="sm" variant="ghost" onClick={onCopy}>
+				{copied ? "Copied" : "Copy link"}
+			</Button>
+		</div>
+	);
 }
 
 function CompanionInput({
@@ -455,6 +496,14 @@ function compactPairingPayload(pairing: CompanionPairingPayload) {
 		i: pairing.deviceId,
 		s: pairing.stable,
 	};
+}
+
+function normalizeCompanionHost(host: string): string {
+	const trimmed = host.trim().replace(/\/+$/, "");
+	if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+		return trimmed;
+	}
+	return `https://${trimmed}`;
 }
 
 function utf8Bytes(value: string): number[] {

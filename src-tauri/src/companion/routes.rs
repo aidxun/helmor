@@ -6,7 +6,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{
         sse::{Event, KeepAlive, Sse},
-        IntoResponse, Response,
+        IntoResponse, Redirect, Response,
     },
     routing::{get, post},
     Json, Router,
@@ -17,7 +17,10 @@ use tokio_stream::{wrappers::UnboundedReceiverStream, Stream, StreamExt};
 use uuid::Uuid;
 
 use crate::{
-    companion::send::{send_new_workspace_stream, send_session_stream},
+    companion::{
+        mobile_web,
+        send::{send_new_workspace_stream, send_session_stream},
+    },
     mobile_rpc,
     models::{paired_devices, repos, sessions},
     ui_sync::{UiMutationEnvelope, UiSyncManager},
@@ -25,6 +28,9 @@ use crate::{
 
 pub fn router(app: AppHandle) -> Router {
     Router::new()
+        .route("/mobile", get(|| async { Redirect::permanent("/mobile/") }))
+        .route("/mobile/", get(mobile_web::serve_index))
+        .route("/mobile/{*path}", get(mobile_web::serve_asset))
         .route("/v1/health", get(health))
         .route("/v1/repositories", get(repositories))
         .route("/v1/workspaces", get(workspaces))
