@@ -17,15 +17,19 @@ use crate::{
 };
 
 /// Resolve the on-disk path a workspace operates against. Worktree
-/// workspaces live under the helmor data dir; Local workspaces operate
+/// workspaces use their frozen `worktree_path` when present, falling
+/// back to the legacy Helmor data-dir layout; Local workspaces operate
 /// directly on the source repo's root path; Chat workspaces store
 /// their relative scratch path (`"YYYY-MM-DD/new-chat[-N]"`) in
 /// `directory_name` and resolve it under the `chats` data dir.
 pub fn workspace_path(record: &WorkspaceRecord) -> Result<PathBuf> {
     match record.mode {
-        WorkspaceMode::Worktree => {
-            crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)
-        }
+        WorkspaceMode::Worktree => non_empty(&record.worktree_path)
+            .map(PathBuf::from)
+            .map(Ok)
+            .unwrap_or_else(|| {
+                crate::data_dir::workspace_dir(&record.repo_name, &record.directory_name)
+            }),
         WorkspaceMode::Local => non_empty(&record.root_path)
             .map(PathBuf::from)
             .with_context(|| format!("Workspace {} (local) is missing repo root_path", record.id)),
@@ -125,6 +129,71 @@ pub fn humanize_directory_name(directory_name: &str) -> String {
 
 pub fn non_empty(value: &Option<String>) -> Option<&str> {
     value.as_deref().filter(|inner| !inner.trim().is_empty())
+}
+
+pub(crate) fn planned_worktree_path(
+    repository: &crate::repos::RepositoryRecord,
+    directory_name: &str,
+) -> Result<PathBuf> {
+    worktree_path_from_settings(
+        &repository.name,
+        directory_name,
+        repository.worktree_parent_path.as_deref(),
+        repository.worktree_directory_template.as_deref(),
+    )
+}
+
+pub fn worktree_path_from_settings(
+    repo_name: &str,
+    directory_name: &str,
+    parent_path: Option<&str>,
+    directory_template: Option<&str>,
+) -> Result<PathBuf> {
+    let parent = match parent_path.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(path) => PathBuf::from(path),
+        None => crate::data_dir::workspaces_dir()?.join(repo_name),
+    };
+    if !parent.is_absolute() {
+        bail!("Custom worktree parent path must be absolute");
+    }
+
+    let child = render_worktree_directory_name(repo_name, directory_name, directory_template)?;
+    Ok(parent.join(child))
+}
+
+fn render_worktree_directory_name(
+    repo_name: &str,
+    directory_name: &str,
+    directory_template: Option<&str>,
+) -> Result<String> {
+    let template = directory_template
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("{directoryName}");
+    if !template.contains("{directoryName}") {
+        bail!("Worktree directory template must include {{directoryName}}");
+    }
+    let rendered = template
+        .replace("{repoName}", repo_name)
+        .replace("{directoryName}", directory_name);
+    if !is_safe_path_component(&rendered) {
+        bail!("Rendered worktree directory name is invalid: {rendered}");
+    }
+    Ok(rendered)
+}
+
+pub fn is_safe_path_component(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        return false;
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return false;
+    }
+    matches!(
+        Path::new(trimmed).components().next(),
+        Some(std::path::Component::Normal(_))
+    ) && Path::new(trimmed).components().count() == 1
 }
 
 pub fn next_available_branch_name(repo_root: &Path, base: &str) -> Result<String> {
@@ -806,15 +875,30 @@ pub fn allocate_chat_workspace_dir() -> Result<(String, PathBuf)> {
     bail!("Unable to allocate a chat workspace directory under {date_dir:?}")
 }
 
-fn lookup_repo_name(connection: &rusqlite::Connection, repo_id: &str) -> Result<Option<String>> {
+struct WorktreeAllocationSettings {
+    repo_name: String,
+    parent_path: Option<String>,
+    directory_template: Option<String>,
+}
+
+fn lookup_worktree_allocation_settings(
+    connection: &rusqlite::Connection,
+    repo_id: &str,
+) -> Result<Option<WorktreeAllocationSettings>> {
     let mut stmt = connection
-        .prepare("SELECT name FROM repos WHERE id = ?1")
-        .context("Failed to prepare repo name lookup")?;
+        .prepare("SELECT name, worktree_parent_path, worktree_directory_template FROM repos WHERE id = ?1")
+        .context("Failed to prepare repo worktree settings lookup")?;
     let mut rows = stmt
-        .query_map([repo_id], |row| row.get::<_, String>(0))
-        .context("Failed to query repo name")?;
+        .query_map([repo_id], |row| {
+            Ok(WorktreeAllocationSettings {
+                repo_name: row.get(0)?,
+                parent_path: row.get(1)?,
+                directory_template: row.get(2)?,
+            })
+        })
+        .context("Failed to query repo worktree settings")?;
     match rows.next() {
-        Some(name) => Ok(Some(name?)),
+        Some(settings) => Ok(Some(settings?)),
         None => Ok(None),
     }
 }
@@ -846,8 +930,9 @@ pub fn allocate_directory_name_with_conn(
     // repo's workspace root. Orphan dirs (DB row gone but folder still on
     // disk) would otherwise cause `prepare → finalize` to fail later with a
     // "target already exists" error.
-    if let Some(repo_name) = lookup_repo_name(connection, repo_id)? {
-        if let Ok(workspaces_root) = crate::data_dir::workspace_dir(&repo_name, "") {
+    let settings = lookup_worktree_allocation_settings(connection, repo_id)?;
+    if let Some(settings) = &settings {
+        if let Ok(workspaces_root) = crate::data_dir::workspace_dir(&settings.repo_name, "") {
             if let Ok(entries) = std::fs::read_dir(&workspaces_root) {
                 for entry in entries.flatten() {
                     if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
@@ -858,12 +943,48 @@ pub fn allocate_directory_name_with_conn(
                 }
             }
         }
+        if settings
+            .parent_path
+            .as_deref()
+            .is_some_and(|path| !path.trim().is_empty())
+        {
+            used.extend(
+                WORKSPACE_NAMES
+                    .iter()
+                    .filter(|name| {
+                        worktree_path_from_settings(
+                            &settings.repo_name,
+                            name,
+                            settings.parent_path.as_deref(),
+                            settings.directory_template.as_deref(),
+                        )
+                        .map(|path| path.exists())
+                        .unwrap_or(false)
+                    })
+                    .map(|name| name.to_ascii_lowercase()),
+            );
+        }
     }
+
+    let candidate_path_exists = |candidate: &str| -> bool {
+        settings
+            .as_ref()
+            .and_then(|settings| {
+                worktree_path_from_settings(
+                    &settings.repo_name,
+                    candidate,
+                    settings.parent_path.as_deref(),
+                    settings.directory_template.as_deref(),
+                )
+                .ok()
+            })
+            .is_some_and(|path| path.exists())
+    };
 
     // Collect available names (not yet used) and pick one randomly
     let available: Vec<&&str> = WORKSPACE_NAMES
         .iter()
-        .filter(|name| !used.contains(**name))
+        .filter(|name| !used.contains(**name) && !candidate_path_exists(name))
         .collect();
 
     if let Some(name) = available.choose(&mut rand::rng()) {
@@ -875,7 +996,9 @@ pub fn allocate_directory_name_with_conn(
         let versioned: Vec<String> = WORKSPACE_NAMES
             .iter()
             .map(|name| format!("{name}-v{version}"))
-            .filter(|candidate| !used.contains(candidate.as_str()))
+            .filter(|candidate| {
+                !used.contains(candidate.as_str()) && !candidate_path_exists(candidate)
+            })
             .collect();
 
         if let Some(name) = versioned.choose(&mut rand::rng()) {
@@ -891,6 +1014,7 @@ mod tests {
     use super::*;
     use crate::workspace_pr_sync::PrSyncState;
     use crate::workspace_status::WorkspaceStatus;
+    use std::path::PathBuf;
 
     fn fixture_record(mode: WorkspaceMode, root_path: Option<String>) -> WorkspaceRecord {
         WorkspaceRecord {
@@ -900,6 +1024,7 @@ mod tests {
             remote_url: None,
             default_branch: Some("main".to_string()),
             root_path,
+            worktree_path: None,
             directory_name: "cebu".to_string(),
             state: crate::workspace_state::WorkspaceState::Ready,
             has_unread: false,
@@ -952,6 +1077,30 @@ mod tests {
             temp.path().join("workspaces").join("demo").join("cebu")
         );
         std::env::remove_var("HELMOR_DATA_DIR");
+    }
+
+    #[test]
+    fn workspace_path_for_worktree_prefers_stored_path() {
+        let stored = "/tmp/custom-worktree".to_string();
+        let mut record = fixture_record(WorkspaceMode::Worktree, None);
+        record.worktree_path = Some(stored.clone());
+        let path = workspace_path(&record).unwrap();
+        assert_eq!(path, PathBuf::from(stored));
+    }
+
+    #[test]
+    fn worktree_path_from_settings_applies_parent_and_template() {
+        let path = worktree_path_from_settings(
+            "com.xiaomi.robovac",
+            "whirlpool",
+            Some("/tmp/miot-plugin-sdk/projects"),
+            Some("{repoName}-{directoryName}"),
+        )
+        .unwrap();
+        assert_eq!(
+            path,
+            PathBuf::from("/tmp/miot-plugin-sdk/projects/com.xiaomi.robovac-whirlpool")
+        );
     }
 
     #[test]

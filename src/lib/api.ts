@@ -240,6 +240,8 @@ export type RepositoryCreateOption = {
 	 * backend resolver — keeps legacy rows behaving as before. */
 	branchPrefixType?: BranchPrefixType | null;
 	branchPrefixCustom?: string | null;
+	worktreeParentPath?: string | null;
+	worktreeDirectoryTemplate?: string | null;
 	forgeProvider?: ForgeProvider | null;
 	/** gh/glab account login bound to this repo, or null when none had
 	 * access at add-time. UI shows a "Connect" prompt when null. */
@@ -972,6 +974,18 @@ export async function updateRepositoryBranchPrefix(
 		repoId,
 		branchPrefixType,
 		branchPrefixCustom,
+	});
+}
+
+export async function updateRepositoryWorktreeLocation(
+	repoId: string,
+	parentPath: string | null,
+	directoryTemplate: string | null,
+): Promise<void> {
+	await invoke<void>("update_repository_worktree_location", {
+		repoId,
+		parentPath,
+		directoryTemplate,
 	});
 }
 

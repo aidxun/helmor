@@ -1420,41 +1420,21 @@ pub fn record_to_detail(record: WorkspaceRecord) -> WorkspaceDetail {
 ///
 /// Returns the number of workspaces that were degraded.
 pub fn purge_orphaned_workspaces() -> Result<usize> {
-    let connection = db::read_conn()?;
-    // Local workspaces' "directory" IS the user's repo root — we never
-    // consider those orphaned, even if `r.root_path` is currently
-    // missing (the user might be on a removable drive). Filter them out
-    // server-side via `w.mode = 'worktree'`.
-    let mut stmt = connection.prepare(&format!(
-        "SELECT w.id, r.name, w.directory_name, w.state
-         FROM workspaces w
-         JOIN repos r ON r.id = w.repository_id
-         WHERE w.state {} AND COALESCE(w.mode, 'worktree') = 'worktree'",
-        crate::workspace_state::OPERATIONAL_FILTER
-    ))?;
-    let orphans: Vec<(String, String, String, WorkspaceState)> = stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, WorkspaceState>(3)?,
-            ))
-        })?
-        .filter_map(|r| r.ok())
-        .filter(|(_, repo_name, dir_name, _)| {
-            crate::data_dir::workspace_dir(repo_name, dir_name)
-                .map(|p| !p.is_dir())
-                .unwrap_or(false)
-        })
-        .collect();
-    // Release the read connection so `degrade_workspace_to_archived`
-    // (which takes a write conn) doesn't deadlock on SQLite.
-    drop(stmt);
-    drop(connection);
+    let orphans: Vec<(String, String, WorkspaceState)> =
+        workspace_models::load_workspace_records()?
+            .into_iter()
+            .filter(|record| {
+                record.state.is_operational()
+                    && record.mode == crate::workspace_state::WorkspaceMode::Worktree
+            })
+            .filter_map(|record| {
+                let path = helpers::workspace_path(&record).ok()?;
+                (!path.is_dir()).then_some((record.id, path.display().to_string(), record.state))
+            })
+            .collect();
 
     let mut count = 0;
-    for (id, repo_name, dir_name, state) in &orphans {
+    for (id, path, state) in &orphans {
         // Defense in depth: even if the SQL filter ever regresses, never
         // re-archive something that's already archived.
         if *state == WorkspaceState::Archived {
@@ -1469,7 +1449,7 @@ pub fn purge_orphaned_workspaces() -> Result<usize> {
                 count += 1;
                 tracing::info!(
                     workspace_id = %id,
-                    path = %format!("{}/{}", repo_name, dir_name),
+                    path = %path,
                     "Degraded orphaned workspace to archived (directory missing; chat history preserved)"
                 );
             }
@@ -1512,23 +1492,12 @@ pub fn degrade_workspace_to_archived(workspace_id: &str) -> Result<bool> {
 /// Permanently delete a workspace and all its data (sessions, messages)
 /// from the database, plus any filesystem artifacts (worktree directory).
 pub fn permanently_delete_workspace(workspace_id: &str) -> Result<()> {
+    let record = workspace_models::load_workspace_record_by_id(workspace_id)?;
+    let cleanup_path = record
+        .as_ref()
+        .filter(|record| record.mode != crate::workspace_state::WorkspaceMode::Local)
+        .and_then(|record| helpers::workspace_path(record).ok());
     let mut connection = db::write_conn()?;
-
-    // Load workspace info for filesystem cleanup. Skips the dir delete
-    // step for local-mode rows (whose "dir" is the user's repo root).
-    let record: Option<(
-        String,
-        String,
-        WorkspaceState,
-        crate::workspace_state::WorkspaceMode,
-    )> = connection
-        .query_row(
-            "SELECT r.name, w.directory_name, w.state, COALESCE(w.mode, 'worktree')
-                 FROM workspaces w JOIN repos r ON r.id = w.repository_id WHERE w.id = ?1",
-            [workspace_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .ok();
 
     // Delete all DB records in a transaction. Paste-cache buckets owned
     // by deleted sessions are reclaimed on next boot by
@@ -1570,27 +1539,8 @@ pub fn permanently_delete_workspace(workspace_id: &str) -> Result<()> {
     //   Local: it's the user's repo, never delete it.
     //   Chat: own scratch dir under <data_dir>/chats/<date>/<name>,
     //         safe to wipe.
-    if let Some((repo_name, directory_name, _state, mode)) = record {
-        match mode {
-            crate::workspace_state::WorkspaceMode::Worktree => {
-                if let Ok(ws_dir) = crate::data_dir::workspace_dir(&repo_name, &directory_name) {
-                    if ws_dir.is_dir() {
-                        std::fs::remove_dir_all(&ws_dir).ok();
-                    }
-                }
-            }
-            crate::workspace_state::WorkspaceMode::Chat => {
-                if let Ok(chats_root) = crate::data_dir::chats_dir() {
-                    let ws_dir = chats_root.join(&directory_name);
-                    if ws_dir.is_dir() {
-                        std::fs::remove_dir_all(&ws_dir).ok();
-                    }
-                }
-            }
-            crate::workspace_state::WorkspaceMode::Local => {
-                // User-owned dir — never touch.
-            }
-        }
+    if let Some(ws_dir) = cleanup_path.filter(|path| path.is_dir()) {
+        std::fs::remove_dir_all(&ws_dir).ok();
     }
 
     Ok(())

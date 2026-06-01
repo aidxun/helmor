@@ -465,6 +465,11 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             .context("Failed to add branch_prefix_type column")?;
     }
 
+    if has_table(connection, "repos") {
+        add_column_if_missing(connection, "repos", "worktree_parent_path", "TEXT")?;
+        add_column_if_missing(connection, "repos", "worktree_directory_template", "TEXT")?;
+    }
+
     if has_table(connection, "workspaces") && !has_column(connection, "workspaces", "pr_sync_state")
     {
         connection
@@ -677,6 +682,10 @@ fn run_migrations(connection: &Connection) -> Result<()> {
         connection
             .execute_batch("ALTER TABLE workspaces ADD COLUMN mode TEXT DEFAULT 'worktree'")
             .context("Failed to add workspaces.mode column")?;
+    }
+
+    if has_table(connection, "workspaces") {
+        add_column_if_missing(connection, "workspaces", "worktree_path", "TEXT")?;
     }
 
     // Tracks the last successful run of the repo's setup script for this
@@ -921,6 +930,8 @@ CREATE TABLE IF NOT EXISTS repos (
     forge_login TEXT,
     branch_prefix_type TEXT,
     branch_prefix_custom TEXT,
+    worktree_parent_path TEXT,
+    worktree_directory_template TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -960,6 +971,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
     archive_commit TEXT,
     linked_directory_paths TEXT,
     mode TEXT DEFAULT 'worktree',
+    worktree_path TEXT,
     setup_completed_at TEXT,
     display_order INTEGER NOT NULL DEFAULT 0,
     port_base INTEGER,

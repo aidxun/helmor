@@ -905,6 +905,53 @@ fn finalize_workspace_transitions_initializing_to_ready_and_creates_worktree() {
 }
 
 #[test]
+fn finalize_workspace_uses_custom_repo_worktree_location() {
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let harness = CreateTestHarness::new();
+    let custom_parent = harness.root.join("miot-plugin-sdk").join("projects");
+
+    repos::update_repository_worktree_location(
+        &harness.repo_id,
+        Some(custom_parent.to_str().unwrap()),
+        Some("{repoName}-{directoryName}"),
+    )
+    .unwrap();
+
+    let prepared = workspaces::prepare_workspace_from_repo_impl(
+        &harness.repo_id,
+        None,
+        WorkspaceBranchIntent::FromBranch,
+        WorkspaceStatus::InProgress,
+        None,
+    )
+    .unwrap();
+    let custom_workspace_dir =
+        custom_parent.join(format!("{}-{}", harness.repo_name, prepared.directory_name));
+
+    let connection = Connection::open(harness.db_path()).unwrap();
+    let stored_path: String = connection
+        .query_row(
+            "SELECT worktree_path FROM workspaces WHERE id = ?1",
+            [&prepared.workspace_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored_path, custom_workspace_dir.display().to_string());
+    assert!(!harness.workspace_dir(&prepared.directory_name).exists());
+
+    let finalized = workspaces::finalize_workspace_from_repo_impl(&prepared.workspace_id).unwrap();
+
+    assert_eq!(
+        finalized.working_directory,
+        custom_workspace_dir.display().to_string()
+    );
+    assert!(custom_workspace_dir.join(".git").exists());
+    assert!(!harness.workspace_dir(&prepared.directory_name).exists());
+}
+
+#[test]
 fn finalize_workspace_reports_setup_pending_when_helmor_json_has_setup() {
     let _guard = TEST_LOCK
         .lock()

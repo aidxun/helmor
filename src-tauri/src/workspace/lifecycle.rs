@@ -213,6 +213,9 @@ pub fn prepare_workspace_from_repo_impl(
     let workspace_id = uuid::Uuid::new_v4().to_string();
     let session_id = resolve_seed_session_id(seed_session_id);
     let timestamp = db::current_timestamp()?;
+    let worktree_path = helpers::planned_worktree_path(&repository, &directory_name)?
+        .display()
+        .to_string();
 
     workspace_models::insert_initializing_workspace_and_session(
         &repository,
@@ -223,6 +226,7 @@ pub fn prepare_workspace_from_repo_impl(
         &base_branch,
         branch_intent,
         initial_status,
+        Some(&worktree_path),
         &timestamp,
     )?;
 
@@ -362,6 +366,7 @@ pub fn prepare_local_workspace_impl(
         crate::workspace_state::WorkspaceMode::Local,
         WorkspaceBranchIntent::UseBranch,
         initial_status,
+        None,
         &timestamp,
     )?;
 
@@ -577,6 +582,11 @@ pub fn finalize_workspace_from_repo_impl(workspace_id: &str) -> Result<FinalizeW
         }
 
         git_ops::ensure_git_repository(&repo_root)?;
+        if let Some(parent) = workspace_dir.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create worktree parent {}", parent.display())
+            })?;
+        }
 
         match record.branch_intent {
             WorkspaceBranchIntent::FromBranch => {
@@ -738,7 +748,7 @@ pub fn move_local_workspace_to_worktree_impl(
     let directory_name = helpers::allocate_directory_name_for_repo(&record.repo_id)?;
     let branch_settings = repos::load_repo_branch_prefix_settings(&record.repo_id)?;
     let new_branch = helpers::branch_name_for_directory(&directory_name, &branch_settings);
-    let workspace_dir = crate::data_dir::workspace_dir(&repository.name, &directory_name)?;
+    let workspace_dir = helpers::planned_worktree_path(&repository, &directory_name)?;
 
     if workspace_dir.exists() {
         bail!(
@@ -752,6 +762,11 @@ pub fn move_local_workspace_to_worktree_impl(
 
     let result: Result<()> = (|| {
         // 3. Create the worktree from the captured commit.
+        if let Some(parent) = workspace_dir.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create worktree parent {}", parent.display())
+            })?;
+        }
         git_ops::create_worktree_from_start_point(
             &repo_root,
             &workspace_dir,
@@ -814,6 +829,7 @@ pub fn move_local_workspace_to_worktree_impl(
     workspace_models::convert_to_worktree(
         workspace_id,
         &directory_name,
+        &workspace_dir.display().to_string(),
         &new_branch,
         // target = source (matches the existing "branch from X, PR back to X" default).
         &head_branch,

@@ -37,6 +37,8 @@ pub struct RepositoryCreateOption {
     /// `Username` by the resolver, matching the explicit default.
     pub branch_prefix_type: Option<crate::settings::BranchPrefixType>,
     pub branch_prefix_custom: Option<String>,
+    pub worktree_parent_path: Option<String>,
+    pub worktree_directory_template: Option<String>,
     pub forge_provider: Option<String>,
     /// gh/glab account login bound to this repo. NULL when no logged-in
     /// account had access at add-repo time; UI surfaces a "Connect"
@@ -94,6 +96,8 @@ pub(crate) struct RepositoryRecord {
     /// Auto-run the setup script when a workspace is created.
     /// Defaults to true; users disable it from repo settings.
     pub auto_run_setup: bool,
+    pub worktree_parent_path: Option<String>,
+    pub worktree_directory_template: Option<String>,
     /// Cached forge classification ("github" / "gitlab" / "unknown").
     /// NULL for repos created before the detection feature — the loader
     /// re-runs detection on demand in that case.
@@ -121,7 +125,9 @@ pub fn list_repositories() -> Result<Vec<RepositoryCreateOption>> {
               forge_provider,
               forge_login,
               branch_prefix_type,
-              branch_prefix_custom
+              branch_prefix_custom,
+              worktree_parent_path,
+              worktree_directory_template
             FROM repos
             WHERE COALESCE(hidden, 0) = 0
             ORDER BY COALESCE(display_order, 0) ASC, LOWER(name) ASC
@@ -151,6 +157,8 @@ pub fn list_repositories() -> Result<Vec<RepositoryCreateOption>> {
                 forge_login: row.get(7)?,
                 branch_prefix_type,
                 branch_prefix_custom: row.get(9)?,
+                worktree_parent_path: row.get(10)?,
+                worktree_directory_template: row.get(11)?,
                 default_branch: row.get(2)?,
                 repo_icon_src: icon_src,
                 repo_initials: initials,
@@ -234,7 +242,8 @@ pub(crate) fn load_repository_by_id(repo_id: &str) -> Result<Option<RepositoryRe
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, name, remote, default_branch, root_path, setup_script, auto_run_setup, forge_provider, forge_login
+            SELECT id, name, remote, default_branch, root_path, setup_script, auto_run_setup, forge_provider, forge_login,
+                   worktree_parent_path, worktree_directory_template
             FROM repos
             WHERE id = ?1
             "#,
@@ -253,6 +262,8 @@ pub(crate) fn load_repository_by_id(repo_id: &str) -> Result<Option<RepositoryRe
                 auto_run_setup: row.get::<_, Option<i64>>(6)?.unwrap_or(1) != 0,
                 forge_provider: row.get(7)?,
                 forge_login: row.get(8)?,
+                worktree_parent_path: row.get(9)?,
+                worktree_directory_template: row.get(10)?,
             })
         })
         .with_context(|| format!("Failed to query repository {repo_id}"))?;
@@ -304,7 +315,8 @@ fn query_repository_by_root_path(
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, name, remote, default_branch, root_path, setup_script, auto_run_setup, forge_provider, forge_login
+            SELECT id, name, remote, default_branch, root_path, setup_script, auto_run_setup, forge_provider, forge_login,
+                   worktree_parent_path, worktree_directory_template
             FROM repos
             WHERE root_path = ?1
             ORDER BY created_at ASC
@@ -325,6 +337,8 @@ fn query_repository_by_root_path(
                 auto_run_setup: row.get::<_, Option<i64>>(6)?.unwrap_or(1) != 0,
                 forge_provider: row.get(7)?,
                 forge_login: row.get(8)?,
+                worktree_parent_path: row.get(9)?,
+                worktree_directory_template: row.get(10)?,
             })
         })
         .with_context(|| format!("Failed to query repository row for {root_path}"))?;
@@ -345,7 +359,8 @@ fn query_repository_candidates_by_name(
     let mut statement = connection
         .prepare(
             r#"
-            SELECT id, name, remote, default_branch, root_path, setup_script, auto_run_setup, forge_provider, forge_login
+            SELECT id, name, remote, default_branch, root_path, setup_script, auto_run_setup, forge_provider, forge_login,
+                   worktree_parent_path, worktree_directory_template
             FROM repos
             WHERE name = ?1 OR root_path LIKE ?2
             ORDER BY created_at ASC
@@ -367,6 +382,8 @@ fn query_repository_candidates_by_name(
                 auto_run_setup: row.get::<_, Option<i64>>(6)?.unwrap_or(1) != 0,
                 forge_provider: row.get(7)?,
                 forge_login: row.get(8)?,
+                worktree_parent_path: row.get(9)?,
+                worktree_directory_template: row.get(10)?,
             })
         })
         .with_context(|| format!("Failed to query repository candidates for {repository_name}"))?;
@@ -805,6 +822,75 @@ pub fn update_repository_branch_prefix(
     }
 
     Ok(())
+}
+
+/// Persist where future worktrees for this repository should be materialized.
+///
+/// `None` parent means Helmor's managed data-dir location. `None` template
+/// means the default `{directoryName}` child path. The final per-workspace
+/// absolute path is frozen onto `workspaces.worktree_path` during prepare.
+pub fn update_repository_worktree_location(
+    repo_id: &str,
+    parent_path: Option<&str>,
+    directory_template: Option<&str>,
+) -> Result<()> {
+    let parent_path = normalize_worktree_parent_path(parent_path)?;
+    let directory_template = normalize_worktree_directory_template(directory_template)?;
+
+    let connection = db::write_conn()?;
+    let updated = connection
+        .execute(
+            "UPDATE repos SET worktree_parent_path = ?1, worktree_directory_template = ?2, \
+             updated_at = datetime('now') WHERE id = ?3",
+            rusqlite::params![
+                parent_path.as_deref(),
+                directory_template.as_deref(),
+                repo_id
+            ],
+        )
+        .with_context(|| format!("Failed to update worktree location for {repo_id}"))?;
+
+    if updated != 1 {
+        bail!("Repository not found: {repo_id}");
+    }
+
+    Ok(())
+}
+
+fn normalize_worktree_parent_path(value: Option<&str>) -> Result<Option<String>> {
+    let Some(path) = value.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    let path_buf = Path::new(path);
+    if !path_buf.is_absolute() {
+        bail!("Worktree parent path must be absolute");
+    }
+    if path_buf.exists() && !path_buf.is_dir() {
+        bail!("Worktree parent path must be a directory");
+    }
+    Ok(Some(path.to_string()))
+}
+
+fn normalize_worktree_directory_template(value: Option<&str>) -> Result<Option<String>> {
+    let Some(template) = value.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    if template == "{directoryName}" {
+        return Ok(None);
+    }
+    if !template.contains("{directoryName}") {
+        bail!("Worktree directory template must include {{directoryName}}");
+    }
+    if template.contains('/') || template.contains('\\') {
+        bail!("Worktree directory template must be a single path component");
+    }
+    let rendered = template
+        .replace("{repoName}", "repo")
+        .replace("{directoryName}", "workspace");
+    if !crate::workspace::helpers::is_safe_path_component(&rendered) {
+        bail!("Worktree directory template renders an invalid directory name");
+    }
+    Ok(Some(template.to_string()))
 }
 
 #[derive(Debug, Clone, Serialize)]

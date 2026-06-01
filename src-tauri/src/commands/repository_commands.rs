@@ -111,6 +111,22 @@ pub async fn update_repo_auto_run_setup(repo_id: String, enabled: bool) -> CmdRe
 }
 
 #[tauri::command]
+pub async fn update_repository_worktree_location(
+    repo_id: String,
+    parent_path: Option<String>,
+    directory_template: Option<String>,
+) -> CmdResult<()> {
+    run_blocking(move || {
+        repos::update_repository_worktree_location(
+            &repo_id,
+            parent_path.as_deref(),
+            directory_template.as_deref(),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn update_repo_preferences(
     repo_id: String,
     preferences: repos::RepoPreferences,

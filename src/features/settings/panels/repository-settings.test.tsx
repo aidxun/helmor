@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RepositoryCreateOption } from "@/lib/api";
 import { DEFAULT_SETTINGS, SettingsContext } from "@/lib/settings";
@@ -13,6 +13,15 @@ const apiMocks = vi.hoisted(() => ({
 	loadRepoScripts: vi.fn(),
 	prefetchRemoteRefs: vi.fn(),
 	updateRepositoryBranchPrefix: vi.fn(),
+	updateRepositoryWorktreeLocation: vi.fn(),
+}));
+
+const dialogMocks = vi.hoisted(() => ({
+	open: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+	open: dialogMocks.open,
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -26,6 +35,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 		loadRepoScripts: apiMocks.loadRepoScripts,
 		prefetchRemoteRefs: apiMocks.prefetchRemoteRefs,
 		updateRepositoryBranchPrefix: apiMocks.updateRepositoryBranchPrefix,
+		updateRepositoryWorktreeLocation: apiMocks.updateRepositoryWorktreeLocation,
 	};
 });
 
@@ -88,6 +98,11 @@ describe("RepositorySettingsPanel branch prefix", () => {
 		});
 		apiMocks.prefetchRemoteRefs.mockResolvedValue({ fetched: false });
 		apiMocks.updateRepositoryBranchPrefix.mockResolvedValue(undefined);
+		apiMocks.updateRepositoryWorktreeLocation.mockResolvedValue(undefined);
+		dialogMocks.open.mockReset();
+		dialogMocks.open.mockResolvedValue(
+			"/Users/aidan/mi/mihome/miot-plugin-sdk/projects",
+		);
 	});
 
 	afterEach(() => {
@@ -194,5 +209,35 @@ describe("RepositorySettingsPanel branch prefix", () => {
 		expect(
 			screen.getByRole("button", { name: /^Connect$/i }),
 		).toBeInTheDocument();
+	});
+
+	it("saves a custom worktree location", async () => {
+		vi.useRealTimers();
+		renderPanel(repo({}));
+
+		fireEvent.click(screen.getByRole("button", { name: /choose/i }));
+		fireEvent.change(screen.getByLabelText("Directory template"), {
+			target: { value: "{repoName}-{directoryName}" },
+		});
+
+		await waitFor(() => {
+			expect(dialogMocks.open).toHaveBeenCalledWith({
+				directory: true,
+				multiple: false,
+				defaultPath: undefined,
+			});
+			expect(screen.getByLabelText("Parent directory")).toHaveValue(
+				"/Users/aidan/mi/mihome/miot-plugin-sdk/projects",
+			);
+		});
+		fireEvent.click(screen.getByRole("button", { name: /save location/i }));
+
+		await waitFor(() => {
+			expect(apiMocks.updateRepositoryWorktreeLocation).toHaveBeenCalledWith(
+				"repo-a",
+				"/Users/aidan/mi/mihome/miot-plugin-sdk/projects",
+				"{repoName}-{directoryName}",
+			);
+		});
 	});
 });

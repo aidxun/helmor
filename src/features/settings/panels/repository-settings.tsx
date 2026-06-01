@@ -1,4 +1,11 @@
-import { Check, ChevronDown, GitBranch, LoaderCircle } from "lucide-react";
+import { open as openDirectoryDialog } from "@tauri-apps/plugin-dialog";
+import {
+	Check,
+	ChevronDown,
+	FolderOpen,
+	GitBranch,
+	LoaderCircle,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BranchPickerPopover } from "@/components/branch-picker";
 import { GithubBrandIcon, GitlabBrandIcon } from "@/components/brand-icon";
@@ -11,6 +18,7 @@ import {
 	CommandItem,
 	CommandList,
 } from "@/components/ui/command";
+import { Input } from "@/components/ui/input";
 import {
 	Popover,
 	PopoverContent,
@@ -25,6 +33,7 @@ import {
 	type RepositoryCreateOption,
 	updateRepositoryDefaultBranch,
 	updateRepositoryRemote,
+	updateRepositoryWorktreeLocation,
 } from "@/lib/api";
 import { initialsFor } from "@/lib/initials";
 import { useForgeAccountsAll } from "@/lib/use-forge-accounts";
@@ -246,6 +255,8 @@ export function RepositorySettingsPanel({
 				onChanged={onRepoSettingsChanged}
 			/>
 
+			<WorktreeLocationSection repo={repo} onChanged={onRepoSettingsChanged} />
+
 			<div ref={scriptsAnchorRef}>
 				<ScriptsSection repoId={repo.id} workspaceId={workspaceId} />
 			</div>
@@ -253,6 +264,161 @@ export function RepositorySettingsPanel({
 
 			<DeleteRepoSection repo={repo} onDeleted={onRepoDeleted} />
 		</SettingsGroup>
+	);
+}
+
+function WorktreeLocationSection({
+	repo,
+	onChanged,
+}: {
+	repo: RepositoryCreateOption;
+	onChanged: () => void;
+}) {
+	const [parentPath, setParentPath] = useState(repo.worktreeParentPath ?? "");
+	const [directoryTemplate, setDirectoryTemplate] = useState(
+		repo.worktreeDirectoryTemplate ?? "{directoryName}",
+	);
+	const [saving, setSaving] = useState(false);
+	const [pickingParent, setPickingParent] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		setParentPath(repo.worktreeParentPath ?? "");
+		setDirectoryTemplate(repo.worktreeDirectoryTemplate ?? "{directoryName}");
+		setError(null);
+	}, [repo.id, repo.worktreeParentPath, repo.worktreeDirectoryTemplate]);
+
+	const normalizedParent = parentPath.trim();
+	const normalizedTemplate = directoryTemplate.trim() || "{directoryName}";
+	const savedParent = repo.worktreeParentPath ?? "";
+	const savedTemplate = repo.worktreeDirectoryTemplate ?? "{directoryName}";
+	const isDirty =
+		normalizedParent !== savedParent || normalizedTemplate !== savedTemplate;
+	const previewName = normalizedTemplate
+		.replaceAll("{repoName}", repo.name)
+		.replaceAll("{directoryName}", "workspace");
+	const preview = normalizedParent
+		? `${normalizedParent}/${previewName}`
+		: `Helmor managed directory / ${previewName}`;
+	const parentInputId = `${repo.id}-worktree-parent-path`;
+	const templateInputId = `${repo.id}-worktree-directory-template`;
+
+	const handleSave = useCallback(() => {
+		setSaving(true);
+		setError(null);
+		void updateRepositoryWorktreeLocation(
+			repo.id,
+			normalizedParent || null,
+			normalizedTemplate === "{directoryName}" ? null : normalizedTemplate,
+		).then(
+			() => {
+				setSaving(false);
+				onChanged();
+			},
+			(err: unknown) => {
+				setSaving(false);
+				setError(err instanceof Error ? err.message : String(err));
+				onChanged();
+			},
+		);
+	}, [repo.id, normalizedParent, normalizedTemplate, onChanged]);
+
+	const handleChooseParent = useCallback(async () => {
+		if (pickingParent) {
+			return;
+		}
+		setPickingParent(true);
+		setError(null);
+		try {
+			const selection = await openDirectoryDialog({
+				directory: true,
+				multiple: false,
+				defaultPath: normalizedParent || undefined,
+			});
+			const selectedPath = Array.isArray(selection) ? selection[0] : selection;
+			if (typeof selectedPath === "string" && selectedPath.trim()) {
+				setParentPath(selectedPath);
+			}
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setPickingParent(false);
+		}
+	}, [normalizedParent, pickingParent]);
+
+	const handleReset = useCallback(() => {
+		setParentPath("");
+		setDirectoryTemplate("{directoryName}");
+	}, []);
+
+	return (
+		<div className="py-5">
+			<div className="text-ui font-medium leading-snug text-foreground">
+				Worktree location
+			</div>
+			<div className="mt-1 text-small leading-snug text-muted-foreground">
+				Choose where future worktrees for this repository are created.
+			</div>
+			<div className="mt-3 space-y-3">
+				<label className="block" htmlFor={parentInputId}>
+					<span className="text-mini font-medium text-muted-foreground">
+						Parent directory
+					</span>
+					<div className="mt-1 flex items-center gap-2">
+						<Input
+							id={parentInputId}
+							className="min-w-0 cursor-pointer bg-app-base/30 font-mono text-small"
+							placeholder="Helmor managed directory"
+							value={parentPath}
+							readOnly
+							onClick={handleChooseParent}
+						/>
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							onClick={handleChooseParent}
+							disabled={pickingParent}
+						>
+							{pickingParent ? (
+								<LoaderCircle className="size-3.5 animate-spin" />
+							) : (
+								<FolderOpen className="size-3.5" />
+							)}
+							Choose
+						</Button>
+					</div>
+				</label>
+				<label className="block" htmlFor={templateInputId}>
+					<span className="text-mini font-medium text-muted-foreground">
+						Directory template
+					</span>
+					<Input
+						id={templateInputId}
+						className="mt-1 bg-app-base/30 font-mono text-small"
+						value={directoryTemplate}
+						onChange={(event) => setDirectoryTemplate(event.target.value)}
+					/>
+				</label>
+				<div className="text-mini text-muted-foreground">
+					Preview: <span className="font-mono">{preview}</span>
+				</div>
+				<div className="flex items-center gap-2">
+					<Button
+						type="button"
+						size="sm"
+						onClick={handleSave}
+						disabled={!isDirty || saving}
+					>
+						{saving ? "Saving..." : "Save location"}
+					</Button>
+					<Button type="button" size="sm" variant="ghost" onClick={handleReset}>
+						Reset
+					</Button>
+				</div>
+				{error && <p className="text-small text-red-400/90">{error}</p>}
+			</div>
+		</div>
 	);
 }
 
