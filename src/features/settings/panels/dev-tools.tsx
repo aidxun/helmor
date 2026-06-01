@@ -1,8 +1,9 @@
-import { Loader2, RotateCcw, Trash2 } from "lucide-react";
+import { Copy, Loader2, RotateCcw, Trash2, Wifi } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { devResetAllData, loadDataInfo } from "@/lib/api";
+import { devResetAllData, getRemoteWebStatus, loadDataInfo } from "@/lib/api";
 import { saveSettings } from "@/lib/settings";
 import {
 	SettingsGroup,
@@ -16,10 +17,14 @@ export function DevToolsPanel() {
 	const [resetting, setResetting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [onboardingReset, setOnboardingReset] = useState(false);
+	const [remoteWebUrl, setRemoteWebUrl] = useState<string | null>(null);
 
 	useEffect(() => {
 		void loadDataInfo().then((info) => {
 			if (info) setDataDir(info.dataRoot);
+		});
+		void getRemoteWebStatus().then((status) => {
+			setRemoteWebUrl(status.localUrl);
 		});
 	}, []);
 
@@ -44,9 +49,58 @@ export function DevToolsPanel() {
 		setOnboardingReset(true);
 	}, []);
 
+	const handleCopyRemoteWebUrl = useCallback(async () => {
+		if (!remoteWebUrl) return;
+		try {
+			await navigator.clipboard.writeText(remoteWebUrl);
+			toast.success("Remote Web URL copied");
+		} catch (error) {
+			toast.error("Unable to copy Remote Web URL", {
+				description: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}, [remoteWebUrl]);
+
 	return (
 		<>
 			<SettingsGroup>
+				<SettingsRow
+					align="start"
+					title={
+						<span className="flex items-center gap-1.5">
+							<Wifi
+								className="size-3.5 text-muted-foreground"
+								strokeWidth={1.8}
+							/>
+							<span>Local Web Access</span>
+						</span>
+					}
+					description={
+						<>
+							Open this URL in a browser on this Mac to use the responsive Web
+							UI against the running Helmor backend.
+							{remoteWebUrl ? (
+								<SettingsNotice tone="info">
+									URL:{" "}
+									<code className="rounded bg-muted px-1 py-0.5">
+										{remoteWebUrl}
+									</code>
+								</SettingsNotice>
+							) : null}
+						</>
+					}
+				>
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={handleCopyRemoteWebUrl}
+						disabled={!remoteWebUrl}
+					>
+						<Copy className="size-3.5" />
+						Copy URL
+					</Button>
+				</SettingsRow>
+
 				<SettingsRow
 					align="start"
 					title={

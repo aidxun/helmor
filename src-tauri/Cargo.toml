@@ -22,6 +22,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 aes = "0.8"
 anyhow = "1"
+axum = { version = "0.7", features = ["json", "tokio", "ws"] }
 base64 = "0.22.1"
 cbc = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
@@ -67,6 +68,7 @@ tauri-plugin-window-state = "2"
 tokio = { version = "1", features = [
     "fs",
     "io-util",
+    "net",
     "rt",
     "rt-multi-thread",
     "sync",
@@ -76,6 +78,7 @@ tokio = { version = "1", features = [
 notify = "7"
 notify-debouncer-full = "0.4"
 toml = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [
     "json",

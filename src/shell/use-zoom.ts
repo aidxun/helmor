@@ -1,6 +1,6 @@
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect } from "react";
 import { useSettings } from "@/lib/settings";
+import { isRemoteWebRuntime } from "@/lib/tauri-transport";
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.0;
@@ -19,11 +19,20 @@ export function useZoom(): void {
 	const zoom = settings.zoomLevel;
 
 	useEffect(() => {
-		void getCurrentWebview()
-			.setZoom(zoom)
-			.catch(() => {
-				// webview may not be ready yet, or we're in a non-Tauri env
-			});
+		if (isRemoteWebRuntime()) {
+			document.documentElement.style.setProperty("zoom", String(zoom));
+			return () => {
+				document.documentElement.style.removeProperty("zoom");
+			};
+		}
+
+		void import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => {
+			void getCurrentWebview()
+				.setZoom(zoom)
+				.catch(() => {
+					// webview may not be ready yet, or we're in a non-Tauri env
+				});
+		});
 	}, [zoom]);
 }
 

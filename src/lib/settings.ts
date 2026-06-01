@@ -1,6 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
 import { createContext, useContext } from "react";
 import type { WorkspaceBranchIntent } from "./api";
+import { invoke } from "./tauri-transport";
 
 export type ThemeMode = "system" | "light" | "dark";
 

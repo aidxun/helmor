@@ -1,8 +1,13 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { InspectorFileItem } from "./editor-session";
 import { type ErrorCode, extractError } from "./errors";
 import { setSessionThreadPaginationState } from "./session-thread-pagination";
+import {
+	Channel,
+	invoke,
+	isRemoteWebRuntime,
+	listen,
+	type UnlistenFn,
+} from "./tauri-transport";
 
 export type GroupTone =
 	| "pinned"
@@ -127,6 +132,13 @@ export type DataInfo = {
 	dataRoot: string;
 	dbPath: string;
 	archiveRoot: string;
+};
+
+export type RemoteWebStatus = {
+	enabled: boolean;
+	bindAddr: string;
+	localUrl: string;
+	token: string;
 };
 
 export type AgentProvider = "claude" | "codex" | "cursor";
@@ -717,6 +729,10 @@ export async function loadDataInfo(): Promise<DataInfo | null> {
 	}
 }
 
+export async function getRemoteWebStatus(): Promise<RemoteWebStatus> {
+	return await invoke<RemoteWebStatus>("get_remote_web_status");
+}
+
 export type CliStatus = {
 	installed: boolean;
 	installPath: string | null;
@@ -816,10 +832,12 @@ export async function recheckHelmorComponents(): Promise<HelmorComponentsUpdateC
 }
 
 export async function enterOnboardingWindowMode(): Promise<void> {
+	if (isRemoteWebRuntime()) return;
 	await invoke("enter_onboarding_window_mode");
 }
 
 export async function exitOnboardingWindowMode(): Promise<void> {
+	if (isRemoteWebRuntime()) return;
 	await invoke("exit_onboarding_window_mode");
 }
 
@@ -2203,6 +2221,11 @@ export async function listenGitRefsChanged(
 export async function subscribeUiMutations(
 	callback: (event: UiMutationEvent) => void,
 ): Promise<UnlistenFn> {
+	if (isRemoteWebRuntime()) {
+		return listen<UiMutationEvent>("ui-mutation", (event) =>
+			callback(event.payload),
+		);
+	}
 	const subscriptionId = crypto.randomUUID();
 	const onEvent = new Channel<UiMutationEvent>();
 	onEvent.onmessage = callback;

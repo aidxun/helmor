@@ -1,12 +1,13 @@
 use std::sync::Mutex;
 
 use tauri::ipc::Channel;
+use tokio::sync::broadcast;
 
 use super::events::UiMutationEvent;
 
-#[derive(Default)]
 pub struct UiSyncManager {
     subscribers: Mutex<Vec<UiSyncSubscriber>>,
+    web_tx: broadcast::Sender<UiMutationEvent>,
 }
 
 struct UiSyncSubscriber {
@@ -16,7 +17,15 @@ struct UiSyncSubscriber {
 
 impl UiSyncManager {
     pub fn new() -> Self {
-        Self::default()
+        let (web_tx, _) = broadcast::channel(256);
+        Self {
+            subscribers: Mutex::new(Vec::new()),
+            web_tx,
+        }
+    }
+
+    pub fn subscribe_web(&self) -> broadcast::Receiver<UiMutationEvent> {
+        self.web_tx.subscribe()
     }
 
     pub fn subscribe(&self, id: String, channel: Channel<UiMutationEvent>) {
@@ -33,6 +42,8 @@ impl UiSyncManager {
     }
 
     pub fn publish(&self, event: UiMutationEvent) {
+        let _ = self.web_tx.send(event.clone());
+
         let Ok(mut subscribers) = self.subscribers.lock() else {
             return;
         };
@@ -43,6 +54,12 @@ impl UiSyncManager {
     #[cfg(test)]
     pub(super) fn subscriber_count(&self) -> usize {
         self.subscribers.lock().map(|s| s.len()).unwrap_or(0)
+    }
+}
+
+impl Default for UiSyncManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -72,7 +89,7 @@ mod tests {
 
     #[test]
     fn default_manager_matches_new() {
-        let default_manager = UiSyncManager::default();
+        let default_manager = UiSyncManager::new();
         let new_manager = UiSyncManager::new();
         assert_eq!(
             default_manager.subscriber_count(),

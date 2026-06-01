@@ -14,6 +14,7 @@ import {
 } from "@/lib/composer-insert";
 import { helmorQueryKeys } from "@/lib/query-client";
 import { requestSidebarReconcile } from "@/lib/sidebar-mutation-gate";
+import { isRemoteWebRuntime, listen } from "@/lib/tauri-transport";
 import type { PushWorkspaceToast } from "@/lib/workspace-toast-context";
 import { CLI_SEND_AUTO_SUBMIT_DELAY_MS } from "@/shell/constants";
 import {
@@ -151,18 +152,25 @@ export function usePendingQueueController(
 	useEffect(() => {
 		let unlisten: (() => void) | undefined;
 
-		void import("@tauri-apps/api/event").then(({ listen }) => {
-			void listen("tauri://focus", async () => {
-				// Smart fetch: refresh target branch for the active workspace so
-				// file tree diffs stay current after the user returns.
-				const wsId = getActiveWorkspaceIdRef.current();
-				if (wsId) {
-					triggerWorkspaceFetch(wsId);
-				}
-				await processPendingCliSends();
-			}).then((fn) => {
-				unlisten = fn;
-			});
+		const handleFocus = async () => {
+			// Smart fetch: refresh target branch for the active workspace so
+			// file tree diffs stay current after the user returns.
+			const wsId = getActiveWorkspaceIdRef.current();
+			if (wsId) {
+				triggerWorkspaceFetch(wsId);
+			}
+			await processPendingCliSends();
+		};
+
+		if (isRemoteWebRuntime()) {
+			window.addEventListener("focus", handleFocus);
+			return () => {
+				window.removeEventListener("focus", handleFocus);
+			};
+		}
+
+		void listen("tauri://focus", handleFocus).then((fn) => {
+			unlisten = fn;
 		});
 
 		return () => {

@@ -1,7 +1,6 @@
 import "./App.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
-import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { CircleAlertIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -54,6 +53,7 @@ import {
 import { useGlobalHotkeySync } from "@/features/shortcuts/use-global-hotkey-sync";
 import { useAppUpdater } from "@/features/updater/use-app-updater";
 import { WorkspaceStartPage } from "@/features/workspace-start";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useEnsureDefaultModel } from "@/shell/hooks/use-ensure-default-model";
 import { useShellPanels } from "@/shell/hooks/use-panels";
 import { usePullLatest } from "@/shell/hooks/use-pull-latest";
@@ -112,6 +112,7 @@ import {
 	useSettings,
 } from "./lib/settings";
 import { requestSidebarReconcile } from "./lib/sidebar-mutation-gate";
+import { isRemoteWebRuntime, listen } from "./lib/tauri-transport";
 import { useOsNotifications } from "./lib/use-os-notifications";
 import { summaryToArchivedRow } from "./lib/workspace-helpers";
 import {
@@ -119,6 +120,9 @@ import {
 	WorkspaceToastProvider,
 } from "./lib/workspace-toast-context";
 import { resolveE2eScenarioElement } from "./shell/boot/e2e-routes";
+import { MobileHeaderLeading } from "./shell/components/mobile-header-leading";
+import { MobileInspectorSheet } from "./shell/components/mobile-inspector-sheet";
+import { MobileWorkspaceDrawer } from "./shell/components/mobile-workspace-drawer";
 import { ShellInspectorPane } from "./shell/components/shell-inspector-pane";
 import { ShellResizeSeparator } from "./shell/components/shell-resize-separator";
 import { ShellSidebarPane } from "./shell/components/shell-sidebar-pane";
@@ -163,10 +167,18 @@ function MainApp() {
 		() => getPreloadedSettings(),
 		[],
 	);
+	const remoteWebRuntime = isRemoteWebRuntime();
+	const effectiveAppSettings = useMemo(() => {
+		if (!remoteWebRuntime || appSettings === null) return appSettings;
+		return {
+			...appSettings,
+			onboardingCompleted: true,
+		};
+	}, [appSettings, remoteWebRuntime]);
 
 	const settingsContextValue = useMemo(
 		() => ({
-			settings: appSettings ?? preloadSettings,
+			settings: effectiveAppSettings ?? preloadSettings,
 			isLoaded: appSettings !== null,
 			updateSettings: (patch: Partial<AppSettings>) => {
 				setAppSettings((previous) => {
@@ -176,7 +188,7 @@ function MainApp() {
 				return saveSettings(patch);
 			},
 		}),
-		[appSettings, preloadSettings],
+		[appSettings, effectiveAppSettings, preloadSettings],
 	);
 	useShellEvent("open-settings", (event) => {
 		setSettingsInitialSection(event.section);
@@ -233,6 +245,9 @@ function MainApp() {
 	}, []);
 
 	useEffect(() => {
+		if (remoteWebRuntime) {
+			return;
+		}
 		if (appSettings?.onboardingCompleted !== true) {
 			return;
 		}
@@ -240,7 +255,7 @@ function MainApp() {
 		void exitOnboardingWindowMode().catch((error) => {
 			console.error("[app] failed to restore main window mode", error);
 		});
-	}, [appSettings?.onboardingCompleted]);
+	}, [appSettings?.onboardingCompleted, remoteWebRuntime]);
 
 	useShellEvent("reload-settings", () => {
 		void loadSettings().then(setAppSettings);
@@ -255,7 +270,8 @@ function MainApp() {
 					buster: QUERY_CACHE_BUSTER,
 				}}
 			>
-				{appSettings === null ? null : !appSettings.onboardingCompleted ? (
+				{appSettings ===
+				null ? null : !effectiveAppSettings?.onboardingCompleted ? (
 					<>
 						<AppOnboarding onComplete={completeOnboarding} />
 						<QuitConfirmDialog sessionRunStates={EMPTY_SESSION_RUN_STATES} />
@@ -498,6 +514,9 @@ function AppShell({
 		sidebarWidth,
 		setSidebarCollapsed,
 	} = useShellPanels();
+	const isMobileShell = useIsMobile();
+	const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+	const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false);
 	const rightSidebarMode = contextPanel.rightSidebarMode;
 	const workspacePreviewCard = contextPanel.workspacePreviewCard;
 	const workspacePreviewActive = contextPanel.workspacePreviewActive;
@@ -515,6 +534,13 @@ function AppShell({
 		contextPanelActions.selectWorkspaceContextPreview;
 	const handleWorkspaceContextPreviewClose =
 		contextPanelActions.closeWorkspaceContextPreview;
+
+	useEffect(() => {
+		if (!isMobileShell) {
+			setMobileSidebarOpen(false);
+			setMobileInspectorOpen(false);
+		}
+	}, [isMobileShell]);
 	// Mirror selection state under the legacy names used throughout AppShell.
 	// Lets the consumers stay unchanged for now; stage 7 will rename them or
 	// move them into pane components that read the controller directly.
@@ -1563,7 +1589,49 @@ function AppShell({
 							className="relative h-screen overflow-hidden bg-background font-sans text-foreground antialiased"
 						>
 							<div className="relative flex h-full min-h-0 bg-background">
-								{workspaceViewMode !== "editor" && (
+								{isMobileShell && workspaceViewMode !== "editor" ? (
+									<MobileWorkspaceDrawer
+										open={mobileSidebarOpen}
+										onOpenChange={setMobileSidebarOpen}
+										selectedWorkspaceId={
+											workspaceViewMode === "start" ? null : selectedWorkspaceId
+										}
+										autoSelectEnabled={workspaceSidebarAutoSelectEnabled}
+										busyWorkspaceIds={effectiveBusyWorkspaceIds}
+										interactionRequiredWorkspaceIds={
+											interactionRequiredWorkspaceIds
+										}
+										newWorkspaceShortcut={newWorkspaceShortcut}
+										addRepositoryShortcut={addRepositoryShortcut}
+										sidebarFilterShortcut={sidebarFilterShortcut}
+										appUpdateStatus={appUpdateStatus}
+										appSettings={appSettings}
+										onSelectWorkspace={(workspaceId) => {
+											setMobileSidebarOpen(false);
+											handleSelectWorkspace(workspaceId);
+										}}
+										onOpenNewWorkspace={() => {
+											setMobileSidebarOpen(false);
+											handleOpenWorkspaceStart();
+										}}
+										onAddRepositoryNeedsStart={(repositoryId) => {
+											setMobileSidebarOpen(false);
+											handleAddRepositoryNeedsStart(repositoryId);
+										}}
+										onMoveLocalToWorktree={handleMoveLocalToWorktree}
+										onOpenFeedback={() => {
+											setMobileSidebarOpen(false);
+											setFeedbackOpen(true);
+										}}
+										onOpenSettings={() => {
+											setMobileSidebarOpen(false);
+											handleOpenSettings();
+										}}
+										pushWorkspaceToast={pushWorkspaceToast}
+									/>
+								) : null}
+
+								{!isMobileShell && workspaceViewMode !== "editor" && (
 									<>
 										<ShellSidebarPane
 											collapsed={sidebarCollapsed}
@@ -1620,6 +1688,14 @@ function AppShell({
 											data-tauri-drag-region
 										/>
 									)}
+									{isMobileShell && workspaceViewMode === "start" ? (
+										<div className="absolute top-1.5 left-2 z-30 rounded-md bg-background/90 backdrop-blur">
+											<MobileHeaderLeading
+												appUpdateStatus={appUpdateStatus}
+												onOpenSidebar={() => setMobileSidebarOpen(true)}
+											/>
+										</div>
+									) : null}
 
 									<div
 										aria-label="Workspace viewport"
@@ -1789,7 +1865,12 @@ function AppShell({
 														handleWorkspaceContextPreviewClose
 													}
 													headerLeading={
-														sidebarCollapsed ? (
+														isMobileShell ? (
+															<MobileHeaderLeading
+																appUpdateStatus={appUpdateStatus}
+																onOpenSidebar={() => setMobileSidebarOpen(true)}
+															/>
+														) : sidebarCollapsed ? (
 															<WorkspaceHeaderLeading
 																appUpdateStatus={appUpdateStatus}
 																leftSidebarToggleShortcut={
@@ -1812,7 +1893,9 @@ function AppShell({
 																	openPreferredEditorShortcut
 																}
 																rightSidebarToggleShortcut={
-																	rightSidebarToggleShortcut
+																	isMobileShell
+																		? null
+																		: rightSidebarToggleShortcut
 																}
 																inspectorCollapsed={inspectorCollapsed}
 																isChatMode={
@@ -1822,9 +1905,11 @@ function AppShell({
 																	handleOpenPreferredEditor
 																}
 																onToggleInspector={() =>
-																	setInspectorCollapsed(
-																		(collapsed) => !collapsed,
-																	)
+																	isMobileShell
+																		? setMobileInspectorOpen(true)
+																		: setInspectorCollapsed(
+																				(collapsed) => !collapsed,
+																			)
 																}
 																onPickEditor={setPreferredEditorId}
 																pushWorkspaceToast={pushWorkspaceToast}
@@ -1838,7 +1923,71 @@ function AppShell({
 								</section>
 
 								{rightSidebarAvailable &&
-									selectedWorkspaceDetail?.mode !== "chat" && (
+									selectedWorkspaceDetail?.mode !== "chat" &&
+									(isMobileShell ? (
+										<MobileInspectorSheet
+											open={mobileInspectorOpen}
+											onOpenChange={setMobileInspectorOpen}
+											width={inspectorWidth}
+											rightSidebarMode={rightSidebarMode}
+											viewMode={workspaceViewMode}
+											startRepository={startRepository}
+											selectedWorkspaceRepository={selectedWorkspaceRepository}
+											startInboxProviderTab={startInboxProviderTab}
+											onStartInboxProviderTabChange={setStartInboxProviderTab}
+											startInboxProviderSourceTab={startInboxProviderSourceTab}
+											onStartInboxProviderSourceTabChange={
+												setStartInboxProviderSourceTab
+											}
+											startInboxStateFilterBySource={
+												startInboxStateFilterBySource
+											}
+											onStartInboxStateFilterBySourceChange={
+												setStartInboxStateFilterBySource
+											}
+											startComposerInsertTarget={startComposerInsertTarget}
+											startPreviewCardId={startPreviewCard?.id ?? null}
+											workspacePreviewCardId={workspacePreviewCard?.id ?? null}
+											onOpenStartContextCard={handleStartContextCardOpen}
+											onOpenWorkspaceContextCard={
+												handleWorkspaceContextCardOpen
+											}
+											selectedWorkspaceId={selectedWorkspaceId}
+											workspaceRootPath={workspaceRootPath}
+											selectedWorkspaceDetail={
+												selectedWorkspaceDetailQuery.data ?? null
+											}
+											displayedSessionId={displayedSessionId}
+											activeEditor={activeEditorTarget}
+											preferredEditor={preferredEditor}
+											onOpenEditorFile={handleOpenEditorFile}
+											onCommitAction={handleCommitAction}
+											onReviewAction={() =>
+												handleInspectorReviewAction({
+													modelId:
+														appSettings.reviewModelId ??
+														appSettings.defaultModelId,
+													effort:
+														appSettings.reviewEffort ??
+														appSettings.defaultEffort,
+													fastMode:
+														appSettings.reviewFastMode ??
+														appSettings.defaultFastMode,
+												})
+											}
+											onQueuePendingPromptForSession={
+												queuePendingPromptForSession
+											}
+											commitButtonMode={commitButtonMode}
+											commitButtonState={commitButtonState}
+											workspaceChangeRequest={workspaceChangeRequest}
+											workspaceForgeIsRefreshing={workspaceForgeIsRefreshing}
+											onOpenSettings={(section) => {
+												setMobileInspectorOpen(false);
+												handleOpenSettings(section);
+											}}
+										/>
+									) : (
 										<>
 											<ShellResizeSeparator
 												side="inspector"
@@ -1914,7 +2063,7 @@ function AppShell({
 												onOpenSettings={handleOpenSettings}
 											/>
 										</>
-									)}
+									))}
 							</div>
 						</main>
 						<Toaster

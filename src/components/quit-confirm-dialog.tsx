@@ -1,8 +1,8 @@
-import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { requestQuit } from "@/lib/api";
 import type { SessionRunState } from "@/lib/session-run-state";
+import { listen } from "@/lib/tauri-transport";
 
 export function QuitConfirmDialog({
 	sessionRunStates,

@@ -74,6 +74,13 @@ export default defineConfig(async () => ({
 					port: 1421,
 				}
 			: undefined,
+		proxy: {
+			"/api/rpc": "http://127.0.0.1:17890",
+			"/api/events": {
+				target: "ws://127.0.0.1:17890",
+				ws: true,
+			},
+		},
 		watch: {
 			// 3. ignore app-internal local data/docs, Rust backend, editor metadata, logs, and build artifacts
 			ignored: WATCH_IGNORED,

@@ -1,6 +1,5 @@
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { focusManager, QueryClient, queryOptions } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import type { ThreadMessageLike } from "./api";
 import {
 	type ActionKind,
@@ -49,6 +48,7 @@ import {
 	getSessionThreadPaginationState,
 	setSessionThreadPaginationState,
 } from "./session-thread-pagination";
+import { invoke, isRemoteWebRuntime, listen } from "./tauri-transport";
 
 const SESSION_STALE_TIME = 10 * 60_000;
 const CHANGES_STALE_TIME = 3_000;
@@ -167,25 +167,39 @@ export const QUERY_CACHE_BUSTER = "v3-meta";
 export const PERSIST_META = { persist: true } as const;
 
 export function createHelmorQueryClient() {
-	// Replace React Query's default focus listener (browser visibilitychange)
-	// with Tauri's native window focus/blur events. This is the official
-	// pattern for non-browser environments (cf. React Native AppState in
-	// the TanStack Query docs). The focusManager calls `handleFocus(true)`
-	// which triggers refetchOnWindowFocus for all queries, respecting each
-	// query's own staleTime — local DB queries use staleTime: 0 so they
-	// always refetch on focus, while remote GitHub queries keep their
-	// staleTime: 30s to avoid hammering the API.
+	// Keep React Query focus state in sync with the current runtime: native
+	// Tauri window events in the desktop app, browser focus/visibility events
+	// in the remote web UI.
 	focusManager.setEventListener((handleFocus) => {
 		let unlistenFocus: (() => void) | undefined;
 		let unlistenBlur: (() => void) | undefined;
 
-		void import("@tauri-apps/api/event").then(({ listen }) => {
-			void listen("tauri://focus", () => handleFocus(true)).then((fn) => {
-				unlistenFocus = fn;
-			});
-			void listen("tauri://blur", () => handleFocus(false)).then((fn) => {
-				unlistenBlur = fn;
-			});
+		if (isRemoteWebRuntime()) {
+			const handleWindowFocus = () => handleFocus(true);
+			const handleWindowBlur = () => handleFocus(false);
+			const handleVisibilityChange = () => {
+				handleFocus(document.visibilityState !== "hidden");
+			};
+
+			window.addEventListener("focus", handleWindowFocus);
+			window.addEventListener("blur", handleWindowBlur);
+			document.addEventListener("visibilitychange", handleVisibilityChange);
+
+			return () => {
+				window.removeEventListener("focus", handleWindowFocus);
+				window.removeEventListener("blur", handleWindowBlur);
+				document.removeEventListener(
+					"visibilitychange",
+					handleVisibilityChange,
+				);
+			};
+		}
+
+		void listen("tauri://focus", () => handleFocus(true)).then((fn) => {
+			unlistenFocus = fn;
+		});
+		void listen("tauri://blur", () => handleFocus(false)).then((fn) => {
+			unlistenBlur = fn;
 		});
 
 		return () => {

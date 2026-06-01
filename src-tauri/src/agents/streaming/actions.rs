@@ -27,11 +27,12 @@
 #![allow(dead_code)]
 
 use serde_json::Value;
-use tauri::ipc::Channel;
 use tauri::AppHandle;
 
 use crate::agents::AgentStreamEvent;
 use crate::pipeline::types::ThreadMessageLike;
+
+use super::AgentStreamEventSink;
 
 /// One external effect to perform after a state-machine transition.
 ///
@@ -112,7 +113,7 @@ pub(super) enum Action {
 /// from the single-writer pool to match the existing short-borrow rule
 /// (long-held writers stall pin/unpin/mark-read/rename app-wide).
 pub(super) struct ApplyContext<'a> {
-    pub on_event: &'a Channel<AgentStreamEvent>,
+    pub on_event: &'a dyn AgentStreamEventSink,
     pub app: &'a AppHandle,
 }
 
@@ -129,7 +130,7 @@ pub(super) fn apply_action(action: Action, ctx: &ApplyContext) {
             // `let _ = on_event.send(...)`; matching that behavior keeps
             // this iteration a no-op-equivalent migration. The
             // disconnected-channel cleanup is on the iteration-N+ list.
-            let _ = ctx.on_event.send(event);
+            let _ = ctx.on_event.send_event(event);
         }
         Action::PersistContextUsage { raw } => {
             super::context_usage::persist_context_usage_event(ctx.app, &raw);

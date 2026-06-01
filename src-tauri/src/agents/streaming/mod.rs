@@ -51,10 +51,20 @@ use super::{
     AgentStreamEvent, CmdResult, ExchangeContext,
 };
 
+pub trait AgentStreamEventSink: Send + Sync + 'static {
+    fn send_event(&self, event: AgentStreamEvent) -> bool;
+}
+
+impl AgentStreamEventSink for Channel<AgentStreamEvent> {
+    fn send_event(&self, event: AgentStreamEvent) -> bool {
+        self.send(event).is_ok()
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn stream_via_sidecar(
     app: AppHandle,
-    on_event: Channel<AgentStreamEvent>,
+    on_event: Box<dyn AgentStreamEventSink>,
     sidecar: &crate::sidecar::ManagedSidecar,
     active_streams: &ActiveStreams,
     stream_id: &str,
@@ -347,7 +357,7 @@ pub(super) fn stream_via_sidecar(
         // (e.g., `permissionModeChanged`) mirror the change back into
         // the legacy local vars until those readers migrate too.
         let apply_ctx = actions::ApplyContext {
-            on_event: &on_event,
+            on_event: &*on_event,
             app: &app,
         };
         let mut turn_session = state::TurnSession::new(state::TurnContext {
@@ -903,7 +913,7 @@ pub(super) fn stream_via_sidecar(
                         // event arrived first). The frontend still gets
                         // the bare PlanCaptured marker so its overlay
                         // doesn't get stuck waiting on it.
-                        let _ = on_event.send(AgentStreamEvent::PlanCaptured {});
+                        let _ = on_event.send_event(AgentStreamEvent::PlanCaptured {});
                     }
                 }
                 "userInputRequest" => {

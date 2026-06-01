@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Channel } from "@tauri-apps/api/core";
 import {
 	AlertCircle,
 	Check,
@@ -55,6 +54,7 @@ import {
 	subscribeLocalLlmDownloads,
 } from "@/lib/api";
 import type { AppSettings } from "@/lib/settings";
+import { Channel } from "@/lib/tauri-transport";
 import { cn } from "@/lib/utils";
 import { SettingsReleaseBadge } from "../components/release-marker";
 

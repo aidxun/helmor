@@ -30,7 +30,7 @@ pub use self::slash_commands::SlashCommandCache;
 pub use self::streaming::{
     abort_all_active_streams_blocking, bridge_aborted_event, bridge_done_event, bridge_error_event,
     bridge_permission_request_event, bridge_user_input_request_event, build_send_message_params,
-    lookup_workspace_linked_directories, ActiveStreamSummary, ActiveStreams,
+    lookup_workspace_linked_directories, ActiveStreamSummary, ActiveStreams, AgentStreamEventSink,
     BuildSendMessageParamsInput,
 };
 
@@ -219,8 +219,17 @@ pub async fn list_cursor_models(
 pub async fn send_agent_message_stream(
     app: AppHandle,
     sidecar: tauri::State<'_, crate::sidecar::ManagedSidecar>,
-    mut request: AgentSendRequest,
+    request: AgentSendRequest,
     on_event: Channel<AgentStreamEvent>,
+) -> CmdResult<()> {
+    send_agent_message_stream_with_sink(app, sidecar.inner(), request, Box::new(on_event)).await
+}
+
+pub async fn send_agent_message_stream_with_sink(
+    app: AppHandle,
+    sidecar: &crate::sidecar::ManagedSidecar,
+    mut request: AgentSendRequest,
+    on_event: Box<dyn AgentStreamEventSink>,
 ) -> CmdResult<()> {
     let prompt = request.prompt.trim().to_string();
     if prompt.is_empty() {
@@ -268,7 +277,7 @@ pub async fn send_agent_message_stream(
     let send_result = stream_via_sidecar(
         app.clone(),
         on_event,
-        &sidecar,
+        sidecar,
         &active_streams,
         &stream_id,
         &model,

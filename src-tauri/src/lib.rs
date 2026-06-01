@@ -19,6 +19,7 @@ pub mod mcp;
 pub mod models;
 pub mod pipeline;
 pub mod rate_limits;
+pub mod remote_web;
 pub mod schema;
 pub mod service;
 mod shell_env;
@@ -445,6 +446,7 @@ pub fn run() {
             if let Err(error) = ui_sync::start_listener(app.handle().clone()) {
                 tracing::error!(error = %error, "Failed to start UI sync listener");
             }
+            remote_web::start(app.handle().clone());
 
             // Triage: fetcher + auto-fire tick on the same 5-min thread.
             triage::fetcher::spawn_scheduler(app.handle().clone());
@@ -471,6 +473,7 @@ pub fn run() {
             agents::list_slash_commands,
             agents::prewarm_slash_commands_for_workspace,
             agents::prewarm_slash_commands_for_repo,
+            remote_web::get_remote_web_status,
             commands::workspace_commands::prepare_archive_workspace,
             commands::workspace_commands::start_archive_workspace,
             commands::workspace_commands::validate_archive_workspace,
