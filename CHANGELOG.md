@@ -1,5 +1,102 @@
 # Changelog
 
+## 0.31.0
+
+### Minor Changes
+
+- [#722](https://github.com/dohooo/helmor/pull/722) [`ff4426a`](https://github.com/dohooo/helmor/commit/ff4426aeae12c8ef1227fd99afacc13b9930aa9c) Thanks [@dohooo](https://github.com/dohooo)! - Add a mobile browser companion so you can reach your desktop Helmor from your phone or any browser:
+
+  - Open one stable `remote-*.helmor.ai` URL to drive your home machine's workspaces, sessions, and agents — the same responsive interface, live and in sync with the desktop.
+  - Pair each device once from Settings → Mobile companion; an unpaired browser shows clear pairing instructions instead of a blank or demo screen, and the credentials in your settings are never sent to paired devices.
+
+- [#721](https://github.com/dohooo/helmor/pull/721) [`d17c187`](https://github.com/dohooo/helmor/commit/d17c1879defd5dfe38374f763363db78c4e2d037) Thanks [@dohooo](https://github.com/dohooo)! - Add stacked PR support — work on a chain of small, dependent PRs instead of one big branch:
+  - `/helmor-cli stack` plans a large change as a stack of dependent PRs, and `/helmor-cli break` splits a change you've already written into one. Each layer is its own workspace and PR, and the workspace you start from becomes the stack's base.
+  - `/helmor-cli restack` re-syncs the layers above after a lower one changes or merges.
+  - The sidebar groups a stack's workspaces together, and each layer's header points at the workspace it builds on.
+
+### Patch Changes
+
+- [#723](https://github.com/dohooo/helmor/pull/723) [`05ae092`](https://github.com/dohooo/helmor/commit/05ae0926b4e5c395e44acaef5ac6971d86b27e2e) Thanks [@natllian](https://github.com/natllian)! - Conversations now stream live across paired devices, so a turn you start on the mobile companion (or another desktop window) appears on every open view in real time as the agent responds, instead of only showing up after a reload.
+
+- [#719](https://github.com/dohooo/helmor/pull/719) [`62d76c4`](https://github.com/dohooo/helmor/commit/62d76c4fa53025a49d2c26f8478a5f32d8947bad) Thanks [@natllian](https://github.com/natllian)! - Fix a task started from the start page never actually running — while still showing as working in the sidebar — when you immediately switch to another workspace before it finishes setting up.
+
+## 0.30.0
+
+### Minor Changes
+
+- [#713](https://github.com/dohooo/helmor/pull/713) [`de9612a`](https://github.com/dohooo/helmor/commit/de9612ac94155d00955c78068265d9da05a9a07b) Thanks [@dohooo](https://github.com/dohooo)! - Add Gemma 4 12B to the Local LLM installer so it can be downloaded and used by Helmor's local model features.
+
+- [#716](https://github.com/dohooo/helmor/pull/716) [`f3bc084`](https://github.com/dohooo/helmor/commit/f3bc08454229cdd07c8b724fdcee0cacce60ca7f) Thanks [@dohooo](https://github.com/dohooo)! - Add a mini window layout for narrow workflows:
+
+  - Add a resize control and Command+Control+M shortcut for switching between desktop and mini window sizes.
+  - Turn the sidebars into responsive edge drawers on narrow windows so the main workspace stays full width.
+  - Move compact header actions into a More menu when the window is close to mobile size.
+
+- [#715](https://github.com/dohooo/helmor/pull/715) [`1bc14d6`](https://github.com/dohooo/helmor/commit/1bc14d648690d6d5029219e778a75f7ed4c2670a) Thanks [@dohooo](https://github.com/dohooo)! - Smart triage now keys off whether something actually involves you, across every source:
+
+  - Slack/IM triage surfaces only direct messages to you and threads that @-mention you — group chats you're merely a member of, and channels where you only posted, no longer become tasks.
+  - Each proposed task records why it reached you (assigned, review-requested, @-mentioned, your own work, or a repo you solely own) and restates that reason in its plan.
+  - Auto-cleanup now also retires proposed tasks that no longer involve you — a teammate's open PR you were never asked about, or a Slack thread that no longer @-mentions you — on top of ones whose PR/issue has merged or closed. Archiving stays reversible.
+
+- [#715](https://github.com/dohooo/helmor/pull/715) [`1bc14d6`](https://github.com/dohooo/helmor/commit/1bc14d648690d6d5029219e778a75f7ed4c2670a) Thanks [@dohooo](https://github.com/dohooo)! - Proposed tasks in the sidebar now show their source platform (GitHub, GitLab, Slack, or Lark) as a small badge on the workspace avatar instead of a plain proposal dot, so you can tell at a glance where each one came from.
+
+### Patch Changes
+
+- [#713](https://github.com/dohooo/helmor/pull/713) [`de9612a`](https://github.com/dohooo/helmor/commit/de9612ac94155d00955c78068265d9da05a9a07b) Thanks [@dohooo](https://github.com/dohooo)! - Tell agents to keep research notes and other scratch artifacts under `.agent-contexts/` so temporary files stay out of workspace Changes.
+
+- [#700](https://github.com/dohooo/helmor/pull/700) [`43f429e`](https://github.com/dohooo/helmor/commit/43f429e5bbd7b0e5a224b026e5021ffa89890ad2) Thanks [@passion729](https://github.com/passion729)! - On macOS, closing the window — red button, Cmd+W on an empty last tab, or the new Cmd+Shift+W shortcut — now hides Helmor in the Dock instead of quitting (Cmd+Q still quits).
+
+- [#715](https://github.com/dohooo/helmor/pull/715) [`1bc14d6`](https://github.com/dohooo/helmor/commit/1bc14d648690d6d5029219e778a75f7ed4c2670a) Thanks [@dohooo](https://github.com/dohooo)! - Smart Triage now reasons more deeply before proposing or skipping each item, so the tasks it suggests in the background are more accurate.
+
+- [#717](https://github.com/dohooo/helmor/pull/717) [`0f20501`](https://github.com/dohooo/helmor/commit/0f2050193c50a9113f714bad3848ad7ba7f940a8) Thanks [@natllian](https://github.com/natllian)! - Add an Always on Top toggle in the Window menu to keep Helmor floating above other apps.
+
+## 0.29.1
+
+### Patch Changes
+
+- [#711](https://github.com/dohooo/helmor/pull/711) [`1dcd063`](https://github.com/dohooo/helmor/commit/1dcd06349fb73792cc9659dc49837a3785ab36d9) Thanks [@natllian](https://github.com/natllian)! - Fix Just chat so your first message bubble shows immediately instead of the session flashing empty.
+
+## 0.29.0
+
+### Minor Changes
+
+- [#709](https://github.com/dohooo/helmor/pull/709) [`3ec4b0c`](https://github.com/dohooo/helmor/commit/3ec4b0ca2fe1f9cd04ac53f0e58ccedc12c74194) Thanks [@dohooo](https://github.com/dohooo)! - Smart triage now surfaces only items that actually involve you and keeps the proposed-task list clean automatically.
+
+  - Triage scans GitHub for items that involve you (assigned / review-requested / @-mentioned / authored) instead of every open issue and PR in your repos, so teammates' routine PRs no longer pile up as tasks. Repos you solely own still surface their open issues so you can triage them.
+  - The triage judge is now precision-first: it proposes a task only when work is genuinely owed to you and skips by default, rather than proposing whenever it is unsure.
+  - Proposed-task workspaces whose pull request or issue has since been merged or closed are now archived automatically (and reversibly), so the list no longer fills up with already-finished work.
+
+### Patch Changes
+
+- [#529](https://github.com/dohooo/helmor/pull/529) [`fba0763`](https://github.com/dohooo/helmor/commit/fba07637632f46ea75d40ab5aa6ebfaa5d059eb3) Thanks [@david-engelmann](https://github.com/david-engelmann)! - Replace scattered `provider === "codex"` / `provider === "cursor"` checks with a data-driven provider-capability table exposed through a new `list_provider_capabilities` command, so adding a new provider becomes a single matrix edit instead of a codebase-wide grep.
+
+- [#557](https://github.com/dohooo/helmor/pull/557) [`86aa5d0`](https://github.com/dohooo/helmor/commit/86aa5d01747209b47a0a7f5cf8769b42cfe0c237) Thanks [@david-engelmann](https://github.com/david-engelmann)! - Track every PTY-backed script and embedded-terminal process in a new `runtime_processes` table so a crash-recovery sweep on launch can identify stale processes from a prior run. Probes PIDs via `kill(pid, 0)`, marks dead rows ended automatically, and logs "maybe alive" rows — no auto-kill on startup since PIDs can be reused.
+
+- [#528](https://github.com/dohooo/helmor/pull/528) [`07a4e18`](https://github.com/dohooo/helmor/commit/07a4e1893de68b31471b3f94a61ae6c3e8400ea4) Thanks [@david-engelmann](https://github.com/david-engelmann)! - Persist the latest agent plan per session in a new `session_plan_state` table so a future pinned-plan UI can survive reloads. The pipeline projects Codex `turn/plan/updated` events and Claude `ExitPlanMode` tool calls into a normalised plan shape and exposes it through a new `getSessionPlanState` command and `sessionPlanChanged` UI sync event; the chat transcript's existing plan rendering is unchanged.
+
+- [#708](https://github.com/dohooo/helmor/pull/708) [`3c782a6`](https://github.com/dohooo/helmor/commit/3c782a6d1ce71a43e94aef17e1c265327a53e8fe) Thanks [@natllian](https://github.com/natllian)! - Before Claude starts replying, show a single "Thinking…" indicator instead of placeholder dots ("...") — collapsing the duplicate rows that appeared after the recent SDK update and filling the blank pause while Claude thinks when Thinking Display is set to Omitted.
+
+- [#705](https://github.com/dohooo/helmor/pull/705) [`c339da5`](https://github.com/dohooo/helmor/commit/c339da5f7c0c4ee34fdc884559621429676ffd90) Thanks [@dohooo](https://github.com/dohooo)! - Smart triage now restarts the local model if it stopped mid-session, instead of silently producing no tasks until you relaunch the app. Previously, when the bundled local LLM crashed or its health-check gave up, every triage tick failed with "Local LLM is not running" — so freshly-indexed Slack/GitHub/etc. activity never got turned into tasks until the app was restarted.
+
+## 0.28.2
+
+### Patch Changes
+
+- [#703](https://github.com/dohooo/helmor/pull/703) [`b73db63`](https://github.com/dohooo/helmor/commit/b73db63544098ae7b7a6a10accc4ef9e8b5c4823) Thanks [@dohooo](https://github.com/dohooo)! - Fix the agent scratch directory so `.agent-contexts/` stays out of workspace Changes in new and existing worktree workspaces.
+
+- [#701](https://github.com/dohooo/helmor/pull/701) [`421a5df`](https://github.com/dohooo/helmor/commit/421a5df6b6cca5859542f663c2145a878f5358bc) Thanks [@dohooo](https://github.com/dohooo)! - Make Smart triage reliably pick up Slack channel @-mentions, and stop background fetching entirely for users who haven't enabled it:
+  - Triage now indexes the channels you were @-mentioned in — including mentions inside threads (the full thread is pulled in for context) and channels you aren't a member of. Previously thread mentions were silently dropped and channels were crowded out by your DMs, so those tasks never surfaced.
+  - When Smart triage is turned off, Helmor no longer runs any background Slack/GitHub/GitLab/Lark fetches, so people who don't use the feature incur zero background activity.
+  - In the Context Slack inbox, opening an @-mention that was posted inside a thread now shows the full thread (tagged with a `Thread` badge), instead of only the surrounding channel messages.
+
+## 0.28.1
+
+### Patch Changes
+
+- [#697](https://github.com/dohooo/helmor/pull/697) [`f3329ec`](https://github.com/dohooo/helmor/commit/f3329eceae1d2f56c7b108e9956bdd0a18d726a0) Thanks [@dohooo](https://github.com/dohooo)! - Make Smart triage reliably pick up Slack messages:
+  - Triage now retries transient Slack failures (DNS, connection, and 5xx errors) instead of dropping the whole fetch, so Slack channel mentions and DMs stop being silently missed.
+  - The Triage settings panel now flags a Slack source as needing attention (with the failure reason) when its background fetch is failing, instead of always showing it as connected.
+
 ## 0.28.0
 
 ### Minor Changes

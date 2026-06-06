@@ -7,7 +7,8 @@ use anyhow::Context;
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{
-    LogicalSize, LogicalUnit, Manager, PixelUnit, Size, State, Window, WindowSizeConstraints,
+    LogicalSize, LogicalUnit, Manager, PhysicalPosition, PhysicalSize, PixelUnit, Position, Size,
+    State, Window, WindowSizeConstraints,
 };
 
 use crate::workspace::scripts::{ScriptContext, ScriptEvent, ScriptProcessManager};
@@ -19,6 +20,8 @@ use super::common::{run_blocking, CmdResult};
 // Resizing is restored when onboarding exits.
 const ONBOARDING_WINDOW_WIDTH: f64 = 1300.0;
 const ONBOARDING_WINDOW_HEIGHT: f64 = 810.0;
+const MINI_WINDOW_WIDTH: f64 = 430.0;
+const MINI_WINDOW_HEIGHT: f64 = 760.0;
 const HELMOR_SKILL_NAME: &str = "helmor-cli";
 const HELMOR_SKILL_SOURCE: &str = "dohooo/helmor/.agents/skills/helmor-cli";
 
@@ -46,6 +49,14 @@ const ONBOARDING_COMPLETED_KEY: &str = "app.onboarding_completed";
 
 static ONBOARDING_WINDOW_STATE: LazyLock<Mutex<HashMap<String, bool>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static MINI_WINDOW_STATE: LazyLock<Mutex<HashMap<String, MiniWindowRestoreState>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug, Clone, Copy)]
+struct MiniWindowRestoreState {
+    size: PhysicalSize<u32>,
+    resizable: bool,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -707,11 +718,32 @@ fn try_install_cli_silent_at(
     }
 }
 
-fn try_install_cli_silent() -> anyhow::Result<()> {
-    let source = std::env::current_exe().context("Cannot determine app executable path")?;
-    let cli_binary = bundled_cli_binary(&source)?;
-    let install_path = cli_install_target();
-    try_install_cli_silent_at(&cli_binary, &install_path)
+/// Verify the managed CLI symlink and silently re-point it if it is stale
+/// or missing. Returns the silent-install error (if any) for the panel.
+///
+/// This runs on EVERY components check — never gated by the per-version
+/// cache — because the symlink is cheap to fix (a stat + an unprivileged
+/// symlink rewrite) and can go stale WITHIN a single version whenever the
+/// dev build switches worktrees. Caching it behind the version key is
+/// exactly what used to leave a dangling `/usr/local/bin/helmor-dev`
+/// pointing at a worktree whose binary was rebuilt or removed.
+fn check_and_heal_cli_symlink(
+    install_path: &std::path::Path,
+    bundled_cli: &std::path::Path,
+) -> Option<String> {
+    match classify_cli_install(install_path, bundled_cli) {
+        CliInstallState::Managed => None,
+        CliInstallState::Missing | CliInstallState::Stale => {
+            match try_install_cli_silent_at(bundled_cli, install_path) {
+                Ok(()) => None,
+                Err(error) => {
+                    let msg = format!("{error:#}");
+                    tracing::info!(error = %msg, "Components check: silent CLI install deferred to user");
+                    Some(msg)
+                }
+            }
+        }
+    }
 }
 
 /// One pass of the silent startup check. Returns the post-check snapshot
@@ -720,55 +752,37 @@ fn try_install_cli_silent() -> anyhow::Result<()> {
 fn run_components_check_inner(force: bool) -> ComponentsUpdateCheck {
     let current_version = env!("CARGO_PKG_VERSION").to_string();
 
-    // Cache hit — skip everything. The panel still re-reads errors so
-    // a "Re-check" that clears the cache key (via `force`) shows fresh.
+    // --- CLI half: ALWAYS run, BEFORE the per-version cache gate ---------
+    // Self-heal the managed CLI symlink on every launch (see
+    // `check_and_heal_cli_symlink`): it can go stale within a single
+    // version when the dev build switches worktrees, and re-pointing it is
+    // cheap and (on a user-writable install dir) needs no sudo, so a plain
+    // restart fixes it instead of forcing a manual `ln -sfn`.
+    let install_path = cli_install_target();
+    let cli_error: Option<String> = match std::env::current_exe()
+        .context("Cannot determine app executable path")
+        .and_then(|exe| bundled_cli_binary(&exe))
+    {
+        Ok(cli_binary) => check_and_heal_cli_symlink(&install_path, &cli_binary),
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "Components check: bundled CLI lookup failed");
+            None
+        }
+    };
+    persist_error(UPDATE_CHECK_CLI_ERROR_KEY, cli_error.as_deref());
+
+    // --- Skills install is expensive (`npx skills add`): gate it behind
+    // the per-version cache. The CLI half above is independent of this.
     if !force {
         if let Ok(Some(last)) =
             crate::models::settings::load_setting_value(LAST_UPDATE_CHECK_VERSION_KEY)
         {
             if last == current_version {
-                return read_components_update_check().unwrap_or_else(|error| {
-                    tracing::warn!(
-                        error = %format!("{error:#}"),
-                        "Failed to read components-check cache; returning empty snapshot",
-                    );
-                    empty_components_check(current_version.clone())
-                });
+                return read_components_update_check()
+                    .unwrap_or_else(|_| empty_components_check(current_version));
             }
         }
     }
-
-    // --- CLI half --------------------------------------------------------
-    let install_path = cli_install_target();
-    let source = match std::env::current_exe() {
-        Ok(path) => path,
-        Err(error) => {
-            tracing::warn!(error = %error, "Components check: current_exe failed");
-            return read_components_update_check()
-                .unwrap_or_else(|_| empty_components_check(current_version));
-        }
-    };
-    let cli_binary = match bundled_cli_binary(&source) {
-        Ok(path) => path,
-        Err(error) => {
-            tracing::warn!(error = %format!("{error:#}"), "Components check: bundled CLI lookup failed");
-            return read_components_update_check()
-                .unwrap_or_else(|_| empty_components_check(current_version));
-        }
-    };
-
-    let cli_state = classify_cli_install(&install_path, &cli_binary);
-    let cli_error: Option<String> = match cli_state {
-        CliInstallState::Managed => None,
-        CliInstallState::Missing | CliInstallState::Stale => match try_install_cli_silent() {
-            Ok(()) => None,
-            Err(error) => {
-                let msg = format!("{error:#}");
-                tracing::info!(error = %msg, "Components check: silent CLI install deferred to user");
-                Some(msg)
-            }
-        },
-    };
 
     // --- Skills half -----------------------------------------------------
     //
@@ -795,17 +809,13 @@ fn run_components_check_inner(force: bool) -> ComponentsUpdateCheck {
             }
         }
     };
-
-    // Persist error state unconditionally so the panel reflects reality.
-    persist_error(UPDATE_CHECK_CLI_ERROR_KEY, cli_error.as_deref());
     persist_error(UPDATE_CHECK_SKILLS_ERROR_KEY, skills_error.as_deref());
 
-    // Only advance the cache key if neither half left a real error
-    // behind. This way a transient skills failure (no network, npx not
-    // on PATH yet) auto-retries on the next launch, while a steady
-    // state ("CLI needs sudo, you have to click Retry") still only
-    // checks once per upgrade.
-    if cli_error.is_none() && skills_error.is_none() {
+    // Advance the cache key (which gates the expensive skills install) only
+    // when the skills half is clean — a transient failure (no network, npx
+    // not on PATH yet) auto-retries on the next launch. The CLI half is
+    // independent and always runs, so it no longer gates this key.
+    if skills_error.is_none() {
         if let Err(error) = crate::models::settings::upsert_setting_value(
             LAST_UPDATE_CHECK_VERSION_KEY,
             &current_version,
@@ -968,6 +978,103 @@ pub fn exit_onboarding_window_mode(window: Window) -> CmdResult<()> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn enter_mini_window_mode(window: Window) -> CmdResult<()> {
+    let label = window.label().to_string();
+    let restore_state = MiniWindowRestoreState {
+        size: window
+            .outer_size()
+            .context("Failed to read current window size")?,
+        resizable: window
+            .is_resizable()
+            .context("Failed to read window resizable state")?,
+    };
+    MINI_WINDOW_STATE
+        .lock()
+        .expect("mini window state mutex poisoned")
+        .entry(label)
+        .or_insert(restore_state);
+
+    let size = mini_window_size();
+    window
+        .set_size(size)
+        .context("Failed to set mini window size")?;
+    window.center().context("Failed to center mini window")?;
+    window
+        .set_min_size(Some(size))
+        .context("Failed to set mini minimum window size")?;
+    window
+        .set_max_size(Some(size))
+        .context("Failed to set mini maximum window size")?;
+    window
+        .set_size_constraints(mini_window_constraints())
+        .context("Failed to set mini window size constraints")?;
+    window
+        .set_resizable(false)
+        .context("Failed to disable mini window resizing")?;
+    // Resizing/centering drops the webview's keyboard focus on macOS, which
+    // kills the JS keydown listener until the user clicks back in. Re-focus
+    // so the toggle shortcut keeps working without a manual click.
+    let _ = window.set_focus();
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn exit_mini_window_mode(window: Window) -> CmdResult<()> {
+    let label = window.label().to_string();
+    let restore_state = MINI_WINDOW_STATE
+        .lock()
+        .expect("mini window state mutex poisoned")
+        .remove(&label);
+
+    window
+        .set_size_constraints(WindowSizeConstraints::default())
+        .context("Failed to clear mini window size constraints")?;
+    window
+        .set_min_size(None::<Size>)
+        .context("Failed to clear mini minimum window size")?;
+    window
+        .set_max_size(None::<Size>)
+        .context("Failed to clear mini maximum window size")?;
+
+    if let Some(state) = restore_state {
+        window
+            .set_size(Size::Physical(state.size))
+            .context("Failed to restore window size")?;
+        center_window_for_size(&window, state.size).context("Failed to center restored window")?;
+        window
+            .set_resizable(state.resizable)
+            .context("Failed to restore window resizing")?;
+    } else {
+        window
+            .set_resizable(true)
+            .context("Failed to restore window resizing")?;
+    }
+    // See enter_mini_window_mode: restore keyboard focus after resizing so the
+    // toggle shortcut stays live.
+    let _ = window.set_focus();
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn toggle_mini_window_mode(window: Window) -> CmdResult<bool> {
+    let label = window.label().to_string();
+    let is_mini = MINI_WINDOW_STATE
+        .lock()
+        .expect("mini window state mutex poisoned")
+        .contains_key(&label);
+
+    if is_mini {
+        exit_mini_window_mode(window)?;
+        Ok(false)
+    } else {
+        enter_mini_window_mode(window)?;
+        Ok(true)
+    }
+}
+
 fn onboarding_window_size() -> Size {
     Size::Logical(LogicalSize {
         width: ONBOARDING_WINDOW_WIDTH,
@@ -990,6 +1097,43 @@ fn onboarding_window_constraints() -> WindowSizeConstraints {
             ONBOARDING_WINDOW_HEIGHT,
         ))),
     }
+}
+
+fn mini_window_size() -> Size {
+    Size::Logical(LogicalSize {
+        width: MINI_WINDOW_WIDTH,
+        height: MINI_WINDOW_HEIGHT,
+    })
+}
+
+fn mini_window_constraints() -> WindowSizeConstraints {
+    WindowSizeConstraints {
+        min_width: Some(PixelUnit::Logical(LogicalUnit::new(MINI_WINDOW_WIDTH))),
+        min_height: Some(PixelUnit::Logical(LogicalUnit::new(MINI_WINDOW_HEIGHT))),
+        max_width: Some(PixelUnit::Logical(LogicalUnit::new(MINI_WINDOW_WIDTH))),
+        max_height: Some(PixelUnit::Logical(LogicalUnit::new(MINI_WINDOW_HEIGHT))),
+    }
+}
+
+fn center_window_for_size(window: &Window, size: PhysicalSize<u32>) -> anyhow::Result<()> {
+    let Some(monitor) = window
+        .current_monitor()
+        .context("Failed to read current monitor")?
+    else {
+        window.center().context("Failed to center window")?;
+        return Ok(());
+    };
+
+    let monitor_position = *monitor.position();
+    let monitor_size = *monitor.size();
+    let x = monitor_position.x + ((monitor_size.width as i32 - size.width as i32) / 2);
+    let y = monitor_position.y + ((monitor_size.height as i32 - size.height as i32) / 2);
+
+    window
+        .set_position(Position::Physical(PhysicalPosition::new(x, y)))
+        .context("Failed to set centered window position")?;
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -1602,6 +1746,25 @@ pub async fn request_quit(app: tauri::AppHandle, force: bool) {
         );
     }
 
+    // Belt-and-suspenders: stamp every still-open runtime registry
+    // row as ended, so the next launch's classification sweep
+    // doesn't waste cycles probing PIDs we've already terminated.
+    // The per-process `record_ended` calls in `run_script_with_shell`
+    // cover the common case; this catches handles that didn't make
+    // it through their reaper before app exit.
+    match crate::workspace::runtime_registry::record_all_ended() {
+        Ok(0) => {}
+        Ok(stamped) => tracing::debug!(
+            stamped,
+            "request_quit: stamped runtime registry rows as ended"
+        ),
+        Err(error) => tracing::warn!(
+            %error,
+            "request_quit: failed to stamp runtime registry rows ended; \
+             next launch's sweep will reclassify"
+        ),
+    }
+
     // 4. Cooperative sidecar teardown: shutdown RPC → SIGTERM → SIGKILL.
     let sidecar = app.state::<sidecar::ManagedSidecar>();
     let (cooperative, escalation) = if force {
@@ -1678,6 +1841,9 @@ pub async fn dev_reset_all_data(app: tauri::AppHandle) -> CmdResult<DevResetResu
             .context("Failed to start dev-reset transaction")?;
 
         let messages_deleted: usize = tx.execute("DELETE FROM session_messages", []).unwrap_or(0);
+        let _plan_state: usize = tx
+            .execute("DELETE FROM session_plan_state", [])
+            .unwrap_or(0);
         let sessions_deleted: usize = tx.execute("DELETE FROM sessions", []).unwrap_or(0);
         let _pending: usize = tx.execute("DELETE FROM pending_cli_sends", []).unwrap_or(0);
         let workspaces_deleted: usize = tx.execute("DELETE FROM workspaces", []).unwrap_or(0);
@@ -1795,6 +1961,39 @@ mod tests {
 
         install_cli_symlink(&bundled_cli, &install_path).unwrap();
 
+        assert_eq!(
+            classify_cli_install(&install_path, &bundled_cli),
+            CliInstallState::Managed
+        );
+    }
+
+    #[test]
+    fn check_and_heal_cli_symlink_repoints_a_stale_link() {
+        let tmp = tempdir().unwrap();
+        let bundled_cli = tmp.path().join("Helmor.app/Contents/MacOS/helmor-cli");
+        let old_cli = tmp.path().join("old-worktree/helmor-cli");
+        let install_path = tmp.path().join("usr/local/bin/helmor-dev");
+        fs::create_dir_all(bundled_cli.parent().unwrap()).unwrap();
+        fs::create_dir_all(old_cli.parent().unwrap()).unwrap();
+        fs::create_dir_all(install_path.parent().unwrap()).unwrap();
+        fs::write(&bundled_cli, "#!/bin/sh\n").unwrap();
+        fs::write(&old_cli, "#!/bin/sh\n").unwrap();
+
+        // Reproduce the dev-CLI breakage: the managed symlink points at a
+        // different worktree's binary, so it reads as Stale.
+        std::os::unix::fs::symlink(&old_cli, &install_path).unwrap();
+        assert_eq!(
+            classify_cli_install(&install_path, &bundled_cli),
+            CliInstallState::Stale
+        );
+
+        // The plain (un-forced) heal a restart triggers re-points it with no
+        // error and no sudo — the whole point of moving this out of the
+        // per-version cache gate.
+        assert_eq!(
+            check_and_heal_cli_symlink(&install_path, &bundled_cli),
+            None
+        );
         assert_eq!(
             classify_cli_install(&install_path, &bundled_cli),
             CliInstallState::Managed

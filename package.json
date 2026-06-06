@@ -2,7 +2,7 @@
 	"name": "helmor",
 	"description": "The local-first IDE for coding agent orchestration.",
 	"private": true,
-	"version": "0.28.0",
+	"version": "0.31.0",
 	"packageManager": "bun@1.3.2",
 	"type": "module",
 	"workspaces": [
@@ -15,8 +15,10 @@
 	},
 	"scripts": {
 		"changeset": "changeset",
-		"dev": "bun run dev:prepare && tauri dev",
-		"dev:prepare": "cd sidecar && bun run dev:prepare",
+		"dev": "bun run dev:prepare && vite build && tauri dev",
+		"dev:prepare": "bun run dev:prepare:sidecar && bun run dev:prepare:cli",
+		"dev:prepare:sidecar": "cd sidecar && bun run dev:prepare",
+		"dev:prepare:cli": "node scripts/stage-dev-cli.mjs",
 		"dev:analyze": "bun run dev:prepare && VITE_HELMOR_PERF_HUD=1 tauri dev",
 		"build": "tsc && vite build && bun run build:mobile-web",
 		"build:mobile-web": "cd apps/mobile-web && bun run build",

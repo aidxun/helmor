@@ -609,6 +609,8 @@ mod tests {
             last_user_message_at: None,
             kind: "manual".to_string(),
             triage_priming_unconsumed: false,
+            triage_source_type: None,
+            parent_workspace_id: None,
         }
     }
 

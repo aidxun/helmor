@@ -9,9 +9,7 @@
  * @see https://streamdown.ai/docs/components
  */
 
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { DownloadIcon } from "lucide-react";
 import {
 	type ComponentType,
@@ -46,7 +44,9 @@ import {
 import { useFileLinkContext } from "@/features/panel/message-components/file-link-context";
 import { saveTextFileAs } from "@/lib/api";
 import { isPathWithinRoot } from "@/lib/editor-session";
+import { convertFileSrc } from "@/lib/ipc";
 import { parseLocalFileLink } from "@/lib/local-file-link";
+import { openUrl } from "@/lib/platform-bridge";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------

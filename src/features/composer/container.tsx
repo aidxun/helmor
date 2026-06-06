@@ -22,6 +22,7 @@ import type {
 } from "@/lib/api";
 import {
 	createSession,
+	findProviderCapabilities,
 	mutateCodexGoal,
 	saveAutoCloseActionKinds,
 	setWorkspaceLinkedDirectories,
@@ -35,10 +36,12 @@ import {
 	agentModelSectionsQueryOptions,
 	autoCloseActionKindsQueryOptions,
 	helmorQueryKeys,
+	providerCapabilitiesQueryOptions,
 	sessionCodexGoalQueryOptions,
 	slashCommandsQueryOptions,
 	workspaceCandidateDirectoriesQueryOptions,
 	workspaceDetailQueryOptions,
+	workspaceGroupsQueryOptions,
 	workspaceLinkedDirectoriesQueryOptions,
 	workspaceSessionsQueryOptions,
 } from "@/lib/query-client";
@@ -55,6 +58,10 @@ import {
 } from "@/lib/workspace-helpers";
 import { publishShellEvent } from "@/shell/event-bus";
 import { CodexGoalBanner } from "../panel/codex-goal-banner";
+import {
+	type ComposerQuickAction,
+	ComposerQuickActions,
+} from "./composer-quick-actions";
 import type { AddDirPickerEntry } from "./editor/add-dir/typeahead-plugin";
 import { WorkspaceComposer } from "./index";
 import {
@@ -315,6 +322,28 @@ export const WorkspaceComposerContainer = memo(
 			[settings.startSurfacePreferences, updateSettings],
 		);
 		const modelSectionsQuery = useQuery(agentModelSectionsQueryOptions());
+		// Stack-tip detection for the Restack quick action: the current
+		// workspace is a stack tip when it has a parent (is stacked on a layer
+		// below) AND no other workspace stacks on it. Reuses the cached sidebar
+		// workspace list.
+		// Narrow the cached sidebar workspace list down to the single boolean
+		// this composer needs, via `select`, so the query observer only
+		// re-renders when *that* flips — not on every workspace-list change
+		// (adds, status flips, reorders). Keeps non-stack composers free of
+		// churn-driven re-renders.
+		const isStackTip =
+			useQuery({
+				...workspaceGroupsQueryOptions(),
+				select: (groups) => {
+					if (!displayedWorkspaceId) return false;
+					const rows = groups.flatMap((group) => group.rows);
+					const current = rows.find((row) => row.id === displayedWorkspaceId);
+					if (!current?.parentWorkspaceId) return false;
+					return !rows.some(
+						(row) => row.parentWorkspaceId === displayedWorkspaceId,
+					);
+				},
+			}).data ?? false;
 		const workspaceDetailQuery = useQuery({
 			...workspaceDetailQueryOptions(displayedWorkspaceId ?? "__none__"),
 			enabled: Boolean(displayedWorkspaceId),
@@ -728,12 +757,31 @@ export const WorkspaceComposerContainer = memo(
 			void slashCommandsQuery.refetch();
 		}, [slashCommandsQuery]);
 
+		// Provider capability lookup — single source of truth for the
+		// active-goal interception below (composer needs to know whether
+		// the current provider has a `/goal` loop at all). Falls back to
+		// Claude defaults while the table is loading so unknown
+		// providers don't accidentally enable codex-only branches.
+		const providerCapabilitiesQuery = useQuery(
+			providerCapabilitiesQueryOptions(),
+		);
+		const providerCapabilities = useMemo(
+			() =>
+				findProviderCapabilities(
+					providerCapabilitiesQuery.data ?? [],
+					provider,
+				),
+			[providerCapabilitiesQuery.data, provider],
+		);
+		const supportsActiveGoal =
+			providerCapabilities?.supportsActiveGoal ?? false;
+
 		// Pull the active codex goal so we can intercept `/goal X` submissions
 		// when one is already in flight and ask the user for confirmation
 		// before replacing it.
 		const codexGoalQuery = useQuery({
 			...sessionCodexGoalQueryOptions(displayedSessionId ?? "__none__"),
-			enabled: Boolean(displayedSessionId) && provider === "codex",
+			enabled: Boolean(displayedSessionId) && supportsActiveGoal,
 		});
 		const activeGoal = codexGoalQuery.data ?? null;
 
@@ -817,7 +865,7 @@ export const WorkspaceComposerContainer = memo(
 				//     the goal-continuation turn codex auto-spawns.
 				//   - `/goal <new objective>` while a goal already exists
 				//                                    → confirm-replace panel.
-				if (provider === "codex" && displayedSessionId) {
+				if (supportsActiveGoal && displayedSessionId) {
 					const match = prompt.trim().match(/^\/goal\s+([\s\S]+)$/);
 					const arg = match ? (match[1]?.trim() ?? "") : "";
 					if (arg === "pause" || arg === "clear") {
@@ -851,7 +899,12 @@ export const WorkspaceComposerContainer = memo(
 					options,
 				);
 			},
-			[provider, displayedSessionId, activeGoal, handleComposerSubmitInner],
+			[
+				supportsActiveGoal,
+				displayedSessionId,
+				activeGoal,
+				handleComposerSubmitInner,
+			],
 		);
 
 		const handleGoalReplaceConfirm = useCallback(() => {
@@ -874,6 +927,15 @@ export const WorkspaceComposerContainer = memo(
 		const handleResumeGoal = useCallback(() => {
 			handleComposerSubmitInner("/goal resume", [], [], []);
 		}, [handleComposerSubmitInner]);
+
+		// Quick-action tag clicked above the composer — fire its preset prompt
+		// straight through the normal submit path (e.g. `/helmor-cli restack`).
+		const handleQuickAction = useCallback(
+			(action: ComposerQuickAction) => {
+				handleComposerSubmitInner(action.prompt, [], [], []);
+			},
+			[handleComposerSubmitInner],
+		);
 
 		// Track which queued prompt we've already dispatched so a re-render
 		// (e.g. due to query invalidation refreshing the session list) can't
@@ -1067,6 +1129,12 @@ export const WorkspaceComposerContainer = memo(
 
 				<div className="relative z-10">
 					<div className="pointer-events-none absolute inset-x-0 bottom-[calc(100%-1px)] z-20 flex flex-col items-center gap-1.5">
+						{isStackTip ? (
+							<ComposerQuickActions
+								onAction={handleQuickAction}
+								disabled={composerUnavailable || sending}
+							/>
+						) : null}
 						<WorkflowProgressPanel
 							sessionId={displayedSessionId}
 							open={workflowsPanelOpen}

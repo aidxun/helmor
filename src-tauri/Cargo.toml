@@ -1,6 +1,6 @@
 [package]
 name = "helmor"
-version = "0.28.0"
+version = "0.31.0"
 description = "The local-first IDE for coding agent orchestration."
 authors = ["Caspian Zhao", "Nathan Lian"]
 edition = "2021"
@@ -23,6 +23,12 @@ tauri-build = { version = "2", features = [] }
 aes = "0.8"
 anyhow = "1"
 axum = "0.8"
+# Mobile-companion HTTP surface: a localhost-bound axum server that mirrors
+# the Tauri IPC commands over HTTP/SSE so the same responsive frontend can be
+# served to a phone browser. See `src/companion/`.
+tower-http = { version = "0.6", features = ["cors"] }
+tokio-stream = { version = "0.1", features = ["time"] }
+futures = "0.3"
 base64 = "0.22.1"
 cbc = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
@@ -78,7 +84,6 @@ tokio = { version = "1", features = [
 ] }
 notify = "7"
 notify-debouncer-full = "0.4"
-tokio-stream = "0.1"
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [
@@ -108,6 +113,8 @@ name = "gen_pipeline_fixture"
 path = "src/bin/gen_pipeline_fixture.rs"
 
 [dev-dependencies]
+anyhow = "1"
+futures = "0.3"
 insta = { version = "1", features = ["yaml", "glob"] }
 tempfile = "3"
 

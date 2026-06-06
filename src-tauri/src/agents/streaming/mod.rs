@@ -20,6 +20,7 @@ pub(crate) mod context_usage;
 mod params;
 mod session_id;
 mod state;
+mod stream_hub;
 mod workflow_persist;
 
 #[cfg(test)]
@@ -37,6 +38,7 @@ pub use params::{
     build_send_message_params, lookup_workspace_linked_directories, BuildSendMessageParamsInput,
 };
 use session_id::should_adopt_provider_session_id;
+pub use stream_hub::SessionStreamHub;
 
 use rusqlite::params;
 use serde_json::{json, Value};
@@ -349,9 +351,12 @@ pub(super) fn stream_via_sidecar(
         // are a snapshot at session-start; events that mutate them
         // (e.g., `permissionModeChanged`) mirror the change back into
         // the legacy local vars until those readers migrate too.
+        let stream_hub = app.state::<stream_hub::SessionStreamHub>();
         let apply_ctx = actions::ApplyContext {
             on_event: on_event.as_ref(),
             app: &app,
+            hub: stream_hub.inner(),
+            session_id: hsid_copy.as_deref(),
         };
         let mut turn_session = state::TurnSession::new(state::TurnContext {
             provider: provider.clone(),
@@ -919,6 +924,39 @@ pub(super) fn stream_via_sidecar(
                         } else {
                             None
                         };
+                        // Project the captured plan into session_plan_state
+                        // while we still hold the writer borrow. The
+                        // pipeline keeps emitting the in-line plan card
+                        // unchanged — this is a parallel side-table for
+                        // the pinned-plan UI that survives reload.
+                        if let (Some(ctx), Some(conn)) = (exchange_ctx.as_ref(), writer.as_ref()) {
+                            if let Some(plan) =
+                                crate::agents::session_plan::plan_from_exit_plan_mode(&event.raw)
+                            {
+                                let msg_for_plan =
+                                    persisted_metadata.as_ref().map(|(id, _)| id.as_str());
+                                match crate::agents::session_plan::upsert_session_plan(
+                                    conn,
+                                    &ctx.helmor_session_id,
+                                    crate::agents::session_plan::PlanSource::ExitPlanMode,
+                                    msg_for_plan,
+                                    &plan,
+                                ) {
+                                    Ok(_) => crate::ui_sync::publish(
+                                        &app,
+                                        crate::ui_sync::UiMutationEvent::SessionPlanChanged {
+                                            session_id: ctx.helmor_session_id.clone(),
+                                        },
+                                    ),
+                                    Err(error) => tracing::warn!(
+                                        rid = %rid,
+                                        session_id = %ctx.helmor_session_id,
+                                        %error,
+                                        "Failed to project ExitPlanMode into session_plan_state"
+                                    ),
+                                }
+                            }
+                        }
                         drop(writer);
                         let (msg_id, created_at) = persisted_metadata.unwrap_or_default();
                         let plan_message = build_exit_plan_review_message(
@@ -1205,6 +1243,41 @@ pub(super) fn stream_via_sidecar(
 
                     let line = serde_json::to_string(&event.raw).unwrap_or_default();
                     if !line.is_empty() && line != "{}" {
+                        // Codex plan/todo projection. The accumulator
+                        // still renders the inline todo card unchanged
+                        // — this is a parallel side-table write keyed
+                        // by session id so the pinned-plan UI survives
+                        // a reload.
+                        if event.raw.get("type").and_then(Value::as_str)
+                            == Some("turn/plan/updated")
+                        {
+                            if let Some(ctx) = exchange_ctx.as_ref() {
+                                if let Some(plan) =
+                                    crate::agents::session_plan::plan_from_codex_event(&event.raw)
+                                {
+                                    match crate::agents::session_plan::upsert_session_plan_via_pool(
+                                        &ctx.helmor_session_id,
+                                        crate::agents::session_plan::PlanSource::Codex,
+                                        None,
+                                        &plan,
+                                    ) {
+                                        Ok(_) => crate::ui_sync::publish(
+                                            &app,
+                                            crate::ui_sync::UiMutationEvent::SessionPlanChanged {
+                                                session_id: ctx.helmor_session_id.clone(),
+                                            },
+                                        ),
+                                        Err(error) => tracing::warn!(
+                                            rid = %rid,
+                                            session_id = %ctx.helmor_session_id,
+                                            %error,
+                                            "Failed to project codex turn/plan/updated into session_plan_state"
+                                        ),
+                                    }
+                                }
+                            }
+                        }
+
                         if let Some(pipeline_state) = pipeline.as_mut() {
                             let emit = pipeline_state.push_event(&event.raw, &line);
 
@@ -1468,6 +1541,23 @@ pub(crate) fn build_helmor_system_prompt_for_workspace(
     let linked_directories =
         crate::agents::streaming::lookup_workspace_linked_directories(helmor_session_id);
 
+    // Stacked-PR awareness: when this workspace is part of a multi-layer stack,
+    // surface a lightweight pointer so the agent self-locates and fetches the
+    // rest with `helmor workspace stack`. Best-effort — failures just elide it.
+    let stack = crate::models::workspaces::load_workspace_stack(workspace_id)
+        .ok()
+        .filter(|chain| chain.len() > 1)
+        .and_then(|chain| {
+            let index = chain.iter().position(|layer| layer.id == workspace_id)?;
+            Some(crate::agents::system_prompt::StackContext {
+                position: index + 1,
+                total: chain.len(),
+                parent_branch: index
+                    .checked_sub(1)
+                    .and_then(|below| chain[below].branch.clone()),
+            })
+        });
+
     let ctx = HelmorSystemPromptContext {
         workspace_label,
         workspace_root_path: working_directory.display().to_string(),
@@ -1475,6 +1565,7 @@ pub(crate) fn build_helmor_system_prompt_for_workspace(
         base_branch,
         linked_directories,
         cli_command_name,
+        stack,
     };
     Some(build_helmor_system_prompt(&ctx))
 }

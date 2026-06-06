@@ -167,6 +167,36 @@ pub fn ensure_schema(connection: &Connection) -> Result<()> {
 }
 
 /// Incremental migrations for schema changes to existing databases.
+/// Re-point every stacked child's `intended_target_branch` at its parent's
+/// current branch. Idempotent: only rows whose cached target differs from the
+/// parent's live branch are touched (dangling parents are skipped). Mirrors
+/// the write-layer cascade in `models::workspaces::update_workspace_branch`
+/// so rows that predate it self-heal on startup.
+fn backfill_stacked_target_branches(connection: &Connection) -> Result<()> {
+    if !has_table(connection, "workspaces")
+        || !has_column(connection, "workspaces", "parent_workspace_id")
+        || !has_column(connection, "workspaces", "branch")
+        || !has_column(connection, "workspaces", "intended_target_branch")
+    {
+        return Ok(());
+    }
+    connection
+        .execute(
+            "UPDATE workspaces
+             SET intended_target_branch = (
+                 SELECT p.branch FROM workspaces p WHERE p.id = workspaces.parent_workspace_id
+             )
+             WHERE parent_workspace_id IS NOT NULL
+               AND (SELECT p.branch FROM workspaces p WHERE p.id = workspaces.parent_workspace_id) IS NOT NULL
+               AND intended_target_branch IS NOT (
+                   SELECT p.branch FROM workspaces p WHERE p.id = workspaces.parent_workspace_id
+               )",
+            [],
+        )
+        .context("Failed to re-point stacked target branches")?;
+    Ok(())
+}
+
 fn run_migrations(connection: &Connection) -> Result<()> {
     // Migration: rename claude_session_id → provider_session_id (supports any agent provider)
     let has_old_column: bool = connection
@@ -494,6 +524,28 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             .context("Failed to add pr_url column")?;
     }
 
+    // Migration: stacked PRs. `parent_workspace_id` links a workspace to the
+    // one below it in a PR stack (its base). NULL = bottom of stack or a
+    // non-stacked workspace. No SQL foreign key — consistent with
+    // `repository_id` (and SQLite can't ALTER ADD CONSTRAINT); integrity is
+    // enforced in the Rust write layer. No back-fill — existing rows are
+    // non-stacked.
+    if has_table(connection, "workspaces")
+        && !has_column(connection, "workspaces", "parent_workspace_id")
+    {
+        connection
+            .execute_batch("ALTER TABLE workspaces ADD COLUMN parent_workspace_id TEXT")
+            .context("Failed to add workspaces.parent_workspace_id column")?;
+    }
+
+    // Stacked-PR invariant: a child's `intended_target_branch` caches its
+    // parent's branch. Re-assert it so rows that predate the write-layer
+    // cascade (or drifted when a parent was renamed before the cascade
+    // existed) self-heal. Idempotent + cheap — only mismatched linked
+    // children are touched.
+    backfill_stacked_target_branches(connection)
+        .context("Failed to backfill stacked-PR target branches")?;
+
     let had_workspace_status =
         has_table(connection, "workspaces") && has_column(connection, "workspaces", "status");
     if has_table(connection, "workspaces") && !had_workspace_status {
@@ -717,6 +769,17 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             .context("Failed to add workspaces.port_count column")?;
     }
 
+    // Runtime process registry. Tracks every PTY-backed script /
+    // terminal Helmor spawns so a crash recovery sweep on next launch
+    // can detect rows whose process is still alive and report them.
+    // `ended_at` IS NULL while a process is live; the post-exit code
+    // path in `workspace::scripts::run_script_with_shell` stamps it
+    // on natural completion / kill / graceful quit. Idempotent
+    // CREATE TABLE so legacy DBs pick it up on next startup.
+    connection
+        .execute_batch(RUNTIME_PROCESSES_DDL)
+        .context("Failed to create runtime_processes table")?;
+
     // 'from_branch' = fork a new branch; 'use_branch' = attach as-is.
     if has_table(connection, "workspaces") && !has_column(connection, "workspaces", "branch_intent")
     {
@@ -772,9 +835,51 @@ fn run_migrations(connection: &Connection) -> Result<()> {
             "INTEGER NOT NULL DEFAULT 0",
         )?;
     }
+    if has_table(connection, "triage_candidate") {
+        // Why an item surfaced for the user (review_requested / assigned /
+        // mentioned / author / owned_issue). Nullable — older rows + sources
+        // that don't stamp a reason stay NULL.
+        add_column_if_missing(connection, "triage_candidate", "involvement_reason", "TEXT")?;
+    }
+
+    // Per-session "active plan" projection. Provider plan/todo events
+    // (Codex `turn/plan/updated`, Claude `ExitPlanMode`) are normalised
+    // by `agents::session_plan` into a typed plan and upserted here so
+    // the frontend can render a pinned plan without scanning scrollback.
+    // Idempotent: re-running creates a no-op when the table exists.
+    connection
+        .execute_batch(SESSION_PLAN_STATE_DDL)
+        .context("Failed to create session_plan_state table")?;
 
     Ok(())
 }
+
+const RUNTIME_PROCESSES_DDL: &str = r#"
+CREATE TABLE IF NOT EXISTS runtime_processes (
+    id TEXT PRIMARY KEY,
+    repo_id TEXT NOT NULL,
+    workspace_id TEXT,
+    script_type TEXT NOT NULL,
+    pid INTEGER NOT NULL,
+    pgid INTEGER NOT NULL,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    ended_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_runtime_processes_ended_at
+    ON runtime_processes(ended_at);
+"#;
+
+const SESSION_PLAN_STATE_DDL: &str = r#"
+CREATE TABLE IF NOT EXISTS session_plan_state (
+    session_id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    source_message_id TEXT,
+    plan_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"#;
 
 // Idempotent `ALTER TABLE ... ADD COLUMN`; no-op when the column already exists.
 fn add_column_if_missing(
@@ -981,6 +1086,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
     ai_priming_consumed INTEGER NOT NULL DEFAULT 0,
     triage_source_type TEXT,
     triage_source_ref TEXT,
+    parent_workspace_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -1031,6 +1137,26 @@ CREATE TABLE IF NOT EXISTS session_messages (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS session_plan_state (
+    session_id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    source_message_id TEXT,
+    plan_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS runtime_processes (
+    id TEXT PRIMARY KEY,
+    repo_id TEXT NOT NULL,
+    workspace_id TEXT,
+    script_type TEXT NOT NULL,
+    pid INTEGER NOT NULL,
+    pgid INTEGER NOT NULL,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    ended_at TEXT
+);
+
 -- Connected Slack workspaces (one row per workspace the user has
 -- imported). Credentials (xoxc + xoxd) live in the macOS Keychain via
 -- `crate::slack::credentials`, never here. This table is just
@@ -1058,6 +1184,7 @@ CREATE TABLE IF NOT EXISTS triage_candidate (
     title TEXT,
     preview TEXT,
     external_url TEXT,
+    involvement_reason TEXT,
     payload_path TEXT NOT NULL,
     payload_bytes INTEGER NOT NULL DEFAULT 0,
     decision TEXT,
@@ -1074,10 +1201,22 @@ CREATE TABLE IF NOT EXISTS triage_fetch_cursor (
     PRIMARY KEY (source, source_parent)
 );
 
+-- Mobile browser companion: paired phones. Stores only a SHA-256 of the PAT,
+-- never the plaintext. Survives desktop restarts so a phone never re-scans.
+CREATE TABLE IF NOT EXISTS paired_devices (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    pat_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT,
+    revoked_at TEXT
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_session_messages_sent_at ON session_messages(session_id, sent_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_workspace_id ON sessions(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_workspaces_repository_id ON workspaces(repository_id);
+CREATE INDEX IF NOT EXISTS idx_runtime_processes_ended_at ON runtime_processes(ended_at);
 CREATE INDEX IF NOT EXISTS idx_triage_candidate_open ON triage_candidate(source_time DESC) WHERE decision IS NULL;
 CREATE INDEX IF NOT EXISTS idx_triage_candidate_source ON triage_candidate(source, source_time DESC);
 -- idx_workspaces_kind + idx_workspaces_triage_source are created in
@@ -1155,6 +1294,87 @@ mod tests {
         ensure_schema(&connection).unwrap();
         // Call again — should not error
         ensure_schema(&connection).unwrap();
+    }
+
+    fn insert_ws(
+        connection: &Connection,
+        id: &str,
+        branch: &str,
+        target: Option<&str>,
+        parent: Option<&str>,
+    ) {
+        connection
+            .execute(
+                "INSERT INTO workspaces (id, repository_id, directory_name, state, status, branch, intended_target_branch, parent_workspace_id, display_order)
+                 VALUES (?1, 'repo', ?1, 'ready', 'in-progress', ?2, ?3, ?4, 0)",
+                rusqlite::params![id, branch, target, parent],
+            )
+            .unwrap();
+    }
+
+    fn target_of(connection: &Connection, id: &str) -> Option<String> {
+        connection
+            .query_row(
+                "SELECT intended_target_branch FROM workspaces WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn backfill_repoints_stale_child_targets_at_parent_branch() {
+        let (connection, _dir) = open_test_db();
+        ensure_schema(&connection).unwrap();
+
+        // child's target is a stale snapshot of the parent's old branch name.
+        insert_ws(&connection, "root", "feat/root", Some("main"), None);
+        insert_ws(
+            &connection,
+            "child",
+            "feat/child",
+            Some("feat/root-OLD"),
+            Some("root"),
+        );
+        insert_ws(&connection, "solo", "feat/solo", Some("main"), None);
+
+        backfill_stacked_target_branches(&connection).unwrap();
+
+        // Child now tracks the parent's LIVE branch; root + non-stacked untouched.
+        assert_eq!(
+            target_of(&connection, "child").as_deref(),
+            Some("feat/root")
+        );
+        assert_eq!(target_of(&connection, "root").as_deref(), Some("main"));
+        assert_eq!(target_of(&connection, "solo").as_deref(), Some("main"));
+
+        // Idempotent: a second pass is a no-op.
+        backfill_stacked_target_branches(&connection).unwrap();
+        assert_eq!(
+            target_of(&connection, "child").as_deref(),
+            Some("feat/root")
+        );
+    }
+
+    #[test]
+    fn backfill_leaves_dangling_parent_targets_untouched() {
+        let (connection, _dir) = open_test_db();
+        ensure_schema(&connection).unwrap();
+        // parent id 'gone' does not exist — must NOT null out the target.
+        insert_ws(
+            &connection,
+            "orphan",
+            "feat/x",
+            Some("stale-base"),
+            Some("gone"),
+        );
+
+        backfill_stacked_target_branches(&connection).unwrap();
+
+        assert_eq!(
+            target_of(&connection, "orphan").as_deref(),
+            Some("stale-base")
+        );
     }
 
     #[test]

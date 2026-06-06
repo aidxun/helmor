@@ -69,6 +69,11 @@ function handleUiMutation(
 				queryKey: helmorQueryKeys.sessionCodexGoal(event.sessionId),
 			});
 			return;
+		case "sessionPlanChanged":
+			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.sessionPlanState(event.sessionId),
+			});
+			return;
 		case "sessionMessagesAppended":
 			void queryClient.invalidateQueries({
 				queryKey: helmorQueryKeys.sessionMessages(event.sessionId),
@@ -193,6 +198,9 @@ function handleUiMutation(
 		case "pairedDevicesChanged":
 			void queryClient.invalidateQueries({
 				predicate: (query) => query.queryKey[0] === "companion",
+			});
+			void queryClient.invalidateQueries({
+				queryKey: helmorQueryKeys.pairedDevices,
 			});
 			return;
 		case "pendingCliSendQueued":

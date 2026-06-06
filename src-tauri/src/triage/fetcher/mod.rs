@@ -4,6 +4,7 @@
 pub mod cache;
 pub mod github;
 pub mod gitlab;
+pub mod health;
 pub mod im;
 pub mod storage;
 
@@ -96,6 +97,9 @@ fn scheduler_loop<R: TauriRuntime>(app: AppHandle<R>) {
         let start = Instant::now();
         run_once();
         maybe_fire_triage_tick(&app);
+        // Review existing proposals: archive ones whose upstream PR/issue is now
+        // merged/closed. Throttled to hourly internally; safe to call each tick.
+        crate::triage::reaper::maybe_run(&app);
         let elapsed = start.elapsed();
         let next = Duration::from_secs(TICK_INTERVAL_SEC).saturating_sub(elapsed);
         thread::sleep(next);
@@ -126,13 +130,37 @@ fn maybe_fire_triage_tick<R: TauriRuntime>(app: &AppHandle<R>) {
     }
 }
 
+/// The triage fetch path is opt-in. Pure predicate so it is unit-testable
+/// without standing up the scheduler thread.
+pub(crate) fn should_fetch(cfg: &crate::triage::TriageConfig) -> bool {
+    cfg.enabled
+}
+
 /// Run every registered fetcher once. Logs per-provider summary.
+///
+/// Opt-in gate: when Smart triage is disabled, skip the ENTIRE fetch path
+/// (all of GitHub/GitLab/Slack/Lark) so users who never enabled triage incur
+/// zero background fetch traffic. Gated on `enabled` (not `auto_run`) so a
+/// manual "Run now" still finds a warm queue.
 pub fn run_once() {
+    match crate::triage::load_config() {
+        Ok(cfg) if should_fetch(&cfg) => {}
+        Ok(_) => return,
+        Err(error) => {
+            tracing::warn!(
+                error = %format!("{error:#}"),
+                "triage fetcher: load_config failed, skipping tick",
+            );
+            return;
+        }
+    }
     for fetcher in registered_fetchers() {
         let source = fetcher.source();
+        health::record_attempt(source);
         let started = Instant::now();
         match fetcher.fetch_once() {
             Ok(summary) => {
+                health::record_success(source, summary.source_parents_scanned);
                 tracing::info!(
                     source,
                     inserted = summary.inserted,
@@ -144,6 +172,7 @@ pub fn run_once() {
                 );
             }
             Err(error) => {
+                health::record_failure(source, format!("{error:#}"));
                 tracing::warn!(
                     source,
                     elapsed_ms = started.elapsed().as_millis() as u64,
@@ -159,7 +188,21 @@ fn registered_fetchers() -> Vec<Box<dyn Fetcher>> {
     vec![
         Box::new(github::GithubFetcher),
         Box::new(gitlab::GitlabFetcher),
-        Box::new(im::ImFetcher(im::slack::SlackBackend)),
+        Box::new(im::ImFetcher(im::slack::SlackBackend::default())),
         Box::new(im::ImFetcher(im::lark::LarkBackend)),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_fetch;
+    use crate::triage::TriageConfig;
+
+    #[test]
+    fn fetch_is_gated_on_enabled() {
+        let mut cfg = TriageConfig::default();
+        assert!(!should_fetch(&cfg), "default (disabled) must not fetch");
+        cfg.enabled = true;
+        assert!(should_fetch(&cfg), "enabled must fetch");
+    }
 }

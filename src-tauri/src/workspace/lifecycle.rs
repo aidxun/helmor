@@ -621,20 +621,7 @@ pub fn finalize_workspace_from_repo_impl(workspace_id: &str) -> Result<FinalizeW
             }
         }
 
-        // Scratch space for agents to share files across sessions. The
-        // directory lives at `<workspace>/.agent-contexts/` and the
-        // worktree-local git exclude entry keeps it out of every diff.
-        // Best-effort — a failure here doesn't block workspace creation
-        // (agents just lose cross-session file sharing for this WS).
-        if let Err(err) =
-            crate::workspace::agent_contexts::ensure_agent_contexts_in_worktree(&workspace_dir)
-        {
-            tracing::warn!(
-                workspace_id = %workspace_id,
-                error = %format!("{err:#}"),
-                "Failed to provision .agent-contexts/ — workspace still usable",
-            );
-        }
+        ensure_agent_contexts_best_effort(workspace_id, &workspace_dir);
 
         // Defer setup to the frontend inspector: if a script is configured AND
         // the user opted into auto-run, the workspace starts in "setup_pending"
@@ -772,6 +759,7 @@ pub fn move_local_workspace_to_worktree_impl(
             &head_commit,
         )?;
         created_worktree = true;
+        ensure_agent_contexts_best_effort(workspace_id, &workspace_dir);
 
         // 4. Apply tracked + index changes (if any).
         if let Some(sha) = stash_sha.as_deref() {
@@ -865,6 +853,23 @@ pub fn move_local_workspace_to_worktree_impl(
     })
 }
 
+fn ensure_agent_contexts_best_effort(workspace_id: &str, workspace_dir: &Path) {
+    // Scratch space for agents to share files across sessions. The
+    // directory lives at `<workspace>/.agent-contexts/`, and Git's
+    // local exclude file keeps it out of every diff. Best-effort — a
+    // failure here doesn't block workspace creation (agents just lose
+    // cross-session file sharing for this WS).
+    if let Err(error) =
+        crate::workspace::agent_contexts::ensure_agent_contexts_in_worktree(workspace_dir)
+    {
+        tracing::warn!(
+            workspace_id = %workspace_id,
+            error = %format!("{error:#}"),
+            "Failed to provision .agent-contexts/ — workspace still usable",
+        );
+    }
+}
+
 /// Legacy combined flow. Runs Phase 1 + Phase 2 back-to-back and returns
 /// the old-shape response. Used by CLI, MCP, and `add_repository_from_local_path`
 /// — all non-UI callers that do not benefit from the prepare/finalize split.
@@ -876,6 +881,57 @@ pub fn create_workspace_from_repo_impl(repo_id: &str) -> Result<CreateWorkspaceR
         WorkspaceStatus::default(),
         None,
     )?;
+    let finalized = finalize_workspace_from_repo_impl(&prepared.workspace_id)?;
+
+    Ok(CreateWorkspaceResponse {
+        created_workspace_id: prepared.workspace_id.clone(),
+        selected_workspace_id: prepared.workspace_id,
+        initial_session_id: prepared.initial_session_id,
+        created_state: finalized.final_state,
+        directory_name: prepared.directory_name,
+        branch: prepared.branch,
+    })
+}
+
+/// Create a new workspace stacked on top of an existing one (stacked PRs).
+///
+/// The child's branch forks off the parent workspace's branch, and its
+/// `intended_target_branch` is materialized to the parent's branch (via the
+/// shared `FromBranch` prepare path) so `gh pr create --base` targets the
+/// parent with no ship-path change. `parent_workspace_id` records the stack
+/// link, which drives sidebar nesting and the future restack cascade.
+///
+/// One-shot (prepare + finalize), mirroring `create_workspace_from_repo_impl`.
+/// The repo is taken from the parent. Finalize forks the worktree off the
+/// parent branch's published tip (`origin/<branch>`) when available, falling
+/// back to the local branch for a not-yet-pushed parent.
+pub fn create_stacked_workspace_impl(parent_workspace_id: &str) -> Result<CreateWorkspaceResponse> {
+    let parent = workspace_models::load_workspace_record_by_id(parent_workspace_id)?
+        .with_context(|| format!("Parent workspace not found: {parent_workspace_id}"))?;
+    if !parent.state.is_operational() {
+        bail!(
+            "Cannot stack on workspace {parent_workspace_id}: it is {} (archived or mid-creation)",
+            parent.state
+        );
+    }
+    let parent_branch = helpers::non_empty(&parent.branch)
+        .map(ToOwned::to_owned)
+        .with_context(|| {
+            format!("Parent workspace {parent_workspace_id} has no branch to stack on")
+        })?;
+
+    let prepared = prepare_workspace_from_repo_impl(
+        &parent.repo_id,
+        Some(&parent_branch),
+        WorkspaceBranchIntent::FromBranch,
+        WorkspaceStatus::default(),
+        None,
+    )?;
+
+    // Record the stack link before finalize so the row is fully shaped
+    // (and is cleaned up with the row if finalize fails).
+    workspace_models::set_workspace_parent_id(&prepared.workspace_id, Some(parent_workspace_id))?;
+
     let finalized = finalize_workspace_from_repo_impl(&prepared.workspace_id)?;
 
     Ok(CreateWorkspaceResponse {

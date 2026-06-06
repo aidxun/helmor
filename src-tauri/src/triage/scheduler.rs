@@ -146,10 +146,29 @@ fn execute_tick<R: Runtime>(
     tick_id: &str,
 ) -> Result<ExecuteOk> {
     let repos = list_repos_payload()?;
-    let endpoint = app
-        .state::<crate::local_llm::Manager>()
+    let manager = app.state::<crate::local_llm::Manager>();
+    // The local LLM can die mid-session (a crash, or a transient connect
+    // blip that trips the healthcheck — it then exits and nothing restarts
+    // the server until the next app launch). That silently wedges triage:
+    // every tick fails the endpoint check below forever. If the model is
+    // enabled but not currently serving, (re)start it here so the next tick
+    // can classify instead of failing indefinitely. `start()` early-returns
+    // when a healthy server is already tracked, so this is a no-op on the
+    // happy path.
+    if manager.endpoint().is_none() && crate::local_llm::load_settings().enabled {
+        if let Err(error) = manager.start() {
+            tracing::warn!(
+                error = %format!("{error:#}"),
+                "triage: local LLM not serving and restart attempt failed",
+            );
+        }
+    }
+    let endpoint = manager
         .endpoint()
         .ok_or_else(|| anyhow!("Local LLM is not running"))?;
+    // Real llama.cpp `-c` for the active model; lets the sidecar size its deep
+    // thinking maxTokens budget to the box instead of a hardcoded guess.
+    let context_tokens = manager.current_context_tokens();
     let store = app.state::<ActiveStatusStore>();
 
     let mut total = ExecuteOk {
@@ -188,6 +207,7 @@ fn execute_tick<R: Runtime>(
             &endpoint.url,
             &endpoint.token,
             &endpoint.api_model,
+            context_tokens,
         )?;
         total.created += batch.created;
         total.workspace_failures += batch.workspace_failures;
@@ -217,6 +237,7 @@ fn run_one_batch<R: Runtime>(
     endpoint_url: &str,
     endpoint_token: &str,
     endpoint_model: &str,
+    endpoint_context: u32,
 ) -> Result<ExecuteOk> {
     let request_id = Uuid::new_v4().to_string();
     let sidecar = app.state::<ManagedSidecar>();
@@ -236,6 +257,7 @@ fn run_one_batch<R: Runtime>(
                 "baseUrl": endpoint_url,
                 "token": endpoint_token,
                 "model": endpoint_model,
+                "contextWindow": endpoint_context,
             },
         }),
     };

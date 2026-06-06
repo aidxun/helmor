@@ -20,12 +20,14 @@ import {
 	moveLocalWorkspaceToWorktree,
 	prewarmSlashCommandsForRepo,
 	type RepositoryCreateOption,
+	type ThreadMessageLike,
 	type WorkspaceBranchIntent,
 	type WorkspaceDetail,
 	type WorkspaceMode,
 } from "@/lib/api";
 import { extractError } from "@/lib/errors";
 import { helmorQueryKeys } from "@/lib/query-client";
+import { sessionThreadCacheKey } from "@/lib/session-thread-cache";
 import {
 	type AppSettings,
 	readRepoPreference,
@@ -548,6 +550,13 @@ export function useStartSurfaceController(
 						helmorQueryKeys.workspaceDetail(workspaceId),
 						(existing) => existing ?? synthetic,
 					);
+					// Seed an empty thread so the panel's
+					// `messagesQuery.data === undefined` gate doesn't suppress the
+					// optimistic user bubble before the first DB fetch lands.
+					queryClient.setQueryData<ThreadMessageLike[]>(
+						sessionThreadCacheKey(sessionId),
+						(existing) => existing ?? [],
+					);
 				}
 
 				requestSidebarReconcile(queryClient);
@@ -564,6 +573,8 @@ export function useStartSurfaceController(
 						id: pendingId,
 						workspaceId: outcome.workspaceId,
 						sessionId: outcome.sessionId,
+						// Pin the new workspace's repo (chat mode has none).
+						repoId: startRepository?.id ?? null,
 						// Local mode already has the cwd; worktree mode patches it
 						// onto the payload below once finalize materialises the
 						// worktree dir. Either way the payload is the single source
