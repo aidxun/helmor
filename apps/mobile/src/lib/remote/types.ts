@@ -31,6 +31,51 @@ export type CompanionHealth = {
 	desktopName: string;
 };
 
+export type AgentProvider = "claude" | "codex" | "cursor";
+
+export type AgentModelOption = {
+	id: string;
+	provider: AgentProvider;
+	label: string;
+	cliModel: string;
+	providerKey?: string | null;
+	effortLevels: string[];
+	supportsFastMode?: boolean;
+	supportsContextUsage: boolean;
+};
+
+export type AgentModelSectionStatus = "ready" | "unavailable" | "error";
+
+export type AgentModelSection = {
+	id: string;
+	label: string;
+	status: AgentModelSectionStatus;
+	options: AgentModelOption[];
+};
+
+export type PermissionModeLiteral =
+	| "default"
+	| "acceptEdits"
+	| "plan"
+	| "bypassPermissions";
+
+export type ProviderCapabilities = {
+	provider: string;
+	displayName: string;
+	supportsPlanMode: boolean;
+	supportsActiveGoal: boolean;
+	supportsContextUsage: boolean;
+	supportsSteer: boolean;
+	supportsSlashCommands: boolean;
+	requiresApiKey: boolean;
+	permissionModes: PermissionModeLiteral[];
+};
+
+export type AgentConfig = {
+	modelSections: AgentModelSection[];
+	providerCapabilities: ProviderCapabilities[];
+};
+
 export type WorkspaceSnapshot = {
 	protocolVersion: number;
 	desktopId: string;

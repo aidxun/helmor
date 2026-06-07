@@ -192,7 +192,7 @@ export function PromptInputSubmit() {
 				margin: 5,
 			})}
 			className={disabled ? "bg-secondary" : "bg-foreground"}
-			onPress={onSend}
+			onPress={() => onSend()}
 			disabled={disabled}
 		>
 			{isGenerating ? (

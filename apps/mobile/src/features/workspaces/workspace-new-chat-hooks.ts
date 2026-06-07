@@ -10,7 +10,10 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { createStreamingStore } from "@/components/chat";
+import {
+	type ChatComposerSubmit,
+	createStreamingStore,
+} from "@/components/chat";
 import { writeCachedThreadMessages } from "@/lib/local-cache";
 import {
 	createPairedDesktopClient,
@@ -114,84 +117,96 @@ export function useNewWorkspaceThreadChat({
 		[threadMessages],
 	);
 
-	const onSend = useCallback(() => {
-		if (!enabled || !activeDesktop || !input.trim() || isGenerating) return;
-		const prompt = input.trim();
-		const startedAt = Date.now();
-		const optimisticMessages = [
-			textThreadMessage({
-				id: `mobile:${startedAt}:user`,
-				role: "user",
-				text: prompt,
-			}),
-			textThreadMessage({
-				id: `mobile:${startedAt}:assistant`,
-				role: "assistant",
-				text: "",
-				streaming: true,
-			}),
-		];
-		let startedWorkspaceId: string | null = null;
-		let startedSessionId: string | null = null;
-		setInput("");
-		setError(null);
-		setIsGenerating(true);
-		streamingStore.set("");
-		setThreadMessages(optimisticMessages);
+	const onSend = useCallback(
+		(submit?: ChatComposerSubmit) => {
+			const prompt = (submit?.prompt ?? input).trim();
+			if (!enabled || !activeDesktop || !prompt || isGenerating) return;
+			const startedAt = Date.now();
+			const optimisticMessages = [
+				textThreadMessage({
+					id: `mobile:${startedAt}:user`,
+					role: "user",
+					text: prompt,
+				}),
+				textThreadMessage({
+					id: `mobile:${startedAt}:assistant`,
+					role: "assistant",
+					text: "",
+					streaming: true,
+				}),
+			];
+			let startedWorkspaceId: string | null = null;
+			let startedSessionId: string | null = null;
+			setInput("");
+			setError(null);
+			setIsGenerating(true);
+			streamingStore.set("");
+			setThreadMessages(optimisticMessages);
 
-		let client: Awaited<ReturnType<typeof createPairedDesktopClient>> | null =
-			null;
-		void (async () => {
-			try {
-				client = await createPairedDesktopClient(activeDesktop);
-				await client.sendNewWorkspaceStream({ prompt, target }, (event) => {
-					if (event.kind === "started") {
-						startedWorkspaceId = event.workspaceId;
-						startedSessionId = event.sessionId;
-						cacheTargetRef.current = {
-							desktopId: activeDesktop.desktopId,
-							sessionId: event.sessionId,
-						};
-						cacheThreadMessages(optimisticMessages, 0);
-						onStarted(event.workspaceId, event.sessionId);
+			let client: Awaited<ReturnType<typeof createPairedDesktopClient>> | null =
+				null;
+			void (async () => {
+				try {
+					client = await createPairedDesktopClient(activeDesktop);
+					await client.sendNewWorkspaceStream(
+						{
+							prompt,
+							target,
+							modelId: submit?.modelId,
+							effortLevel: submit?.effortLevel,
+							fastMode: submit?.fastMode,
+						},
+						(event) => {
+							if (event.kind === "started") {
+								startedWorkspaceId = event.workspaceId;
+								startedSessionId = event.sessionId;
+								cacheTargetRef.current = {
+									desktopId: activeDesktop.desktopId,
+									sessionId: event.sessionId,
+								};
+								cacheThreadMessages(optimisticMessages, 0);
+								onStarted(event.workspaceId, event.sessionId);
+							}
+							applyCompanionStreamEvent({
+								event,
+								setThreadMessages: setThreadMessagesWithCache,
+								streamingStore,
+								setError,
+								setIsGenerating,
+							});
+						},
+					);
+					if (startedWorkspaceId && startedSessionId) {
+						const page = await client.sessionThreadPage({
+							sessionId: startedSessionId,
+							tailLimit: DEFAULT_SESSION_THREAD_TAIL_LIMIT,
+						});
+						setThreadMessagesFromServer(page.messages);
+						await onCompleted(startedWorkspaceId, startedSessionId);
 					}
-					applyCompanionStreamEvent({
-						event,
-						setThreadMessages: setThreadMessagesWithCache,
-						streamingStore,
-						setError,
-						setIsGenerating,
-					});
-				});
-				if (startedWorkspaceId && startedSessionId) {
-					const page = await client.sessionThreadPage({
-						sessionId: startedSessionId,
-						tailLimit: DEFAULT_SESSION_THREAD_TAIL_LIMIT,
-					});
-					setThreadMessagesFromServer(page.messages);
-					await onCompleted(startedWorkspaceId, startedSessionId);
+				} catch (sendError) {
+					setError(asError(sendError));
+				} finally {
+					setIsGenerating(false);
+					streamingStore.set("");
+					client?.close();
 				}
-			} catch (sendError) {
-				setError(asError(sendError));
-			} finally {
-				setIsGenerating(false);
-				streamingStore.set("");
-				client?.close();
-			}
-		})();
-	}, [
-		activeDesktop,
-		enabled,
-		input,
-		isGenerating,
-		onCompleted,
-		onStarted,
-		cacheThreadMessages,
-		setThreadMessagesFromServer,
-		setThreadMessagesWithCache,
-		streamingStore,
-		target,
-	]);
+			})();
+		},
+		[
+			activeDesktop,
+			enabled,
+			input,
+			isGenerating,
+			onCompleted,
+			onStarted,
+			cacheThreadMessages,
+			setThreadMessagesFromServer,
+			setThreadMessagesWithCache,
+			streamingStore,
+			target,
+		],
+	);
 
 	return {
 		messages,

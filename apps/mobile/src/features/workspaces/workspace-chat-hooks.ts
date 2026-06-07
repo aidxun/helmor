@@ -10,7 +10,11 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { type ChatContextValue, createStreamingStore } from "@/components/chat";
+import {
+	type ChatComposerSubmit,
+	type ChatContextValue,
+	createStreamingStore,
+} from "@/components/chat";
 import {
 	loadCachedThreadMessages,
 	writeCachedThreadMessages,
@@ -214,75 +218,86 @@ export function useDesktopThreadChat({
 		[threadMessages],
 	);
 
-	const onSend = useCallback(() => {
-		if (!input.trim()) return;
-		if (!activeDesktop || !sessionId || isGenerating) return;
-		const prompt = input.trim();
-		const startedAt = Date.now();
-		setInput("");
-		setError(null);
-		setIsGenerating(true);
-		streamingStore.set("");
-		setThreadMessagesWithCache((previous) => [
-			...previous,
-			textThreadMessage({
-				id: `mobile:${startedAt}:user`,
-				role: "user",
-				text: prompt,
-			}),
-			textThreadMessage({
-				id: `mobile:${startedAt}:assistant`,
-				role: "assistant",
-				text: "",
-				streaming: true,
-			}),
-		]);
+	const onSend = useCallback(
+		(submit?: ChatComposerSubmit) => {
+			const prompt = (submit?.prompt ?? input).trim();
+			if (!prompt) return;
+			if (!activeDesktop || !sessionId || isGenerating) return;
+			const startedAt = Date.now();
+			setInput("");
+			setError(null);
+			setIsGenerating(true);
+			streamingStore.set("");
+			setThreadMessagesWithCache((previous) => [
+				...previous,
+				textThreadMessage({
+					id: `mobile:${startedAt}:user`,
+					role: "user",
+					text: prompt,
+				}),
+				textThreadMessage({
+					id: `mobile:${startedAt}:assistant`,
+					role: "assistant",
+					text: "",
+					streaming: true,
+				}),
+			]);
 
-		let client: Awaited<ReturnType<typeof createPairedDesktopClient>> | null =
-			null;
-		void (async () => {
-			try {
-				client = await createPairedDesktopClient(activeDesktop);
-				await client.sendSessionMessageStream(sessionId, { prompt }, (event) =>
-					applyCompanionStreamEvent({
-						event,
-						setThreadMessages: setThreadMessagesWithCache,
-						streamingStore,
-						setError,
-						setIsGenerating,
-					}),
-				);
-				const page = await client.sessionThreadPage({
-					sessionId,
-					tailLimit: DEFAULT_SESSION_THREAD_TAIL_LIMIT,
-				});
-				setThreadMessagesFromServer(page.messages);
-			} catch (sendError) {
-				setError(asError(sendError));
+			let client: Awaited<ReturnType<typeof createPairedDesktopClient>> | null =
+				null;
+			void (async () => {
 				try {
-					const page = await client?.sessionThreadPage({
+					client = await createPairedDesktopClient(activeDesktop);
+					await client.sendSessionMessageStream(
+						sessionId,
+						{
+							prompt,
+							modelId: submit?.modelId,
+							effortLevel: submit?.effortLevel,
+							fastMode: submit?.fastMode,
+						},
+						(event) =>
+							applyCompanionStreamEvent({
+								event,
+								setThreadMessages: setThreadMessagesWithCache,
+								streamingStore,
+								setError,
+								setIsGenerating,
+							}),
+					);
+					const page = await client.sessionThreadPage({
 						sessionId,
 						tailLimit: DEFAULT_SESSION_THREAD_TAIL_LIMIT,
 					});
-					if (page) {
-						setThreadMessagesFromServer(page.messages);
-					}
-				} catch {}
-			} finally {
-				setIsGenerating(false);
-				streamingStore.set("");
-				client?.close();
-			}
-		})();
-	}, [
-		activeDesktop,
-		input,
-		isGenerating,
-		sessionId,
-		setThreadMessagesFromServer,
-		setThreadMessagesWithCache,
-		streamingStore,
-	]);
+					setThreadMessagesFromServer(page.messages);
+				} catch (sendError) {
+					setError(asError(sendError));
+					try {
+						const page = await client?.sessionThreadPage({
+							sessionId,
+							tailLimit: DEFAULT_SESSION_THREAD_TAIL_LIMIT,
+						});
+						if (page) {
+							setThreadMessagesFromServer(page.messages);
+						}
+					} catch {}
+				} finally {
+					setIsGenerating(false);
+					streamingStore.set("");
+					client?.close();
+				}
+			})();
+		},
+		[
+			activeDesktop,
+			input,
+			isGenerating,
+			sessionId,
+			setThreadMessagesFromServer,
+			setThreadMessagesWithCache,
+			streamingStore,
+		],
+	);
 
 	return {
 		messages,

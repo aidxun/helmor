@@ -17,6 +17,7 @@ use tokio_stream::{wrappers::UnboundedReceiverStream, Stream, StreamExt};
 use uuid::Uuid;
 
 use crate::{
+    agents,
     companion::{
         mobile_web,
         send::{send_new_workspace_stream, send_session_stream},
@@ -32,6 +33,7 @@ pub fn router(app: AppHandle) -> Router {
         .route("/mobile/", get(mobile_web::serve_index))
         .route("/mobile/{*path}", get(mobile_web::serve_asset))
         .route("/v1/health", get(health))
+        .route("/v1/agent-config", get(agent_config))
         .route("/v1/repositories", get(repositories))
         .route("/v1/workspaces", get(workspaces))
         .route(
@@ -59,6 +61,13 @@ struct HealthResponse {
     desktop_name: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentConfigResponse {
+    model_sections: Vec<agents::AgentModelSection>,
+    provider_capabilities: Vec<agents::provider_capabilities::ProviderCapabilities>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionsQuery {
@@ -79,6 +88,17 @@ async fn health(headers: HeaderMap) -> ApiResult<Json<HealthResponse>> {
         protocol_version: identity.protocol_version,
         desktop_id: identity.desktop_id,
         desktop_name: identity.desktop_name,
+    }))
+}
+
+async fn agent_config(headers: HeaderMap) -> ApiResult<Json<AgentConfigResponse>> {
+    authenticate(&headers)?;
+    Ok(Json(AgentConfigResponse {
+        model_sections: agents::fetch_agent_model_sections(),
+        provider_capabilities: agents::provider_capabilities::KNOWN_PROVIDERS
+            .iter()
+            .map(|provider| agents::provider_capabilities::capabilities_for_provider(provider))
+            .collect(),
     }))
 }
 
@@ -193,5 +213,23 @@ impl IntoResponse for ApiError {
             StatusCode::INTERNAL_SERVER_ERROR
         };
         (status, Json(serde_json::json!({ "error": message }))).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_config_response_serializes_camel_case() {
+        let response = AgentConfigResponse {
+            model_sections: vec![],
+            provider_capabilities: vec![],
+        };
+
+        let value = serde_json::to_value(response).expect("serializes agent config");
+        assert!(value.get("modelSections").is_some());
+        assert!(value.get("providerCapabilities").is_some());
+        assert!(value.get("model_sections").is_none());
     }
 }

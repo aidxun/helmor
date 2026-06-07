@@ -2,8 +2,6 @@ import {
 	type ThreadMessageLike,
 	threadMessageKey,
 } from "@helmor/thread-schema";
-import { Link } from "expo-router";
-import { Plus } from "lucide-react-native";
 import { useCallback, useEffect } from "react";
 import { View } from "react-native";
 import {
@@ -11,14 +9,11 @@ import {
 	Conversation,
 	ConversationEmptyState,
 	ConversationScrollButton,
-	PromptInput,
-	PromptInputAction,
-	PromptInputBody,
-	PromptInputSubmit,
-	PromptInputTextarea,
 } from "@/components/chat";
-import { Icon } from "@/components/icon";
+import { useModel } from "@/components/model-context";
 import { ThreadMessageRow } from "@/components/thread";
+import { MobileWorkspaceComposer } from "@/features/composer";
+import { createPairedDesktopClient } from "@/lib/remote";
 import { useAIChatState, useMockChatState } from "./workspace-chat-dev-hooks";
 import {
 	type ThreadChatState,
@@ -70,8 +65,6 @@ function WorkspaceChatContent({
 		selectedWorkspaceSummary,
 		isNewWorkspaceDraft,
 		newWorkspaceTarget,
-		repositories,
-		setNewWorkspaceTarget,
 		selectCreatedWorkspace,
 		refreshWorkspaces,
 		threadRefreshVersion,
@@ -119,6 +112,7 @@ function WorkspaceChatContent({
 	});
 	const mockChat = useMockChatState();
 	const aiChat = useAIChatState();
+	const { setAgentConfig, setConfigError, setConfigLoading } = useModel();
 	const chat = selectChatState({
 		desktopChat,
 		newWorkspaceChat,
@@ -128,6 +122,41 @@ function WorkspaceChatContent({
 		isNewWorkspaceDraft,
 	});
 	const chatLoading = fallbackSession.loading || chat.loading;
+
+	useEffect(() => {
+		if (!activeDesktop) {
+			setConfigLoading(false);
+			setConfigError(null);
+			return;
+		}
+
+		let canceled = false;
+		let client: Awaited<ReturnType<typeof createPairedDesktopClient>> | null =
+			null;
+		setConfigLoading(true);
+		setConfigError(null);
+		void (async () => {
+			try {
+				client = await createPairedDesktopClient(activeDesktop);
+				const config = await client.agentConfig();
+				if (!canceled) setAgentConfig(config);
+			} catch (error) {
+				if (!canceled) {
+					setConfigError(
+						error instanceof Error ? error.message : String(error),
+					);
+				}
+			} finally {
+				if (!canceled) setConfigLoading(false);
+				client?.close();
+			}
+		})();
+
+		return () => {
+			canceled = true;
+			client?.close();
+		};
+	}, [activeDesktop, setAgentConfig, setConfigError, setConfigLoading]);
 
 	const renderMessage = useCallback(
 		({ item }: { item: unknown; index: number }) => {
@@ -151,13 +180,10 @@ function WorkspaceChatContent({
 				}
 				estimatedItemSize={128}
 				onScrolledFromTopChange={onScrolledFromTopChange}
+				scrollEnabled={!isNewWorkspaceDraft || chat.threadMessages.length > 0}
 				emptyState={
 					isNewWorkspaceDraft ? (
-						<NewChatStartPage
-							repositories={repositories}
-							target={newWorkspaceTarget}
-							onChangeTarget={setNewWorkspaceTarget}
-						/>
+						<NewChatStartPage />
 					) : (
 						<View className="w-full items-center justify-center gap-6">
 							<ConversationEmptyState
@@ -181,17 +207,10 @@ function WorkspaceChatContent({
 				}
 			>
 				<ConversationScrollButton />
-				<PromptInput>
-					<Link href="/attachments" asChild>
-						<PromptInputAction>
-							<Icon icon={Plus} className="h-5 w-5 text-muted-foreground" />
-						</PromptInputAction>
-					</Link>
-					<PromptInputBody>
-						<PromptInputTextarea placeholder="Chat with Helmor..." />
-						<PromptInputSubmit />
-					</PromptInputBody>
-				</PromptInput>
+				<MobileWorkspaceComposer
+					disabled={!activeDesktop || chatLoading}
+					target={isNewWorkspaceDraft ? newWorkspaceTarget : undefined}
+				/>
 			</Conversation>
 		</ChatProvider>
 	);

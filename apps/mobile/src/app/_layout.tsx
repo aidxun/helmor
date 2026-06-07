@@ -29,32 +29,6 @@ import { useSystemBackgroundColor } from "@/utils/use-system-background-color";
 
 const GLASS = isLiquidGlassAvailable();
 const IS_ANDROID = process.env.EXPO_OS === "android";
-const MODELS = [
-	{
-		id: "opus-4.6",
-		label: "Opus 4.6",
-		subtitle: "Most capable for ambitious work",
-	},
-	{
-		id: "sonnet-4.6",
-		label: "Sonnet 4.6",
-		subtitle: "Most efficient for everyday tasks",
-	},
-	{
-		id: "haiku-4.5",
-		label: "Haiku 4.5",
-		subtitle: "Fastest for quick answers",
-	},
-] as const;
-
-const MORE_MODELS = [
-	{ id: "opus-4.5", label: "Opus 4.5" },
-	{ id: "opus-3", label: "Opus 3" },
-	{ id: "sonnet-4.5", label: "Sonnet 4.5" },
-] as const;
-
-const ALL_MODELS = [...MODELS, ...MORE_MODELS];
-
 function ThemeProvider(props: { children: React.ReactNode }) {
 	const colorScheme = useColorScheme();
 	const { settings } = useMobileSettings();
@@ -83,7 +57,7 @@ export default function RootLayout() {
 		<MobileSettingsProvider>
 			<ThemeProvider>
 				<KeyboardProvider>
-					<ModelProvider models={ALL_MODELS}>
+					<ModelProvider>
 						<WorkspaceProvider>
 							<DrawerProvider>
 								<RootDrawer />
@@ -181,7 +155,7 @@ function StackLayout() {
 			<Stack.Screen
 				name="model-picker"
 				options={{
-					title: "Model",
+					title: "Composer",
 					presentation: "formSheet",
 					sheetAllowedDetents: "fitToContents",
 					sheetCornerRadius: IS_ANDROID ? 28 : undefined,

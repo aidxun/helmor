@@ -1,13 +1,13 @@
 import { createContext, use } from "react";
 import type { StreamingStore } from "./streaming-store";
-import type { ChatMessage } from "./types";
+import type { ChatComposerSubmit, ChatMessage } from "./types";
 
 export type ChatContextValue = {
 	messages: ChatMessage[];
 	input: string;
 	setInput: (value: string) => void;
 	isGenerating: boolean;
-	onSend: () => void;
+	onSend: (submit?: ChatComposerSubmit) => void;
 	streamingStore: StreamingStore;
 	error?: Error | null;
 };

@@ -23,6 +23,7 @@ import type { MobileWorkspaceGroup } from "./types";
 import { useRemoteMutationStream } from "./use-remote-mutation-stream";
 import {
 	EMPTY_DESKTOP_STATE,
+	type MobileDesktopConnectionState,
 	useWorkspaces,
 	WorkspaceContext,
 	type WorkspaceContextValue,
@@ -50,6 +51,11 @@ export function WorkspaceProvider({
 	const [syncStatus, setSyncStatus] =
 		useState<WorkspaceContextValue["syncStatus"]>("idle");
 	const [syncError, setSyncError] = useState<string | null>(null);
+	const [connectionState, setConnectionState] =
+		useState<MobileDesktopConnectionState>({
+			status: "idle",
+			message: null,
+		});
 	const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
 		() => getDefaultWorkspaceId(groups),
 	);
@@ -113,6 +119,7 @@ export function WorkspaceProvider({
 			setNewWorkspaceDraftKey(null);
 			setSyncStatus("idle");
 			setSyncError(null);
+			setConnectionState({ status: "idle", message: null });
 		}
 	}, []);
 
@@ -229,6 +236,7 @@ export function WorkspaceProvider({
 			setNewWorkspaceDraftKey(null);
 			setSyncStatus("idle");
 			setSyncError(null);
+			setConnectionState({ status: "idle", message: null });
 			return;
 		}
 
@@ -276,6 +284,7 @@ export function WorkspaceProvider({
 	useRemoteMutationStream({
 		activeDesktop,
 		onMutation: handleRemoteMutation,
+		onConnectionStateChange: setConnectionState,
 	});
 
 	const setActiveDesktop = useCallback(async (desktopId: string) => {
@@ -383,6 +392,7 @@ export function WorkspaceProvider({
 			visibleGroups,
 			desktopState,
 			activeDesktop,
+			connectionState,
 			syncStatus,
 			syncError,
 			selectedWorkspaceId: selectedWorkspace?.id ?? selectedWorkspaceId,
@@ -412,6 +422,7 @@ export function WorkspaceProvider({
 			visibleGroups,
 			desktopState,
 			activeDesktop,
+			connectionState,
 			syncStatus,
 			syncError,
 			selectedWorkspaceId,

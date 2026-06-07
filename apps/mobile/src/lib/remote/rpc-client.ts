@@ -1,4 +1,5 @@
 import type {
+	AgentConfig,
 	BacklogCreateRequest,
 	BacklogCreateResult,
 	CompanionHealth,
@@ -33,6 +34,10 @@ export class DesktopRpcClient {
 
 	async health(): Promise<CompanionHealth> {
 		return this.request<CompanionHealth>("/v1/health");
+	}
+
+	async agentConfig(): Promise<AgentConfig> {
+		return this.request<AgentConfig>("/v1/agent-config");
 	}
 
 	async initialize(): Promise<CompanionHealth> {

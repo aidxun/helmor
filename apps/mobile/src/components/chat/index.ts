@@ -29,4 +29,4 @@ export type { StreamingStore } from "./streaming-store";
 export { createStreamingStore } from "./streaming-store";
 
 // Utilities
-export type { ChatMessage } from "./types";
+export type { ChatComposerSubmit, ChatMessage } from "./types";

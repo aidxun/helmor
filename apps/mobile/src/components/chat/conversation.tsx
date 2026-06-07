@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
 	type LayoutChangeEvent,
+	Pressable,
 	StyleSheet,
 	Text,
 	useColorScheme,
@@ -28,7 +29,6 @@ import Animated, {
 	withTiming,
 } from "react-native-reanimated";
 import { SymbolImage } from "@/components/symbol-image";
-import { TouchableGlass } from "../touchable-glass";
 import { KeyboardGestureArea } from "../tw";
 import { useChatContext } from "./chat-context";
 import type { ChatMessage } from "./types";
@@ -65,6 +65,7 @@ export function Conversation({
 	estimatedItemSize = 80,
 	onScrolledFromTopChange,
 	emptyState,
+	scrollEnabled = true,
 	children,
 }: {
 	/** Override the chat context messages when rendering richer thread rows. */
@@ -76,6 +77,7 @@ export function Conversation({
 	onScrolledFromTopChange?: (scrolled: boolean) => void;
 	/** Element shown when the message list is empty. */
 	emptyState?: ReactElement;
+	scrollEnabled?: boolean;
 	/** Compound children: <ConversationScrollButton />, <PromptInput />, etc. */
 	children?: ReactNode;
 }) {
@@ -117,8 +119,6 @@ export function Conversation({
 	const composerHeight = useSharedValue(68);
 	const scrollViewHeight = useSharedValue(0);
 	const totalContentHeight = useSharedValue(0);
-	const currentFooterHeight = useSharedValue(0);
-	const messagesOnlyHeight = useSharedValue(0);
 
 	// -- Auto-scroll ---------------------------------------------------------
 
@@ -164,46 +164,40 @@ export function Conversation({
 		[onScrolledFromTopChange, scrollY],
 	);
 
-	const onContentSizeChange = useCallback((_width: number, height: number) => {
-		const wasAtBottom = isAtBottom.value;
-		const heightIncreased = height > lastContentHeight.value;
-
-		totalContentHeight.value = height;
-		lastContentHeight.value = height;
-		// Derive message-only height by subtracting the last known footer height.
-		// This is stable: when the footer resizes, totalContent changes but
-		// messagesOnly stays the same, breaking the feedback loop.
-		messagesOnlyHeight.value = height - currentFooterHeight.value;
-
-		if (wasAtBottom && heightIncreased && listRef.current) {
-			requestAnimationFrame(() => {
-				listRef.current?.scrollToEnd({
-					animated: true,
-					viewOffset: -bottomInset.value,
-				});
-			});
-		}
-	}, []);
-
 	const scrollToBottom = useCallback(() => {
+		if (data.length === 0) return;
 		listRef.current?.scrollToEnd({
 			animated: true,
-			viewOffset: -bottomInset.value,
 		});
-	}, []);
+		requestAnimationFrame(() => {
+			listRef.current?.scrollToEnd({
+				animated: true,
+			});
+		});
+	}, [data.length]);
 	scrollToBottomRef.current = scrollToBottom;
+
+	const onContentSizeChange = useCallback(
+		(_width: number, height: number) => {
+			const wasAtBottom = isAtBottom.value;
+			const heightIncreased = height > lastContentHeight.value;
+
+			totalContentHeight.value = height;
+			lastContentHeight.value = height;
+
+			if (wasAtBottom && heightIncreased && listRef.current) {
+				requestAnimationFrame(() => {
+					scrollToBottom();
+				});
+			}
+		},
+		[isAtBottom, lastContentHeight, scrollToBottom, totalContentHeight],
+	);
 
 	// -- Animated styles -----------------------------------------------------
 
 	const footerSpacerStyle = useAnimatedStyle(() => {
-		const scrollHeight = scrollViewHeight.value;
-		if (scrollHeight <= 0) return { height: 0 };
-
-		const blankSpace = scrollHeight - messagesOnlyHeight.value;
-		const footerHeight = Math.max(0, blankSpace);
-
-		currentFooterHeight.value = footerHeight;
-		return { height: footerHeight };
+		return { height: composerHeight.value + 24 };
 	});
 
 	const promptInputStyle = useAnimatedStyle(() => ({}));
@@ -270,6 +264,7 @@ export function Conversation({
 							automaticallyAdjustsScrollIndicatorInsets={false}
 							maintainVisibleContentPosition
 							estimatedItemSize={estimatedItemSize}
+							scrollEnabled={scrollEnabled}
 							onLayout={onScrollViewLayout}
 							onScroll={onScroll}
 							scrollEventThrottle={16}
@@ -306,16 +301,19 @@ export function ConversationScrollButton() {
 		<Animated.View
 			pointerEvents="box-none"
 			style={[
-				{ position: "absolute", left: 0, right: 0, alignItems: "center" },
+				{
+					position: "absolute",
+					left: 0,
+					right: 0,
+					alignItems: "center",
+					zIndex: 20,
+				},
 				scrollButtonStyle,
 			]}
 		>
-			<TouchableGlass
+			<Pressable
 				onPress={scrollToBottom}
 				hitSlop={8}
-				glassEffectStyle="regular"
-				fallbackTint="systemThinMaterial"
-				fallbackIntensity={90}
 				style={{
 					width: 40,
 					height: 40,
@@ -323,10 +321,14 @@ export function ConversationScrollButton() {
 					alignItems: "center",
 					justifyContent: "center",
 					backgroundColor: isDark
-						? "rgba(255,255,255,0.18)"
-						: "rgba(255,255,255,0.62)",
-					borderColor: isDark ? "rgba(255,255,255,0.24)" : "rgba(0,0,0,0.08)",
+						? "rgba(42,42,42,0.94)"
+						: "rgba(255,255,255,0.96)",
+					borderColor: isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.08)",
 					borderWidth: StyleSheet.hairlineWidth,
+					shadowColor: "#000",
+					shadowOpacity: isDark ? 0.18 : 0.1,
+					shadowRadius: 12,
+					shadowOffset: { width: 0, height: 4 },
 				}}
 			>
 				<SymbolImage
@@ -334,7 +336,7 @@ export function ConversationScrollButton() {
 					sfEffect={{ effect: "wiggle", repeat: -1 }}
 					className="text-muted-foreground text-xs mt-1"
 				/>
-			</TouchableGlass>
+			</Pressable>
 		</Animated.View>
 	);
 }

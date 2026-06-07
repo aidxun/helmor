@@ -1,156 +1,129 @@
 import * as ImagePicker from "expo-image-picker";
+import { useRouter } from "expo-router";
 import type { LucideIcon } from "lucide-react-native";
-import {
-	Archive,
-	Camera,
-	ChevronRight,
-	File,
-	Globe,
-	Image as ImageIcon,
-	Paintbrush,
-	Sparkles,
-	Wrench,
-} from "lucide-react-native";
+import { Camera, Image as ImageIcon } from "lucide-react-native";
 import { useState } from "react";
-import { Pressable, ScrollView, Switch, Text, View } from "react-native";
+import {
+	ActivityIndicator,
+	Pressable,
+	ScrollView,
+	Text,
+	View,
+} from "react-native";
 import { AndroidGrabber } from "@/components/grabber";
 import { Icon } from "@/components/icon";
 
-const IS_IOS = process.env.EXPO_OS === "ios";
+type ImageSource = "camera" | "library";
 
-function AttachmentButton({
+export default function AddImagesSheet() {
+	const router = useRouter();
+	const [pendingSource, setPendingSource] = useState<ImageSource | null>(null);
+	const busy = pendingSource !== null;
+
+	const pickImage = async (source: ImageSource) => {
+		if (busy) return;
+		setPendingSource(source);
+		try {
+			const result =
+				source === "camera" ? await openCamera() : await openPhotoLibrary();
+			if (!result.canceled && result.assets.length > 0) {
+				router.back();
+			}
+		} finally {
+			setPendingSource(null);
+		}
+	};
+
+	return (
+		<ScrollView
+			className="flex-1"
+			contentInsetAdjustmentBehavior="automatic"
+			contentContainerClassName="android:pb-safe pb-6"
+		>
+			<AndroidGrabber />
+			<View className="px-5 pb-4 pt-2">
+				<Text className="text-[28px] font-bold text-foreground">Add image</Text>
+				<Text className="mt-1 text-[13px] leading-5 text-muted-foreground">
+					Attach an image to the next Helmor prompt.
+				</Text>
+			</View>
+
+			<View className="gap-3 px-5">
+				<ImageAction
+					icon={Camera}
+					label="Take photo"
+					description="Use the camera"
+					loading={pendingSource === "camera"}
+					disabled={busy}
+					onPress={() => void pickImage("camera")}
+				/>
+				<ImageAction
+					icon={ImageIcon}
+					label="Choose from library"
+					description="Pick an existing image"
+					loading={pendingSource === "library"}
+					disabled={busy}
+					onPress={() => void pickImage("library")}
+				/>
+			</View>
+		</ScrollView>
+	);
+}
+
+function ImageAction({
 	icon,
 	label,
+	description,
+	loading,
+	disabled,
 	onPress,
 }: {
 	icon: LucideIcon;
 	label: string;
-	onPress?: () => void;
+	description: string;
+	loading: boolean;
+	disabled: boolean;
+	onPress: () => void;
 }) {
 	return (
 		<Pressable
 			onPress={onPress}
-			className="flex-1 items-center gap-2 py-3 rounded-xl bg-secondary active:bg-muted border-continuous"
+			disabled={disabled}
+			className="flex-row items-center gap-3 rounded-2xl bg-muted px-4 py-3.5 active:opacity-70"
 		>
-			<Icon icon={icon} className="w-6 h-6 text-foreground" />
-			<Text className="text-[13px] text-foreground">{label}</Text>
+			<View className="h-11 w-11 items-center justify-center rounded-xl bg-background">
+				<Icon icon={icon} className="h-5 w-5 text-foreground" />
+			</View>
+			<View className="flex-1">
+				<Text className="text-[16px] font-semibold text-foreground">
+					{label}
+				</Text>
+				<Text className="text-[13px] leading-5 text-muted-foreground">
+					{description}
+				</Text>
+			</View>
+			{loading ? (
+				<ActivityIndicator size="small" colorClassName="tint-foreground" />
+			) : null}
 		</Pressable>
 	);
 }
 
 async function openCamera() {
-	const perm = await ImagePicker.requestCameraPermissionsAsync();
-	if (!perm.granted) return;
-	await ImagePicker.launchCameraAsync({
+	const permission = await ImagePicker.requestCameraPermissionsAsync();
+	if (!permission.granted) return { canceled: true, assets: [] };
+	return ImagePicker.launchCameraAsync({
 		mediaTypes: ["images"],
+		quality: 0.9,
 	});
 }
 
-async function openPhotos() {
-	const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-	if (!perm.granted) return;
-	await ImagePicker.launchImageLibraryAsync({
+async function openPhotoLibrary() {
+	const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+	if (!permission.granted) return { canceled: true, assets: [] };
+	return ImagePicker.launchImageLibraryAsync({
 		mediaTypes: ["images"],
+		allowsMultipleSelection: true,
+		quality: 0.9,
 	});
-}
-
-function ToggleRow({
-	icon,
-	label,
-	badge,
-	value,
-	onValueChange,
-}: {
-	icon: LucideIcon;
-	label: string;
-	badge?: string;
-	value: boolean;
-	onValueChange: (v: boolean) => void;
-}) {
-	return (
-		<View className="flex-row items-center px-5 py-3 gap-3.5">
-			<Icon icon={icon} className="w-5 h-5 text-foreground" />
-			<Text className="flex-1 text-[17px] text-foreground">{label}</Text>
-			{badge && (
-				<View className="px-1.5 py-0.5 rounded bg-muted">
-					<Text className="text-[11px] font-medium text-muted-foreground">
-						{badge}
-					</Text>
-				</View>
-			)}
-			<Switch value={value} onValueChange={onValueChange} />
-		</View>
-	);
-}
-
-function DisclosureRow({
-	icon,
-	label,
-	detail,
-	onPress,
-}: {
-	icon: LucideIcon;
-	label: string;
-	detail: string;
-	onPress?: () => void;
-}) {
-	return (
-		<Pressable
-			onPress={onPress}
-			className="flex-row items-center px-5 py-3.5 gap-3.5 active:bg-muted"
-		>
-			<Icon icon={icon} className="w-5 h-5 text-foreground" />
-			<Text className="flex-1 text-[17px] text-foreground">{label}</Text>
-			<Text className="text-[15px] text-muted-foreground">{detail}</Text>
-			<Icon icon={ChevronRight} className="w-3 h-3 text-muted-foreground" />
-		</Pressable>
-	);
-}
-
-export default function AddToChatSheet() {
-	const [research, setResearch] = useState(false);
-	const [webSearch, setWebSearch] = useState(true);
-
-	return (
-		<ScrollView className="flex-1 " contentInsetAdjustmentBehavior="automatic">
-			<AndroidGrabber />
-			{/* Attachment buttons */}
-			<View className="flex-row gap-3 px-5 pt-2 pb-4">
-				<AttachmentButton
-					icon={Camera}
-					label="Camera"
-					onPress={IS_IOS ? openCamera : undefined}
-				/>
-				<AttachmentButton
-					icon={ImageIcon}
-					label="Photos"
-					onPress={IS_IOS ? openPhotos : undefined}
-				/>
-				<AttachmentButton icon={File} label="Files" />
-			</View>
-
-			{/* Toggles */}
-			<ToggleRow
-				icon={Sparkles}
-				label="Research"
-				value={research}
-				onValueChange={setResearch}
-			/>
-			<ToggleRow
-				icon={Globe}
-				label="Web search"
-				badge="Beta"
-				value={webSearch}
-				onValueChange={setWebSearch}
-			/>
-
-			{/* Divider */}
-			<View className="h-px bg-border mx-5 my-1" />
-
-			{/* Disclosure rows */}
-			<DisclosureRow icon={Archive} label="Add to project" detail="None" />
-			<DisclosureRow icon={Paintbrush} label="Choose style" detail="Normal" />
-			<DisclosureRow icon={Wrench} label="Tool access" detail="Auto" />
-		</ScrollView>
-	);
 }

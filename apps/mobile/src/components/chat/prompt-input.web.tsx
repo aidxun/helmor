@@ -5,11 +5,29 @@ import {
 	Pressable,
 	Text,
 	TextInput,
+	type TextStyle,
 	View,
 } from "react-native";
 
 import { useChatContext } from "./chat-context";
 import { useConversationContext } from "./conversation";
+
+type WebTextInputStyle = TextStyle & {
+	resize?: "none";
+};
+
+type WebKeyPressEvent = {
+	nativeEvent: {
+		key?: string;
+		shiftKey?: boolean;
+	};
+	preventDefault: () => void;
+};
+
+const textAreaStyle: WebTextInputStyle = {
+	maxHeight: 200,
+	resize: "none",
+};
 
 /**
  * Root container for the message composer matching Vercel chatbot design.
@@ -24,12 +42,9 @@ export function PromptInput({ children }: { children: ReactNode }) {
 	let body: ReactNode = null;
 
 	Children.forEach(children, (child) => {
-		if (isValidElement(child) && (child.type as any) === PromptInputAction) {
+		if (isValidElement(child) && child.type === PromptInputAction) {
 			actions.push(child);
-		} else if (
-			isValidElement(child) &&
-			(child.type as any) === PromptInputBody
-		) {
+		} else if (isValidElement(child) && child.type === PromptInputBody) {
 			body = child;
 		}
 	});
@@ -76,7 +91,7 @@ export function PromptInputBody({ children }: { children: ReactNode }) {
 	let submit: ReactNode = null;
 
 	Children.forEach(children, (child) => {
-		if (isValidElement(child) && (child.type as any) === PromptInputSubmit) {
+		if (isValidElement(child) && child.type === PromptInputSubmit) {
 			submit = child;
 		} else {
 			textarea.push(child);
@@ -122,7 +137,7 @@ export function PromptInputTextarea({
 		<TextInput
 			nativeID="composer"
 			className="min-h-24 w-full bg-transparent px-4 pt-3.5 pb-1.5 text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground/35 outline-none"
-			style={{ maxHeight: 200, resize: "none" } as any}
+			style={textAreaStyle}
 			value={input}
 			onChangeText={setInput}
 			placeholder={placeholder}
@@ -130,10 +145,8 @@ export function PromptInputTextarea({
 			multiline
 			maxLength={maxLength}
 			onKeyPress={(e) => {
-				if (
-					(e as any).nativeEvent.key === "Enter" &&
-					!(e as any).nativeEvent.shiftKey
-				) {
+				const event = e as WebKeyPressEvent;
+				if (event.nativeEvent.key === "Enter" && !event.nativeEvent.shiftKey) {
 					e.preventDefault();
 					onSend();
 				}
@@ -151,7 +164,7 @@ export function PromptInputSubmit() {
 
 	return (
 		<Pressable
-			onPress={onSend}
+			onPress={() => onSend()}
 			disabled={disabled}
 			className={`flex h-7 w-7 items-center justify-center rounded-xl transition-all duration-200 ${
 				disabled

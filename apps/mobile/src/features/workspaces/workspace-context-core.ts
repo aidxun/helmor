@@ -13,11 +13,24 @@ import type {
 	MobileWorkspaceSummary,
 } from "./types";
 
+export type MobileDesktopConnectionStatus =
+	| "idle"
+	| "connecting"
+	| "connected"
+	| "reconnecting"
+	| "error";
+
+export type MobileDesktopConnectionState = {
+	status: MobileDesktopConnectionStatus;
+	message?: string | null;
+};
+
 export type WorkspaceContextValue = {
 	groups: MobileWorkspaceGroup[];
 	visibleGroups: MobileWorkspaceGroup[];
 	desktopState: DesktopConnectionState;
 	activeDesktop: DesktopConnection | null;
+	connectionState: MobileDesktopConnectionState;
 	syncStatus: "idle" | "syncing" | "error";
 	syncError: string | null;
 	selectedWorkspaceId: string | null;
