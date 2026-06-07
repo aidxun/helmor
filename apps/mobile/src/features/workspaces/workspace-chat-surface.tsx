@@ -27,7 +27,7 @@ import {
 } from "./workspace-chat-hooks";
 import { useWorkspaces } from "./workspace-context";
 import { useNewWorkspaceThreadChat } from "./workspace-new-chat-hooks";
-import { NewWorkspaceControls } from "./workspace-new-task-controls";
+import { NewChatStartPage } from "./workspace-new-task-controls";
 
 const USE_MOCK = process.env.EXPO_PUBLIC_MOCK_AI !== "0";
 
@@ -152,35 +152,32 @@ function WorkspaceChatContent({
 				estimatedItemSize={128}
 				onScrolledFromTopChange={onScrolledFromTopChange}
 				emptyState={
-					<View className="w-full items-center justify-center gap-6">
-						<ConversationEmptyState
-							title={
-								chatLoading
-									? "Loading session"
-									: isNewWorkspaceDraft
-										? "New workspace"
+					isNewWorkspaceDraft ? (
+						<NewChatStartPage
+							repositories={repositories}
+							target={newWorkspaceTarget}
+							onChangeTarget={setNewWorkspaceTarget}
+						/>
+					) : (
+						<View className="w-full items-center justify-center gap-6">
+							<ConversationEmptyState
+								title={
+									chatLoading
+										? "Loading session"
 										: (selectedWorkspaceSessionTab?.title ??
 											selectedWorkspace?.title ??
 											"Helmor")
-							}
-							description={
-								chatLoading
-									? "Fetching messages from your desktop."
-									: isNewWorkspaceDraft
-										? "Choose chat or a repository, then send a prompt"
+								}
+								description={
+									chatLoading
+										? "Fetching messages from your desktop."
 										: selectedWorkspace
 											? selectedWorkspaceSummary.subtitle
 											: "Select a workspace from the drawer"
-							}
-						/>
-						{isNewWorkspaceDraft && (
-							<NewWorkspaceControls
-								repositories={repositories}
-								target={newWorkspaceTarget}
-								onChangeTarget={setNewWorkspaceTarget}
+								}
 							/>
-						)}
-					</View>
+						</View>
+					)
 				}
 			>
 				<ConversationScrollButton />

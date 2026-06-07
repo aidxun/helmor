@@ -15,12 +15,12 @@ import {
 	MessageCircle,
 	MonitorUp,
 	Pin,
-	Plus,
 	RefreshCw,
+	Settings,
 } from "lucide-react-native";
 import type React from "react";
 import { createContext, use, useCallback, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import Animated, {
 	FadeIn,
 	FadeOut,
@@ -28,6 +28,7 @@ import Animated, {
 	useAnimatedStyle,
 	withTiming,
 } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "@/components/icon";
 import { TouchableGlass } from "@/components/touchable-glass";
 import { SafeAreaView } from "@/components/tw";
@@ -78,23 +79,6 @@ export function useDrawer() {
 		throw new Error("useDrawer must be used within a DrawerProvider");
 	}
 	return context;
-}
-
-function DrawerNavItem({
-	label,
-	onPress,
-}: {
-	label: string;
-	onPress: () => void;
-}) {
-	return (
-		<Pressable
-			onPress={onPress}
-			className="px-4 py-3 mx-2 rounded-[10px] active:bg-muted"
-		>
-			<Text className="text-base font-semibold text-foreground">{label}</Text>
-		</Pressable>
-	);
 }
 
 function DrawerWorkspaceGroup({
@@ -297,6 +281,7 @@ export function DrawerContent({
 		activeDesktop,
 		syncStatus,
 	} = useWorkspaces();
+	const insets = useSafeAreaInsets();
 	const [collapsedGroups, setCollapsedGroups] = useState<
 		Partial<Record<MobileWorkspaceGroup["id"], boolean>>
 	>({});
@@ -328,28 +313,32 @@ export function DrawerContent({
 		<SafeAreaView
 			// NOTE: Some issue with uniwind that prevents updates for this component.
 			className="flex-1"
-			edges={["top", "bottom", "left"]}
+			edges={["top", "left"]}
 		>
 			{/* Header */}
-			<View className="px-4 pt-2 pb-3">
-				<Text className="text-[28px] font-bold text-foreground">Helmor</Text>
-				<Text numberOfLines={1} className="text-[13px] text-muted-foreground">
-					{activeDesktop
-						? `${activeDesktop.desktopName}${syncStatus === "syncing" ? " - syncing" : ""}`
-						: "No desktop connected"}
-				</Text>
+			<View className="flex-row items-start px-4 pt-2 pb-3">
+				<View className="min-w-0 flex-1">
+					<Text className="text-[24px] font-bold text-foreground">Helmor</Text>
+					<Text numberOfLines={1} className="text-[13px] text-muted-foreground">
+						{activeDesktop
+							? `${activeDesktop.desktopName}${syncStatus === "syncing" ? " - syncing" : ""}`
+							: "No desktop connected"}
+					</Text>
+				</View>
+				<TouchableGlass
+					onPress={() => onOpenModal("/(settings)/settings")}
+					accessibilityLabel="Settings"
+					className="h-11 w-11 items-center justify-center rounded-full active:opacity-60"
+				>
+					<Icon icon={Settings} className="h-5 w-5 text-foreground" />
+				</TouchableGlass>
 			</View>
 
 			{/* Nav + workspace list */}
 			<ScrollView
 				className="flex-1"
-				contentContainerStyle={{ paddingBottom: 8 }}
+				contentContainerStyle={{ paddingBottom: 96 }}
 			>
-				<DrawerNavItem
-					label="Desktops"
-					onPress={() => onOpenModal("/(settings)/desktops")}
-				/>
-
 				{visibleGroups.length === 0 ? (
 					<DrawerWorkspaceEmpty
 						connected={Boolean(activeDesktop)}
@@ -369,34 +358,14 @@ export function DrawerContent({
 				)}
 			</ScrollView>
 
-			{/* Footer */}
-			<View
-				className="flex-row items-center px-4 py-3 border-t border-border"
-				style={{ borderTopWidth: StyleSheet.hairlineWidth }}
+			<TouchableGlass
+				onPress={handleStartNewWorkspace}
+				accessibilityLabel="Chat"
+				className="absolute right-4 h-10 rounded-full bg-foreground px-4 active:bg-muted flex-row items-center justify-center"
+				style={{ bottom: insets.bottom + 12 }}
 			>
-				<TouchableGlass
-					onPress={() => onOpenModal("/(settings)/settings")}
-					className="rounded-full p-2 flex-row items-center gap-2.5 active:opacity-60"
-				>
-					<View className="w-8 h-8 rounded-full bg-muted items-center justify-center">
-						<Text className="text-[13px] font-semibold text-foreground">
-							HM
-						</Text>
-					</View>
-					<Text className="text-sm text-foreground">Helmor</Text>
-				</TouchableGlass>
-				<View className="flex-1" />
-				<TouchableGlass
-					onPress={handleStartNewWorkspace}
-					accessibilityLabel="New workspace"
-					className="h-10 rounded-full bg-foreground px-3.5 active:bg-muted flex-row items-center justify-center gap-1.5"
-				>
-					<Icon icon={Plus} className="h-4 w-4 text-background" />
-					<Text className="text-[13px] font-semibold text-background">
-						New workspace
-					</Text>
-				</TouchableGlass>
-			</View>
+				<Text className="text-[14px] font-semibold text-background">Chat</Text>
+			</TouchableGlass>
 		</SafeAreaView>
 	);
 }

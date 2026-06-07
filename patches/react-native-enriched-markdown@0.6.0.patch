@@ -1,0 +1,26 @@
+--- a/ios/utils/ListMarkerDrawer.m
++++ b/ios/utils/ListMarkerDrawer.m
+@@ -1,5 +1,6 @@
+ #import "ListMarkerDrawer.h"
+ #import "ENRMUIKit.h"
++#import "LastElementUtils.h"
+ #import "ListItemRenderer.h"
+ #import "RenderContext.h"
+ #import "StyleConfig.h"
+@@ -52,6 +53,16 @@
+                                  if (!attrs[ListDepthAttribute])
+                                    return;
+ 
++                                 NSNumber *isCodeBlock = attrs[CodeBlockAttributeName];
++                                 if ([isCodeBlock boolValue])
++                                   return;
++
+                                  // 2. Identify the start of the paragraph
+                                  NSRange paraRange = [storage.string paragraphRangeForRange:charRange];
++                                 NSString *paragraph = [storage.string substringWithRange:paraRange];
++                                 NSRange visibleRange =
++                                     [paragraph rangeOfCharacterFromSet:[[NSCharacterSet whitespaceAndNewlineCharacterSet] invertedSet]];
++                                 if (visibleRange.location == NSNotFound)
++                                   return;
++
+                                  if (charRange.location != paraRange.location ||

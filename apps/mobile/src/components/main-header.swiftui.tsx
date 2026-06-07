@@ -37,7 +37,7 @@ function HeaderTitleMenu() {
 	const isDark = colorScheme === "dark";
 	const headerFg = isDark ? "#fff" : "#000";
 	const title = isNewWorkspaceDraft
-		? "New workspace"
+		? "New chat"
 		: (selectedWorkspaceSessionTab?.title ??
 			selectedWorkspace?.title ??
 			(activeDesktop

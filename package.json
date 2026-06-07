@@ -176,6 +176,7 @@
 		"husky"
 	],
 	"patchedDependencies": {
-		"expo-modules-jsi@56.0.7": "patches/expo-modules-jsi@56.0.7.patch"
+		"expo-modules-jsi@56.0.7": "patches/expo-modules-jsi@56.0.7.patch",
+		"react-native-enriched-markdown@0.6.0": "patches/react-native-enriched-markdown@0.6.0.patch"
 	}
 }

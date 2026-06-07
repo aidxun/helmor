@@ -4,6 +4,7 @@ import {
 	isPromptSuggestionPart,
 	isSystemNoticePart,
 	isTextPart,
+	partKey,
 	type TextPart,
 	type ThreadMessageLike,
 } from "@helmor/thread-schema";
@@ -15,6 +16,7 @@ import {
 	AssistantParts,
 	FileMentionChip,
 	SystemNotice,
+	ThreadPart,
 } from "./assistant-parts";
 import { PromptSuggestionButton } from "./structured-parts";
 
@@ -102,7 +104,13 @@ function SystemMessage({
 				if (isTextPart(part)) {
 					return <SystemText key={part.id} part={part} />;
 				}
-				return null;
+				return (
+					<ThreadPart
+						key={partKey(part)}
+						part={part}
+						onPromptSuggestion={onPrompt}
+					/>
+				);
 			})}
 		</View>
 	);

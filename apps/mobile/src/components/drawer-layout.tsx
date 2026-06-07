@@ -24,22 +24,19 @@ import Animated, {
 	withSpring,
 } from "react-native-reanimated";
 import { withUniwind } from "uniwind";
+import { useMobileSettings } from "@/lib/mobile-settings";
 
 const GestureHandlerRootView = withUniwind(XGestureHandlerRootView);
 
-const APPROX_APP_BAR_HEIGHT = 56;
-const DEFAULT_DRAWER_WIDTH = 360;
 const SWIPE_EDGE_WIDTH = 32;
 const SWIPE_MIN_OFFSET = 5;
-const SWIPE_MIN_DISTANCE = 60;
+const SWIPE_MIN_DISTANCE = 0;
 const SWIPE_MIN_VELOCITY = 500;
 const PROGRESS_EPSILON = 0.05;
 
 function getDrawerWidth(layoutWidth: number, drawerWidth?: number): number {
 	if (drawerWidth != null) return drawerWidth;
-	return layoutWidth - APPROX_APP_BAR_HEIGHT <= DEFAULT_DRAWER_WIDTH
-		? layoutWidth - APPROX_APP_BAR_HEIGHT
-		: DEFAULT_DRAWER_WIDTH;
+	return layoutWidth;
 }
 
 const minmax = (value: number, start: number, end: number) => {
@@ -67,6 +64,7 @@ export function DrawerLayout({
 	children,
 }: DrawerLayoutProps) {
 	const { width: layoutWidth } = useWindowDimensions();
+	const { impact } = useMobileSettings();
 	const drawerWidth = getDrawerWidth(layoutWidth, drawerWidthProp);
 
 	const touchStartX = useSharedValue(0);
@@ -116,12 +114,15 @@ export function DrawerLayout({
 		Keyboard.dismiss();
 	}, []);
 
-	const onGestureFinish = React.useCallback((nextOpen: boolean) => {
-		Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-		if (nextOpen) {
-			Keyboard.dismiss();
-		}
-	}, []);
+	const onGestureFinish = React.useCallback(
+		(nextOpen: boolean) => {
+			void impact(Haptics.ImpactFeedbackStyle.Light);
+			if (nextOpen) {
+				Keyboard.dismiss();
+			}
+		},
+		[impact],
+	);
 
 	const pan = React.useMemo(() => {
 		const gesture = Gesture.Pan()

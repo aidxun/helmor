@@ -16,11 +16,20 @@ import {
 	type ThreadMessageLike,
 	type ToolCallPart,
 } from "@helmor/thread-schema";
-import { CircleAlert, Info, Lightbulb } from "lucide-react-native";
+import {
+	CircleAlert,
+	Info,
+	Lightbulb,
+	TriangleAlert,
+} from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { Icon } from "@/components/icon";
 import { ChatMarkdown } from "@/components/markdown";
+import {
+	hasRenderableAssistantContent,
+	shouldShowAssistantStatusBadge,
+} from "./assistant-render-state";
 import {
 	ImageBlock,
 	PlanReviewCard,
@@ -46,6 +55,10 @@ export function AssistantParts({
 		() => groupAssistantParts(message.content),
 		[message.content],
 	);
+	const hasContent = useMemo(
+		() => hasRenderableAssistantContent(message.content),
+		[message.content],
+	);
 	return (
 		<>
 			{parts.map((part) => {
@@ -53,14 +66,15 @@ export function AssistantParts({
 					return <SubAgentSpawnGroup key={part.key} parts={part.parts} />;
 				}
 				return (
-					<AssistantPart
+					<ThreadPart
 						key={partKey(part.part)}
 						part={part.part}
 						onPromptSuggestion={onPromptSuggestion}
 					/>
 				);
 			})}
-			{message.status && !message.streaming ? (
+			{message.streaming && !hasContent ? <AssistantWaitingIndicator /> : null}
+			{!message.streaming && shouldShowAssistantStatusBadge(message.status) ? (
 				<MessageStatusBadge status={message.status} />
 			) : null}
 		</>
@@ -72,15 +86,21 @@ export function SystemNotice({
 }: {
 	part: Extract<ExtendedMessagePart, { type: "system-notice" }>;
 }) {
-	const isError = part.severity === "error";
+	const NoticeIcon =
+		part.severity === "error"
+			? CircleAlert
+			: part.severity === "warning"
+				? TriangleAlert
+				: Info;
+	const iconClass =
+		part.severity === "error"
+			? "h-4 w-4 text-destructive"
+			: part.severity === "warning"
+				? "h-4 w-4 text-amber-500"
+				: "h-4 w-4 text-sky-500";
 	return (
 		<View className="my-1 flex-row items-start gap-2 rounded-xl bg-muted/40 px-3 py-2">
-			<Icon
-				icon={isError ? CircleAlert : Info}
-				className={
-					isError ? "h-4 w-4 text-destructive" : "h-4 w-4 text-muted-foreground"
-				}
-			/>
+			<Icon icon={NoticeIcon} className={iconClass} />
 			<View className="min-w-0 flex-1">
 				<Text className="text-sm font-medium text-foreground">
 					{part.label}
@@ -105,7 +125,7 @@ export function FileMentionChip({ path }: { path: string }) {
 	);
 }
 
-function AssistantPart({
+export function ThreadPart({
 	part,
 	onPromptSuggestion,
 }: {
@@ -130,12 +150,34 @@ function AssistantPart({
 		return <PlanReviewCard part={part} onPrompt={onPromptSuggestion} />;
 	}
 	if (isSystemNoticePart(part)) return <SystemNotice part={part} />;
-	return null;
+	return <UnknownPart type={(part as { type?: unknown }).type} />;
+}
+
+function UnknownPart({ type }: { type: unknown }) {
+	return (
+		<View className="my-1 rounded-md border border-border/40 bg-muted/20 px-2 py-1">
+			<Text className="text-xs text-muted-foreground/70">
+				Unsupported message part{typeof type === "string" ? `: ${type}` : ""}
+			</Text>
+		</View>
+	);
 }
 
 function AssistantText({ part }: { part: TextPart }) {
 	if (!part.text.trim()) return null;
 	return <ChatMarkdown>{part.text}</ChatMarkdown>;
+}
+
+function AssistantWaitingIndicator() {
+	return (
+		<View className="my-1 h-8 flex-row items-center self-start rounded-full bg-muted/50 px-3">
+			<ActivityIndicator
+				size="small"
+				colorClassName="tint-muted-foreground"
+				className="text-muted-foreground"
+			/>
+		</View>
+	);
 }
 
 function ReasoningBlock({ part }: { part: ReasoningPart }) {

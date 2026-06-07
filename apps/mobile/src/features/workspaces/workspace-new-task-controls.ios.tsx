@@ -1,6 +1,22 @@
-import { SegmentedControl } from "@expo/ui/community/segmented-control";
-import { Check, GitBranch, Laptop, MessageCircle } from "lucide-react-native";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+	Button,
+	Host,
+	HStack,
+	Menu,
+	Picker,
+	Section,
+	Image as SUIImage,
+	Text as SUIText,
+} from "@expo/ui/swift-ui";
+import {
+	controlSize,
+	font,
+	foregroundStyle,
+	pickerStyle,
+	tag,
+} from "@expo/ui/swift-ui/modifiers";
+import { GitBranch, Laptop, MessageCircle } from "lucide-react-native";
+import { Text, useColorScheme, View } from "react-native";
 import { Icon } from "@/components/icon";
 import type { MobileRepositoryOption, WorkspaceSendTarget } from "@/lib/remote";
 import { cn } from "@/utils/tailwind";
@@ -47,6 +63,10 @@ export function NewChatStartPage({
 	target: WorkspaceSendTarget;
 	onChangeTarget: (target: WorkspaceSendTarget) => void;
 }) {
+	const colorScheme = useColorScheme();
+	const foreground = colorScheme === "dark" ? "#fff" : "#000";
+	const muted =
+		colorScheme === "dark" ? "rgba(255,255,255,0.62)" : "rgba(0,0,0,0.58)";
 	const mode = modeFromTarget(target);
 	const selectedOption =
 		MODE_OPTIONS.find((option) => option.mode === mode) ?? MODE_OPTIONS[0];
@@ -71,23 +91,24 @@ export function NewChatStartPage({
 			</View>
 
 			<View className="gap-4 rounded-[22px] border border-border bg-card/85 p-4 shadow-card">
-				<SegmentedControl
-					values={MODE_OPTIONS.map((option) => option.label)}
-					selectedIndex={Math.max(
-						0,
-						MODE_OPTIONS.findIndex((option) => option.mode === mode),
-					)}
-					onChange={(event) => {
-						const nextMode =
-							MODE_OPTIONS[event.nativeEvent.selectedSegmentIndex]?.mode ??
-							"chat";
-						if (nextMode !== "chat" && repositories.length === 0) return;
-						onChangeTarget(
-							targetForMode({ mode: nextMode, target, repositories }),
-						);
-					}}
-					style={styles.segmentedControl}
-				/>
+				<Host style={{ minHeight: 36, width: "100%" }}>
+					<Picker
+						selection={mode}
+						onSelectionChange={(nextMode) => {
+							if (nextMode !== "chat" && repositories.length === 0) return;
+							onChangeTarget(
+								targetForMode({ mode: nextMode, target, repositories }),
+							);
+						}}
+						modifiers={[pickerStyle("segmented"), controlSize("regular")]}
+					>
+						{MODE_OPTIONS.map((option) => (
+							<SUIText key={option.mode} modifiers={[tag(option.mode)]}>
+								{option.label}
+							</SUIText>
+						))}
+					</Picker>
+				</Host>
 
 				<View className="gap-2">
 					<View className="flex-row items-center gap-3">
@@ -113,47 +134,64 @@ export function NewChatStartPage({
 
 				{target.kind === "repo" && repositories.length > 0 ? (
 					<View className="gap-2">
-						<View className="flex-row items-center gap-3 rounded-2xl bg-muted px-3 py-3">
-							<RepoInitials repo={selectedRepo ?? repositories[0]} />
-							<View className="min-w-0 flex-1">
-								<Text
-									numberOfLines={1}
-									className="text-[14px] font-semibold text-foreground"
-								>
-									{selectedRepo?.name ?? repositories[0].name}
-								</Text>
-								<Text
-									numberOfLines={1}
-									className="text-[12px] text-muted-foreground"
-								>
-									{selectedRepo?.defaultBranch ??
-										repositories[0].defaultBranch ??
-										"default branch"}
-								</Text>
-							</View>
-						</View>
-						<ScrollView
-							horizontal
-							showsHorizontalScrollIndicator={false}
-							contentContainerClassName="gap-2"
-						>
-							{repositories.map((repo) => (
-								<RepositoryChip
-									key={repo.id}
-									repo={repo}
-									active={repo.id === (selectedRepo?.id ?? repositories[0].id)}
-									onPress={() =>
-										onChangeTarget(
-											targetForRepository({
-												repoId: repo.id,
-												target,
-												repositories,
-											}),
-										)
-									}
-								/>
-							))}
-						</ScrollView>
+						<Text className="px-1 text-[12px] font-semibold uppercase text-muted-foreground">
+							Repository
+						</Text>
+						<Host style={{ minHeight: 44, width: "100%" }}>
+							<Menu
+								label={
+									<HStack spacing={8} alignment="center">
+										<SUIText
+											modifiers={[
+												foregroundStyle(foreground),
+												font({ weight: "semibold", size: 15 }),
+											]}
+										>
+											{selectedRepo?.name ?? repositories[0].name}
+										</SUIText>
+										<SUIText
+											modifiers={[
+												foregroundStyle(muted),
+												font({ weight: "regular", size: 13 }),
+											]}
+										>
+											{selectedRepo?.defaultBranch ??
+												repositories[0].defaultBranch ??
+												"default branch"}
+										</SUIText>
+										<SUIImage
+											systemName="chevron.down"
+											size={11}
+											color={muted}
+										/>
+									</HStack>
+								}
+								modifiers={[controlSize("regular")]}
+							>
+								<Section title="Repositories">
+									{repositories.map((repo) => (
+										<Button
+											key={repo.id}
+											systemImage={
+												repo.id === (selectedRepo?.id ?? repositories[0].id)
+													? "checkmark.circle"
+													: "folder"
+											}
+											label={repo.name}
+											onPress={() =>
+												onChangeTarget(
+													targetForRepository({
+														repoId: repo.id,
+														target,
+														repositories,
+													}),
+												)
+											}
+										/>
+									))}
+								</Section>
+							</Menu>
+						</Host>
 					</View>
 				) : null}
 			</View>
@@ -172,53 +210,3 @@ function ModeIcon({ mode, active }: { mode: NewChatMode; active?: boolean }) {
 		/>
 	);
 }
-
-function RepoInitials({ repo }: { repo: MobileRepositoryOption }) {
-	return (
-		<View className="h-9 w-9 items-center justify-center rounded-full bg-background">
-			<Text className="text-[12px] font-semibold text-foreground">
-				{repo.repoInitials ?? repo.name.slice(0, 2).toUpperCase()}
-			</Text>
-		</View>
-	);
-}
-
-function RepositoryChip({
-	repo,
-	active,
-	onPress,
-}: {
-	repo: MobileRepositoryOption;
-	active: boolean;
-	onPress: () => void;
-}) {
-	return (
-		<Pressable
-			onPress={onPress}
-			className={cn(
-				"h-9 flex-row items-center gap-2 rounded-full px-3 active:opacity-70",
-				active ? "bg-foreground" : "bg-muted",
-			)}
-		>
-			<Text
-				numberOfLines={1}
-				className={cn(
-					"max-w-[140px] text-[13px] font-medium",
-					active ? "text-background" : "text-foreground",
-				)}
-			>
-				{repo.name}
-			</Text>
-			{active ? (
-				<Icon icon={Check} className="h-3.5 w-3.5 text-background" />
-			) : null}
-		</Pressable>
-	);
-}
-
-const styles = StyleSheet.create({
-	segmentedControl: {
-		height: 36,
-		width: "100%",
-	},
-});

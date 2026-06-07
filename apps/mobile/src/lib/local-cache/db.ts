@@ -11,9 +11,49 @@ export async function getCacheDb(): Promise<SQLiteDatabase> {
 	return dbPromise;
 }
 
+export type LocalCacheSummary = {
+	desktopCount: number;
+	threadCount: number;
+	selectionCount: number;
+};
+
+export async function getLocalCacheSummary(): Promise<LocalCacheSummary> {
+	const db = await getCacheDb();
+	const [desktops, threads, selections] = await Promise.all([
+		countRows(db, "desktop_snapshots"),
+		countRows(db, "session_threads"),
+		countRows(db, "workspace_selection"),
+	]);
+	return {
+		desktopCount: desktops,
+		threadCount: threads,
+		selectionCount: selections,
+	};
+}
+
+export async function clearLocalCache(): Promise<void> {
+	const db = await getCacheDb();
+	await db.execAsync(`
+		DELETE FROM desktop_snapshots;
+		DELETE FROM workspace_selection;
+		DELETE FROM session_threads;
+	`);
+}
+
+async function countRows(
+	db: SQLiteDatabase,
+	tableName: "desktop_snapshots" | "session_threads" | "workspace_selection",
+): Promise<number> {
+	const row = await db.getFirstAsync<{ count: number }>(
+		`SELECT COUNT(*) AS count FROM ${tableName}`,
+	);
+	return row?.count ?? 0;
+}
+
 async function openAndMigrate(): Promise<SQLiteDatabase> {
 	const db = await SQLite.openDatabaseAsync(DB_NAME);
 	await createTables(db);
+	await ensureWorkspaceSelectionColumns(db);
 	const version = await db.getFirstAsync<{ value: string }>(
 		"SELECT value FROM cache_meta WHERE key = ?",
 		"schemaVersion",
@@ -28,6 +68,7 @@ async function openAndMigrate(): Promise<SQLiteDatabase> {
 	}
 	if (version.value !== SCHEMA_VERSION) {
 		await resetSchema(db);
+		await ensureWorkspaceSelectionColumns(db);
 	}
 	return db;
 }
@@ -68,6 +109,7 @@ async function createTables(db: SQLiteDatabase): Promise<void> {
 			desktop_id TEXT PRIMARY KEY,
 			selected_workspace_id TEXT,
 			selected_session_ids_json TEXT NOT NULL,
+			last_new_workspace_target_json TEXT,
 			updated_at TEXT NOT NULL
 		);
 
@@ -82,4 +124,19 @@ async function createTables(db: SQLiteDatabase): Promise<void> {
 		CREATE INDEX IF NOT EXISTS session_threads_desktop_updated_idx
 			ON session_threads(desktop_id, updated_at DESC);
 	`);
+}
+
+async function ensureWorkspaceSelectionColumns(
+	db: SQLiteDatabase,
+): Promise<void> {
+	const columns = await db.getAllAsync<{ name: string }>(
+		"PRAGMA table_info(workspace_selection)",
+	);
+	if (
+		!columns.some((column) => column.name === "last_new_workspace_target_json")
+	) {
+		await db.execAsync(
+			"ALTER TABLE workspace_selection ADD COLUMN last_new_workspace_target_json TEXT",
+		);
+	}
 }

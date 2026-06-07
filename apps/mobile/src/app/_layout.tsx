@@ -14,12 +14,17 @@ import {
 	ThemeProvider as RNTheme,
 } from "expo-router/react-navigation";
 import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
 import { useColorScheme } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaListener } from "react-native-safe-area-context";
 import { Uniwind, useCSSVariable } from "uniwind";
 import { ModelProvider } from "@/components/model-context";
 import { WorkspaceProvider } from "@/features/workspaces";
+import {
+	MobileSettingsProvider,
+	useMobileSettings,
+} from "@/lib/mobile-settings";
 import { useSystemBackgroundColor } from "@/utils/use-system-background-color";
 
 const GLASS = isLiquidGlassAvailable();
@@ -52,8 +57,16 @@ const ALL_MODELS = [...MODELS, ...MORE_MODELS];
 
 function ThemeProvider(props: { children: React.ReactNode }) {
 	const colorScheme = useColorScheme();
+	const { settings } = useMobileSettings();
+	const resolvedTheme =
+		settings.themeMode === "system" ? colorScheme : settings.themeMode;
+
+	useEffect(() => {
+		Uniwind.setTheme(settings.themeMode);
+	}, [settings.themeMode]);
+
 	return (
-		<RNTheme value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+		<RNTheme value={resolvedTheme === "dark" ? DarkTheme : DefaultTheme}>
 			<SafeAreaListener onChange={({ insets }) => Uniwind.updateInsets(insets)}>
 				{props.children}
 			</SafeAreaListener>
@@ -67,18 +80,20 @@ export const unstable_settings = {
 
 export default function RootLayout() {
 	return (
-		<ThemeProvider>
-			<KeyboardProvider>
-				<ModelProvider models={ALL_MODELS}>
-					<WorkspaceProvider>
-						<DrawerProvider>
-							<RootDrawer />
-						</DrawerProvider>
-					</WorkspaceProvider>
-				</ModelProvider>
-				{process.env.EXPO_OS !== "ios" && <StatusBar style="auto" />}
-			</KeyboardProvider>
-		</ThemeProvider>
+		<MobileSettingsProvider>
+			<ThemeProvider>
+				<KeyboardProvider>
+					<ModelProvider models={ALL_MODELS}>
+						<WorkspaceProvider>
+							<DrawerProvider>
+								<RootDrawer />
+							</DrawerProvider>
+						</WorkspaceProvider>
+					</ModelProvider>
+					{process.env.EXPO_OS !== "ios" && <StatusBar style="auto" />}
+				</KeyboardProvider>
+			</ThemeProvider>
+		</MobileSettingsProvider>
 	);
 }
 

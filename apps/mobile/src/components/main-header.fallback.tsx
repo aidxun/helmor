@@ -20,7 +20,7 @@ function HeaderTitleMenu() {
 	} = useWorkspaces();
 	const router = useRouter();
 	const title = isNewWorkspaceDraft
-		? "New workspace"
+		? "New chat"
 		: (selectedWorkspaceSessionTab?.title ??
 			selectedWorkspace?.title ??
 			(activeDesktop

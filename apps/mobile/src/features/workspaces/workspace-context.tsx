@@ -27,6 +27,7 @@ import {
 	WorkspaceContext,
 	type WorkspaceContextValue,
 } from "./workspace-context-core";
+import { normalizeNewChatTarget } from "./workspace-new-chat-target";
 import { handleWorkspaceRemoteMutation } from "./workspace-remote-mutations";
 import {
 	getDefaultWorkspaceId,
@@ -144,6 +145,9 @@ export function WorkspaceProvider({
 			if (requestId !== refreshRequestId.current) return;
 			setGroups(snapshot.groups);
 			setRepositories(repoOptions);
+			setNewWorkspaceTarget((previous) =>
+				normalizeNewChatTarget(previous, repoOptions),
+			);
 			void writeCachedWorkspaceSnapshot({
 				desktopId: activeDesktop.desktopId,
 				snapshot,
@@ -245,6 +249,18 @@ export function WorkspaceProvider({
 					setSelectedSessionIdsByWorkspace(
 						selection.selectedSessionIdsByWorkspace,
 					);
+					if (selection.lastNewWorkspaceTarget) {
+						const cachedRepositories = snapshot?.repositories ?? [];
+						setNewWorkspaceTarget(
+							selection.lastNewWorkspaceTarget.kind === "repo" &&
+								cachedRepositories.length === 0
+								? selection.lastNewWorkspaceTarget
+								: normalizeNewChatTarget(
+										selection.lastNewWorkspaceTarget,
+										cachedRepositories,
+									),
+						);
+					}
 				}
 			} catch {
 				// Cache failures should not block a fresh desktop sync.
@@ -290,8 +306,32 @@ export function WorkspaceProvider({
 	const startNewWorkspace = useCallback(() => {
 		setSelectedWorkspaceId(null);
 		setNewWorkspaceDraftKey(`new-workspace:${Date.now()}`);
-		setNewWorkspaceTarget({ kind: "chat" });
-	}, []);
+		setNewWorkspaceTarget((previous) =>
+			normalizeNewChatTarget(previous, repositories),
+		);
+	}, [repositories]);
+
+	const updateNewWorkspaceTarget = useCallback(
+		(target: WorkspaceSendTarget) => {
+			const next = normalizeNewChatTarget(target, repositories);
+			setNewWorkspaceTarget(next);
+			if (activeDesktopId) {
+				void writeCachedWorkspaceSelection({
+					desktopId: activeDesktopId,
+					selectedWorkspaceId: selectedWorkspace?.id ?? selectedWorkspaceId,
+					selectedSessionIdsByWorkspace,
+					lastNewWorkspaceTarget: next,
+				}).catch(() => {});
+			}
+		},
+		[
+			activeDesktopId,
+			repositories,
+			selectedSessionIdsByWorkspace,
+			selectedWorkspace?.id,
+			selectedWorkspaceId,
+		],
+	);
 
 	const selectCreatedWorkspace = useCallback(
 		(workspaceId: string, sessionId: string) => {
@@ -358,7 +398,7 @@ export function WorkspaceProvider({
 			threadRefreshVersion,
 			selectWorkspace,
 			startNewWorkspace,
-			setNewWorkspaceTarget,
+			setNewWorkspaceTarget: updateNewWorkspaceTarget,
 			selectCreatedWorkspace,
 			selectWorkspaceSession,
 			refreshWorkspaces,
@@ -387,6 +427,7 @@ export function WorkspaceProvider({
 			threadRefreshVersion,
 			selectWorkspace,
 			startNewWorkspace,
+			updateNewWorkspaceTarget,
 			selectCreatedWorkspace,
 			selectWorkspaceSession,
 			refreshWorkspaces,

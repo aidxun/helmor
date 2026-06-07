@@ -3,6 +3,7 @@ import type { ThreadMessageLike } from "@helmor/thread-schema";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createStreamingStore } from "@/components/chat";
+import { useMobileSettings } from "@/lib/mobile-settings";
 import type { ThreadChatState } from "./workspace-chat-hooks";
 import {
 	getTextFromParts,
@@ -22,6 +23,7 @@ const MOCK_RESPONSES = [
 
 export function useAIChatState(): ThreadChatState {
 	const [input, setInput] = useState("");
+	const { impact } = useMobileSettings();
 	const streamingStore = useMemo(() => createStreamingStore(), []);
 	const prevStreamingTextRef = useRef("");
 	const { messages: uiMessages, sendMessage, status, error } = useChat();
@@ -40,7 +42,7 @@ export function useAIChatState(): ThreadChatState {
 					type: "text",
 					id: `${message.id}:text`,
 					text: getTextFromParts(
-						message.parts as Array<{ type: string; text?: string }>,
+						message.parts as { type: string; text?: string }[],
 					),
 				},
 			],
@@ -64,7 +66,7 @@ export function useAIChatState(): ThreadChatState {
 		const lastMessage = uiMessages[uiMessages.length - 1];
 		if (lastMessage?.role === "assistant") {
 			const text = getTextFromParts(
-				lastMessage.parts as Array<{ type: string; text?: string }>,
+				lastMessage.parts as { type: string; text?: string }[],
 			);
 			if (text !== prevStreamingTextRef.current) {
 				prevStreamingTextRef.current = text;
@@ -75,10 +77,10 @@ export function useAIChatState(): ThreadChatState {
 
 	const onSend = useCallback(() => {
 		if (!input.trim() || isStreaming) return;
-		void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+		void impact(Haptics.ImpactFeedbackStyle.Light);
 		sendMessage({ text: input });
 		setInput("");
-	}, [input, isStreaming, sendMessage]);
+	}, [impact, input, isStreaming, sendMessage]);
 
 	return {
 		messages,
@@ -95,6 +97,7 @@ export function useAIChatState(): ThreadChatState {
 
 export function useMockChatState(): ThreadChatState {
 	const [input, setInput] = useState("");
+	const { impact, notify } = useMobileSettings();
 	const [threadMessages, setThreadMessages] = useState<ThreadMessageLike[]>([]);
 	const [isGenerating, setIsGenerating] = useState(false);
 	const streamingStore = useMemo(() => createStreamingStore(), []);
@@ -104,7 +107,7 @@ export function useMockChatState(): ThreadChatState {
 
 	const handleSend = useCallback(async () => {
 		if (!input.trim() || isGenerating) return;
-		void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+		void impact(Haptics.ImpactFeedbackStyle.Light);
 
 		const startedAt = Date.now();
 		const userMessage = textThreadMessage({
@@ -160,9 +163,9 @@ export function useMockChatState(): ThreadChatState {
 			streamingRef.current = "";
 			streamingStore.set("");
 			setIsGenerating(false);
-			void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+			void notify(Haptics.NotificationFeedbackType.Success);
 		}
-	}, [input, isGenerating, streamingStore]);
+	}, [impact, input, isGenerating, notify, streamingStore]);
 
 	const messages = useMemo(
 		() => threadMessages.map(threadToChatMessage),
