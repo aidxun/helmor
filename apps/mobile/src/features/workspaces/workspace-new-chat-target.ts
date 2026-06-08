@@ -21,7 +21,14 @@ export function normalizeNewChatTarget(
 		repositories.find((candidate) => candidate.id === target.repoId) ??
 		repositories[0];
 
-	return { kind: "repo", repoId: repo.id, mode };
+	return {
+		kind: "repo",
+		repoId: repo.id,
+		mode,
+		sourceBranch: normalizeBranchForRepo(target.sourceBranch, repo, mode),
+		branchIntent:
+			mode === "worktree" ? normalizeBranchIntent(target.branchIntent) : null,
+	};
 }
 
 export function targetForMode({
@@ -42,7 +49,21 @@ export function targetForMode({
 			: null;
 	const repo = currentRepo ?? repositories[0];
 
-	return { kind: "repo", repoId: repo.id, mode };
+	return {
+		kind: "repo",
+		repoId: repo.id,
+		mode,
+		sourceBranch:
+			target.kind === "repo" && currentRepo?.id === repo.id
+				? normalizeBranchForRepo(target.sourceBranch, repo, mode)
+				: defaultBranchForRepo(repo, mode),
+		branchIntent:
+			mode === "worktree"
+				? target.kind === "repo"
+					? normalizeBranchIntent(target.branchIntent)
+					: "from_branch"
+				: null,
+	};
 }
 
 export function targetForRepository({
@@ -57,7 +78,40 @@ export function targetForRepository({
 	if (target.kind !== "repo") return target;
 	const repo = repositories.find((candidate) => candidate.id === repoId);
 	if (!repo) return normalizeNewChatTarget(target, repositories);
-	return { ...target, repoId: repo.id };
+	return {
+		...target,
+		repoId: repo.id,
+		sourceBranch: defaultBranchForRepo(repo, target.mode),
+	};
+}
+
+export function targetForBranch({
+	branch,
+	target,
+	repositories,
+}: {
+	branch: string;
+	target: WorkspaceSendTarget;
+	repositories: MobileRepositoryOption[];
+}): WorkspaceSendTarget {
+	if (target.kind !== "repo") return target;
+	const repo = repositories.find((candidate) => candidate.id === target.repoId);
+	if (!repo) return normalizeNewChatTarget(target, repositories);
+	return {
+		...target,
+		sourceBranch: normalizeBranchForRepo(branch, repo, target.mode),
+	};
+}
+
+export function targetForBranchIntent({
+	branchIntent,
+	target,
+}: {
+	branchIntent: "from_branch" | "use_branch";
+	target: WorkspaceSendTarget;
+}): WorkspaceSendTarget {
+	if (target.kind !== "repo" || target.mode !== "worktree") return target;
+	return { ...target, branchIntent };
 }
 
 export function parseWorkspaceSendTarget(
@@ -71,7 +125,44 @@ export function parseWorkspaceSendTarget(
 		typeof target.repoId === "string" &&
 		(target.mode === "worktree" || target.mode === "local")
 	) {
-		return { kind: "repo", repoId: target.repoId, mode: target.mode };
+		return {
+			kind: "repo",
+			repoId: target.repoId,
+			mode: target.mode,
+			sourceBranch:
+				typeof target.sourceBranch === "string" ? target.sourceBranch : null,
+			branchIntent:
+				target.mode === "worktree"
+					? normalizeBranchIntent(target.branchIntent)
+					: null,
+		};
 	}
 	return null;
+}
+
+function defaultBranchForRepo(
+	repo: MobileRepositoryOption,
+	mode: "worktree" | "local",
+): string {
+	return (
+		(mode === "local" ? repo.currentBranch : null) ??
+		repo.defaultBranch ??
+		repo.branches?.[0]?.name ??
+		"main"
+	);
+}
+
+function normalizeBranchForRepo(
+	branch: string | null | undefined,
+	repo: MobileRepositoryOption,
+	mode: "worktree" | "local",
+): string {
+	if (branch && repo.branches?.some((candidate) => candidate.name === branch)) {
+		return branch;
+	}
+	return defaultBranchForRepo(repo, mode);
+}
+
+function normalizeBranchIntent(value: unknown): "from_branch" | "use_branch" {
+	return value === "use_branch" ? "use_branch" : "from_branch";
 }

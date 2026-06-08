@@ -68,6 +68,10 @@ pub(super) enum SendWorkspaceTarget {
     Repo {
         repo_id: String,
         mode: WorkspaceMode,
+        #[serde(default)]
+        source_branch: Option<String>,
+        #[serde(default)]
+        branch_intent: Option<WorkspaceBranchIntent>,
     },
 }
 
@@ -259,14 +263,19 @@ async fn prepare_new_workspace_send(
                     },
                 )
             }
-            SendWorkspaceTarget::Repo { repo_id, mode } => match mode {
+            SendWorkspaceTarget::Repo {
+                repo_id,
+                mode,
+                source_branch,
+                branch_intent,
+            } => match mode {
                 WorkspaceMode::Worktree => {
                     let repo = repos::load_repository_by_id(&repo_id)?
                         .with_context(|| format!("Repository not found: {repo_id}"))?;
                     let prepared = workspace_ops::prepare_workspace_from_repo_impl(
                         &repo_id,
-                        repo.default_branch.as_deref(),
-                        WorkspaceBranchIntent::FromBranch,
+                        source_branch.as_deref().or(repo.default_branch.as_deref()),
+                        branch_intent.unwrap_or(WorkspaceBranchIntent::FromBranch),
                         WorkspaceStatus::InProgress,
                         None,
                     )?;
@@ -279,7 +288,7 @@ async fn prepare_new_workspace_send(
                         .with_context(|| format!("Repository not found: {repo_id}"))?;
                     let prepared = workspace_ops::prepare_local_workspace_impl(
                         &repo_id,
-                        repo.default_branch.as_deref(),
+                        source_branch.as_deref().or(repo.default_branch.as_deref()),
                         WorkspaceStatus::InProgress,
                         None,
                     )?;
@@ -345,15 +354,24 @@ mod tests {
             "target": {
                 "kind": "repo",
                 "repoId": "repo-1",
-                "mode": "worktree"
+                "mode": "worktree",
+                "sourceBranch": "main",
+                "branchIntent": "use_branch"
             }
         }))
         .expect("mobile repo target should deserialize");
 
         match payload.target {
-            SendWorkspaceTarget::Repo { repo_id, mode } => {
+            SendWorkspaceTarget::Repo {
+                repo_id,
+                mode,
+                source_branch,
+                branch_intent,
+            } => {
                 assert_eq!(repo_id, "repo-1");
                 assert_eq!(mode, WorkspaceMode::Worktree);
+                assert_eq!(source_branch.as_deref(), Some("main"));
+                assert_eq!(branch_intent, Some(WorkspaceBranchIntent::UseBranch));
             }
             SendWorkspaceTarget::Chat => panic!("expected repo target"),
         }

@@ -145,7 +145,17 @@ function parseWorkspaceSendTarget(value: unknown): WorkspaceSendTarget | null {
 		typeof target.repoId === "string" &&
 		(target.mode === "worktree" || target.mode === "local")
 	) {
-		return { kind: "repo", repoId: target.repoId, mode: target.mode };
+		return {
+			kind: "repo",
+			repoId: target.repoId,
+			mode: target.mode,
+			sourceBranch:
+				typeof target.sourceBranch === "string" ? target.sourceBranch : null,
+			branchIntent:
+				target.mode === "worktree" && target.branchIntent === "use_branch"
+					? "use_branch"
+					: "from_branch",
+		};
 	}
 	return null;
 }

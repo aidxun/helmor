@@ -22,9 +22,10 @@ use crate::{
         mobile_web,
         send::{send_new_workspace_stream, send_session_stream},
     },
-    mobile_rpc,
+    git_ops, mobile_rpc,
     models::{paired_devices, repos, sessions},
     ui_sync::{UiMutationEnvelope, UiSyncManager},
+    workspace::workspaces,
 };
 
 pub fn router(app: AppHandle) -> Router {
@@ -109,9 +110,51 @@ async fn workspaces(headers: HeaderMap) -> ApiResult<Json<mobile_rpc::WorkspaceS
     ))
 }
 
-async fn repositories(headers: HeaderMap) -> ApiResult<Json<Vec<repos::RepositoryCreateOption>>> {
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MobileRepositoryOption {
+    id: String,
+    name: String,
+    remote: Option<String>,
+    remote_url: Option<String>,
+    default_branch: Option<String>,
+    repo_icon_src: Option<String>,
+    repo_initials: String,
+    current_branch: Option<String>,
+    branches: Vec<workspaces::BranchPickerEntry>,
+}
+
+async fn repositories(headers: HeaderMap) -> ApiResult<Json<Vec<MobileRepositoryOption>>> {
     authenticate(&headers)?;
-    Ok(Json(repos::list_repositories().map_err(ApiError::from)?))
+    let repositories = repos::list_repositories().map_err(ApiError::from)?;
+    let mut out = Vec::with_capacity(repositories.len());
+    for repo in repositories {
+        let record = repos::load_repository_by_id(&repo.id)
+            .map_err(ApiError::from)?
+            .filter(|record| std::path::Path::new(record.root_path.trim()).is_dir());
+        let (current_branch, branches) = if let Some(record) = record {
+            let root = std::path::PathBuf::from(record.root_path.trim());
+            let remote = record.remote.unwrap_or_else(|| "origin".to_string());
+            (
+                git_ops::current_branch_name(&root).ok(),
+                workspaces::list_branch_picker_entries(&root, &remote),
+            )
+        } else {
+            (None, Vec::new())
+        };
+        out.push(MobileRepositoryOption {
+            id: repo.id,
+            name: repo.name,
+            remote: repo.remote,
+            remote_url: repo.remote_url,
+            default_branch: repo.default_branch,
+            repo_icon_src: repo.repo_icon_src,
+            repo_initials: repo.repo_initials,
+            current_branch,
+            branches,
+        });
+    }
+    Ok(Json(out))
 }
 
 async fn sessions_for_workspace(

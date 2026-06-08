@@ -91,6 +91,14 @@ export type MobileRepositoryOption = {
 	defaultBranch?: string | null;
 	repoIconSrc?: string | null;
 	repoInitials?: string | null;
+	currentBranch?: string | null;
+	branches?: MobileBranchOption[];
+};
+
+export type MobileBranchOption = {
+	name: string;
+	hasLocal: boolean;
+	hasRemote: boolean;
 };
 
 export type WorkspaceSessionSummary = {
@@ -163,7 +171,13 @@ export type AgentStreamEvent =
 
 export type WorkspaceSendTarget =
 	| { kind: "chat" }
-	| { kind: "repo"; repoId: string; mode: "worktree" | "local" };
+	| {
+			kind: "repo";
+			repoId: string;
+			mode: "worktree" | "local";
+			sourceBranch?: string | null;
+			branchIntent?: "from_branch" | "use_branch" | null;
+	  };
 
 export type SendMessageStreamRequest = {
 	prompt: string;

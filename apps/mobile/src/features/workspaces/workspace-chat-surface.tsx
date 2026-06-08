@@ -65,6 +65,8 @@ function WorkspaceChatContent({
 		selectedWorkspaceSummary,
 		isNewWorkspaceDraft,
 		newWorkspaceTarget,
+		repositories,
+		setNewWorkspaceTarget,
 		selectCreatedWorkspace,
 		refreshWorkspaces,
 		threadRefreshVersion,
@@ -183,7 +185,11 @@ function WorkspaceChatContent({
 				scrollEnabled={!isNewWorkspaceDraft || chat.threadMessages.length > 0}
 				emptyState={
 					isNewWorkspaceDraft ? (
-						<NewChatStartPage />
+						<NewChatStartPage
+							repositories={repositories}
+							target={newWorkspaceTarget}
+							onChangeTarget={setNewWorkspaceTarget}
+						/>
 					) : (
 						<View className="w-full items-center justify-center gap-6">
 							<ConversationEmptyState
@@ -206,7 +212,9 @@ function WorkspaceChatContent({
 					)
 				}
 			>
-				<ConversationScrollButton />
+				{!isNewWorkspaceDraft || chat.threadMessages.length > 0 ? (
+					<ConversationScrollButton />
+				) : null}
 				<MobileWorkspaceComposer
 					disabled={!activeDesktop || chatLoading}
 					target={isNewWorkspaceDraft ? newWorkspaceTarget : undefined}

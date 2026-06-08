@@ -6,6 +6,7 @@ import {
 	type ReactNode,
 	use,
 	useCallback,
+	useEffect,
 	useRef,
 	useState,
 } from "react";
@@ -85,6 +86,10 @@ export function Conversation({
 	const data = items ?? messages;
 	const listRef = useRef<LegendListRef>(null);
 	const isScrolledFromTopRef = useRef(false);
+	const didInitialScrollRef = useRef(false);
+	const pendingInitialScrollRef = useRef(false);
+	const composerOffsetHeightRef = useRef(68);
+	const viewportHeightRef = useRef(0);
 
 	// -- Keyboard tracking --------------------------------------------------
 
@@ -144,11 +149,16 @@ export function Conversation({
 
 	// -- Callbacks -----------------------------------------------------------
 
-	const onScrollViewLayout = useCallback((e: LayoutChangeEvent) => {
-		const height = e.nativeEvent.layout.height;
-		scrollViewHeight.value = height;
-		setViewportHeight(height);
-	}, []);
+	const onScrollViewLayout = useCallback(
+		(e: LayoutChangeEvent) => {
+			const height = e.nativeEvent.layout.height;
+			if (Math.abs(viewportHeightRef.current - height) < 0.5) return;
+			viewportHeightRef.current = height;
+			scrollViewHeight.value = height;
+			setViewportHeight(height);
+		},
+		[scrollViewHeight],
+	);
 
 	const onScroll = useCallback(
 		(event: { nativeEvent: { contentOffset: { y: number } } }) => {
@@ -164,18 +174,33 @@ export function Conversation({
 		[onScrolledFromTopChange, scrollY],
 	);
 
-	const scrollToBottom = useCallback(() => {
-		if (data.length === 0) return;
-		listRef.current?.scrollToEnd({
-			animated: true,
-		});
-		requestAnimationFrame(() => {
-			listRef.current?.scrollToEnd({
-				animated: true,
+	const scrollToBottomWithAnimation = useCallback(
+		(animated: boolean) => {
+			if (data.length === 0) return;
+			listRef.current?.scrollToEnd({ animated });
+			requestAnimationFrame(() => {
+				listRef.current?.scrollToEnd({ animated });
 			});
-		});
-	}, [data.length]);
+		},
+		[data.length],
+	);
+
+	const scrollToBottom = useCallback(() => {
+		scrollToBottomWithAnimation(true);
+	}, [scrollToBottomWithAnimation]);
 	scrollToBottomRef.current = scrollToBottom;
+
+	useEffect(() => {
+		if (data.length === 0 || didInitialScrollRef.current) return;
+		pendingInitialScrollRef.current = true;
+		const timeout = setTimeout(() => {
+			if (!pendingInitialScrollRef.current) return;
+			pendingInitialScrollRef.current = false;
+			didInitialScrollRef.current = true;
+			scrollToBottomWithAnimation(false);
+		}, 120);
+		return () => clearTimeout(timeout);
+	}, [data.length, scrollToBottomWithAnimation]);
 
 	const onContentSizeChange = useCallback(
 		(_width: number, height: number) => {
@@ -185,13 +210,29 @@ export function Conversation({
 			totalContentHeight.value = height;
 			lastContentHeight.value = height;
 
+			if (pendingInitialScrollRef.current && data.length > 0) {
+				pendingInitialScrollRef.current = false;
+				didInitialScrollRef.current = true;
+				requestAnimationFrame(() => {
+					scrollToBottomWithAnimation(false);
+				});
+				return;
+			}
+
 			if (wasAtBottom && heightIncreased && listRef.current) {
 				requestAnimationFrame(() => {
 					scrollToBottom();
 				});
 			}
 		},
-		[isAtBottom, lastContentHeight, scrollToBottom, totalContentHeight],
+		[
+			data.length,
+			isAtBottom,
+			lastContentHeight,
+			scrollToBottom,
+			scrollToBottomWithAnimation,
+			totalContentHeight,
+		],
 	);
 
 	// -- Animated styles -----------------------------------------------------
@@ -216,11 +257,16 @@ export function Conversation({
 		bottom: composerHeight.value + 12,
 	}));
 
-	const onPromptInputLayout = useCallback((e: LayoutChangeEvent) => {
-		const h = e.nativeEvent.layout.height;
-		composerHeight.value = h;
-		setComposerOffsetHeight(h);
-	}, []);
+	const onPromptInputLayout = useCallback(
+		(e: LayoutChangeEvent) => {
+			const h = e.nativeEvent.layout.height;
+			if (Math.abs(composerOffsetHeightRef.current - h) < 0.5) return;
+			composerOffsetHeightRef.current = h;
+			composerHeight.value = h;
+			setComposerOffsetHeight(h);
+		},
+		[composerHeight],
+	);
 
 	// -- Context value -------------------------------------------------------
 

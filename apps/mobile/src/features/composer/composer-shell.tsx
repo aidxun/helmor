@@ -1,7 +1,7 @@
 import { BlurView } from "expo-blur";
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 import type React from "react";
-import { StyleSheet, useColorScheme, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 const GLASS = isLiquidGlassAvailable();
 
@@ -10,29 +10,13 @@ export function ComposerInputShell({
 }: {
 	children: React.ReactNode;
 }) {
-	const colorScheme = useColorScheme();
-	const backgroundColor =
-		colorScheme === "dark" ? "rgba(34,34,34,0.96)" : "rgba(255,255,255,0.97)";
-
 	return (
-		<View
-			className="shadow-composer"
-			style={[
-				styles.shell,
-				{
-					backgroundColor,
-					borderColor:
-						colorScheme === "dark"
-							? "rgba(255,255,255,0.14)"
-							: "rgba(0,0,0,0.08)",
-				},
-			]}
-		>
+		<View className="shadow-composer" style={[styles.shell]}>
 			{GLASS ? (
 				<GlassView
 					isInteractive
 					glassEffectStyle="regular"
-					style={[styles.fill, { backgroundColor }]}
+					style={[styles.fill]}
 				>
 					{children}
 				</GlassView>
@@ -40,7 +24,7 @@ export function ComposerInputShell({
 				<BlurView
 					tint="systemChromeMaterial"
 					intensity={92}
-					style={[styles.fill, { backgroundColor }]}
+					style={[styles.fill]}
 				>
 					{children}
 				</BlurView>
@@ -51,9 +35,7 @@ export function ComposerInputShell({
 
 const styles = StyleSheet.create({
 	shell: {
-		borderCurve: "continuous",
-		borderRadius: 28,
-		borderWidth: StyleSheet.hairlineWidth,
+		borderRadius: 24,
 		overflow: "hidden",
 	},
 	fill: {

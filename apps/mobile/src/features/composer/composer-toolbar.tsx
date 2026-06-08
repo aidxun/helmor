@@ -2,7 +2,6 @@ import { ArrowUp, Zap } from "lucide-react-native";
 import type React from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import { Icon } from "@/components/icon";
-import { TouchableGlass } from "@/components/touchable-glass";
 import type {
 	AgentModelSection,
 	MobileRepositoryOption,
@@ -58,31 +57,31 @@ export function ComposerToolbar({
 	onSelectEffort: (level: string) => void;
 }) {
 	return (
-		<View className="min-h-11 flex-row items-center gap-1.5 px-2 pb-2">
-			<ComposerAttachmentMenu
-				disabled={disabled || isGenerating}
-				onCamera={onCameraAttachment}
-				onLibrary={onLibraryAttachment}
-			/>
-
-			{supportsFastMode ? (
-				<ComposerIconButton
-					active={fastMode}
+		<View className="min-h-10 flex-row items-center px-2 pb-2">
+			<View className="h-8 min-w-0 flex-1 flex-row items-center justify-start gap-1 overflow-visible">
+				<ComposerAttachmentMenu
 					disabled={disabled || isGenerating}
-					onPress={onToggleFast}
-				>
-					<Icon
-						icon={Zap}
-						className={cn(
-							"h-4 w-4",
-							fastMode ? "text-background" : "text-foreground",
-						)}
-						strokeWidth={2}
-					/>
-				</ComposerIconButton>
-			) : null}
+					onCamera={onCameraAttachment}
+					onLibrary={onLibraryAttachment}
+				/>
 
-			<View className="min-w-0 flex-1 flex-row items-center justify-center gap-1">
+				{supportsFastMode ? (
+					<ComposerIconButton
+						active={fastMode}
+						disabled={disabled || isGenerating}
+						onPress={onToggleFast}
+					>
+						<Icon
+							icon={Zap}
+							className={cn(
+								"h-4 w-4",
+								fastMode ? "text-background" : "text-foreground",
+							)}
+							strokeWidth={2}
+						/>
+					</ComposerIconButton>
+				) : null}
+
 				{target ? (
 					<ComposerTargetMenu
 						target={target}
@@ -102,12 +101,11 @@ export function ComposerToolbar({
 					onSelect={onSelectEffort}
 				/>
 			</View>
-
 			<Pressable
 				onPress={onSubmit}
 				disabled={submitDisabled}
 				className={cn(
-					"h-10 w-10 items-center justify-center rounded-full active:opacity-70",
+					"h-9 w-9 items-center justify-center rounded-full active:opacity-70",
 					submitDisabled ? "bg-secondary" : "bg-foreground",
 				)}
 			>
@@ -117,7 +115,7 @@ export function ComposerToolbar({
 					<Icon
 						icon={ArrowUp}
 						className={cn(
-							"h-[18px] w-[18px]",
+							"h-4 w-4",
 							submitDisabled ? "text-muted-foreground" : "text-background",
 						)}
 						strokeWidth={2.6}
@@ -140,20 +138,17 @@ function ComposerIconButton({
 	onPress?: () => void;
 }) {
 	return (
-		<TouchableGlass
+		<Pressable
 			disabled={disabled}
 			hitSlop={4}
 			onPress={onPress}
-			className={active ? "bg-foreground" : undefined}
-			style={{
-				width: 34,
-				height: 34,
-				borderRadius: 17,
-				justifyContent: "center",
-				alignItems: "center",
-			}}
+			className={cn(
+				"h-[30px] w-[30px] items-center justify-center rounded-full active:opacity-70",
+				active ? "bg-foreground" : "bg-secondary/60",
+				disabled ? "opacity-45" : undefined,
+			)}
 		>
 			{children}
-		</TouchableGlass>
+		</Pressable>
 	);
 }
